@@ -4,367 +4,585 @@ from LSRImports import *
 _LARGE_NUMBER = 1.e9
 
 
+def patchwork(mesh, nPatchesDesired=8):
+    """Create patches using geometric partitioning similar to deflation groups.
+    
+    Args:
+        mesh: Mesh object containing element centers
+        nPatchesDesired (int): Target number of patches
+        
+    Returns:
+        np.ndarray: Array of patch IDs for each element
+    """
+    # Handle edge cases: if nPatchesDesired is >= num_elems, <= 1, or None
+    # treat each element as its own patch (no patching)
+    if (nPatchesDesired is None or 
+        nPatchesDesired <= 1 or 
+        nPatchesDesired >= mesh.num_elems):
+        print(f"nPatchesDesired ({nPatchesDesired}) is None, <= 1, or >= num_elems ({mesh.num_elems}). Each element will be its own patch (no patching).")
+        return np.arange(mesh.num_elems, dtype=np.int32)
+    
+    xyz = mesh.elem_centers
 
-def topopt_mma_lsr(fe_solver,
-			   			to_params,
-							 vae_info: None,
-			   			minMMAIterations: int = 5,
-			   			 maxMMAIterations: int = 50, 
-							timeLimit: float =3600, #1 hour
-						   penal: float = 3.0,
-							 move_limit: float = 0.2,
-							 kkt_tol: float = 1.e-6,
-							 move_tol: float = 0.025,
-							 continuationScheme: bool = False,	 
-							 rel_conv_tol: float = 1.e-4,
-							 debug: bool = False,
-							 ) -> tuple[np.ndarray, dict]:
-	"""MMA based topology optimization for minimum compliance.
-	Args:
-		fe_solver: The structural FEA solver object.
-		maxMMAIterations: Maximum number of MMA iterations.
-		volfrac: The target volume fraction.
-		penal: The penalization factor for the SIMP method.
-		move_limit: The maximum change allowed for the design variables in each
-			iteration.
-		kkt_tol: The tolerance for the KKT conditions.
-		step_tol: The tolerance for the step size.
+    xMin = np.min(xyz[:,0])
+    yMin = np.min(xyz[:,1])
+    zMin = np.min(xyz[:,2])
+    xLength = np.max(xyz[:,0]) - xMin
+    yLength = np.max(xyz[:,1]) - yMin
+    zLength = np.max(xyz[:,2]) - zMin
 
-	Returns: The displacement field of the optimized structure.
-	"""
-	num_elems = fe_solver.mesh.num_elems
-	num_design_var = num_elems*3
-	material_model = MaterialModel.SIMP #For no body forces, using SIMP material model
+    # Calculate patch dimensions to achieve desired number of patches
+    temp = xLength * yLength * zLength
+    alpha = (nPatchesDesired / temp) ** (1.0 / 3)
+    
+    nX = max(round(alpha*xLength), 1)
+    nY = max(round(alpha*yLength), 1)
+    nZ = max(round(alpha*zLength), 1)
 
+    # Initialize patch data structures
+    nPatchesTentative = nX * nY * nZ
+    print("Patch dimensions:", [nX, nY, nZ])
+    
+    # Calculate patch sizes
+    sizeX = xLength / nX
+    sizeY = yLength / nY
+    sizeZ = zLength / nZ
+    
+    # Initialize arrays for patch assignments
+    elemPatchNumber = np.zeros(mesh.num_elems, dtype=np.int32)
+    patchCount = np.zeros(nPatchesTentative, dtype=np.int32)
+    patchCenter = np.zeros((nPatchesTentative, 3))
+    
+    # Assign elements to patches using vectorized operations
+    rel_pos = xyz - np.array([xMin, yMin, zMin])
+    indices = np.floor(rel_pos / np.array([sizeX, sizeY, sizeZ])).astype(np.int32)
+    indices = np.minimum(indices, np.array([nX - 1, nY - 1, nZ - 1]))
 
-	tStart = time.time()
-	num_elems= fe_solver.mesh.num_elems
-	history = {'compliance': [], 'volume': [], 'change': []}
-	
-	[H,Hs] = createFilters(fe_solver, to_params)
+    # Compute patch IDs for all elements at once
+    elemPatchNumber = (indices[:, 0] + 
+                      nX * indices[:, 1] + 
+                      nX * nY * indices[:, 2]).astype(np.int32)
 
-	elemsWithForces = find_elements_with_forces(fe_solver.mesh, fe_solver.bc.force,3)
+    # Count elements per patch using numpy
+    patchCount = np.bincount(elemPatchNumber, minlength=nPatchesTentative)
 
-	mma_params = mma.MMAParams(max_iter=maxMMAIterations,
-														kkt_tol = kkt_tol,
-														step_tol = move_tol,
-														move_limit = move_limit,
-														num_design_var = num_design_var,
-														num_cons = 1,
-														lower_bound = np.zeros((num_design_var, 1)),
-														upper_bound = np.ones((num_design_var, 1)),
-														)
-	# mma_state = mma.init_mma(to_params.DesiredVolFraction * np.ones((num_design_var, 1)), mma_params)
-	mma_state = mma.init_mma(0.5 * np.ones((num_design_var, 1)), mma_params)
-	# KE = elem_stiff.hex8_stiffness_matrix_structural( fe_solver.mat_prop,fe_solver.mesh.elem_size)
-	
-	if isinstance(fe_solver.mat_prop, list): # multiple materials
-		if isinstance(fe_solver, hex_structural_fea.HexStructuralFEA):
-			KE_list = [hex_element_stiffness.hex8_stiffness_matrix_structural( mp.youngs_modulus,mp.poissons_ratio,fe_solver.mesh.elem_size)
-				for mp in fe_solver.mat_prop]
-			KE = KE_list[0]
-		elif isinstance(fe_solver, hex_thermal_fea.HexThermalFEA):
-			KE_list = [hex_element_stiffness.hex8_stiffness_matrix_thermal( mp.thermal_conductivity,fe_solver.mesh.elem_size)
-				for mp in fe_solver.mat_prop]
-			KE = KE_list[0]	
-		print("Assuming all elements have the same material properties")
-	else: # single material
-		if isinstance(fe_solver, hex_structural_fea.HexStructuralFEA):
-			KE = hex_element_stiffness.hex8_stiffness_matrix_structural( fe_solver.mat_prop.youngs_modulus,
-															    fe_solver.mat_prop.poissons_ratio,
-																fe_solver.mesh.elem_size)
-		elif isinstance(fe_solver, hex_thermal_fea.HexThermalFEA):
-			KE = hex_element_stiffness.hex8_stiffness_matrix_thermal( fe_solver.mat_prop.thermal_conductivity,fe_solver.mesh.elem_size)
-	
-	constraintType = to_params.Constraints[0][0] # assume this is the first constraint
-	if (constraintType == TO_QOI.VOLUME_FRACTION):
-		volFractionConstraint = to_params.Constraints[0][2]
-	else:
-		volFractionConstraint =1 # default value
+    # Compute patch centers using vectorized operations
+    patchCenter = np.zeros((nPatchesTentative, 3))
+    for i in range(3):
+        np.add.at(patchCenter[:, i], elemPatchNumber, xyz[:, i])
 
-	x_old = volFractionConstraint*np.ones(num_design_var, dtype = float)
-	timeFEA = 0
-	timeMMA = 0
-	if (fe_solver.elem_body_force is not None):
-		elem_force = fe_solver.elem_body_force.copy()
-		nNodes = fe_solver.mesh.num_nodes
-		nodal_body_force = np.zeros((nNodes * 3,))
-		nodal_body_force[0::3] = fe_solver.mesh.elem_to_node_field_mapping @ elem_force[0::3]
-		nodal_body_force[1::3] = fe_solver.mesh.elem_to_node_field_mapping @ elem_force[1::3]
-		nodal_body_force[2::3] = fe_solver.mesh.elem_to_node_field_mapping @ elem_force[2::3]
-	else:
-		nodal_body_force = None
-	if (continuationScheme):
-		penal = 1.2
-	
-	success = True
-	
-	while not mma_state.is_converged:
-		x = mma_state.x.reshape(-1)
-		x = vae_info.unnormalize_last_n(arr=x, n = 2*num_elems)
-		xTensor = torch.tensor(x).float()
-		xTensor.requires_grad = True
-		xDesign = x[0:num_elems]
-		zD = xTensor[num_elems:]
-		zDesign = zD.view(2,-1).T
+    for patch in range(nPatchesTentative):
+        if (patchCount[patch] > 0):
+            for i in range(3):
+                patchCenter[patch,i] /= patchCount[patch]
+    
+    print(f"Created {nPatchesTentative} patches from {mesh.num_elems} elements")
+    
+    return elemPatchNumber
 
+def topopt_mma_lsr(
+    fe_solver,
+    to_params,
+    vae_info: None,
+    minMMAIterations: int = 50,
+    maxMMAIterations: int = 100, 
+    timeLimit: float = 3600,
+    penal: float = 3.0,
+    move_limit: float = 0.2,
+    kkt_tol: float = 1.e-6,
+    move_tol: float = 0.025,
+    continuationScheme: bool = False,
+    rel_conv_tol: float = 1.e-3,
+    debug: bool = False,
+    random_latent_init: bool = False,
+    nPatchesDesired: int = None,
+    use_ellipse_LSR: bool = True,
+) -> tuple[np.ndarray, dict]:
+    """
+    MMA based topology optimization for minimum compliance.
+    Always uses patch-based approach where each element can be its own patch if needed.
+    
+    Args:
+        use_ellipse_LSR: If True, uses ellipse constraints and mappings. If False, 
+                        uses standard optimization without ellipse-specific logic.
+    """
+    num_elems = fe_solver.mesh.num_elems
 
-		decoded = materialEncoder.vaeNet.decoder(zDesign)
-		youngsModulus,_ = materialEncoder.getMaterialProperties(decoded)
-		EDesign = youngsModulus.detach().numpy()
+    # Always create patches - if nPatchesDesired is invalid, each element becomes its own patch
+    patchwork_colors = patchwork(fe_solver.mesh, nPatchesDesired)
+    num_patches = np.unique(patchwork_colors).size
+    num_design_var = num_elems + num_patches * 2
+    
+    print(f"Using patch-based optimization with {num_patches} patches")
+    if num_patches == num_elems:
+        print(f"Note: Each element is its own patch (equivalent to element-wise)")
 
-		fe_solver.mat_prop = [
-			mat_lib.create_material_with_defaults(name=f"Material_{i+1}", youngs_modulus=EDesign[i])
-			for i in range(EDesign.shape[0])
-		]
+    material_model = MaterialModel.SIMP
 
-		# Pass the updated mat_prop to set_structural_material
-		print(f"Setting material properties")
-		fe_solver.set_structural_material(fe_solver.mat_prop)
+    tStart = time.time()
+    history = {'compliance': [], 'volume': [], 'change': []}
+    [H, Hs] = createFilters(fe_solver, to_params)
 
-		print(f"Done with material properties")
-		timeFEAStart = time.time()
-		sol = fe_solver.solve(xDesign, material_model)
-		# obj, grad_obj = compliance(sol,x, fe_solver,KE, material_model)
-		obj, grad_obj = compute_objective_and_gradient(to_params,sol,xDesign, fe_solver,KE, material_model)
-		
-		timeFEA += time.time() - timeFEAStart
-		obj = np.array([obj])
+    elemsWithForces = find_elements_with_forces(fe_solver.mesh, fe_solver.bc.force, 3)
 
-		ce = (np.dot(sol[fe_solver.mesh.edofMat].reshape(num_elems, 24), KE) * sol[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
-		
-		# For SIMP material model: x**penal
-		penal = SIMP_PENALTY
-		dJ_dxDesign = (-penal * xDesign ** (penal - 1)) * EDesign * ce
-		dJ_dEDesign = np.asarray((xDesign ** penal) * ce)
-		dJ_dEDesign_tensor = torch.tensor(dJ_dEDesign)
-		youngsModulus.backward(dJ_dEDesign_tensor)
-		dJ_dzDesign = xTensor.grad.detach().numpy()
-		grad_obj = np.concatenate((dJ_dxDesign, -dJ_dzDesign[num_elems:].flatten()))
-		# grad_obj = (-penal * x ** (penal - 1)) * ce
+    mma_params = mma.MMAParams(
+        max_iter=maxMMAIterations,
+        kkt_tol=kkt_tol,
+        step_tol=move_tol,
+        move_limit=move_limit,
+        num_design_var=num_design_var,
+        num_cons=1,
+        lower_bound=np.zeros((num_design_var, 1)),
+        upper_bound=np.ones((num_design_var, 1)),
+    )
+    constraintType = to_params.Constraints[0][0]
+    if constraintType == TO_QOI.VOLUME_FRACTION:
+        volFractionConstraint = to_params.Constraints[0][2]
+    else:
+        volFractionConstraint = 1
+    print(f"volFractionConstraint: {volFractionConstraint:.3f}")
 
-			
-		if (nodal_body_force is not None):
-			ce_body_force = (sol[fe_solver.mesh.edofMat].reshape(num_elems, 24) * nodal_body_force[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
-			grad_obj +=  2*ce_body_force # Assumes body force is linear w.r.t. x : https://doi.org/10.1002/nme.2499 , https://doi.org/10.1016/j.cma.2017.04.021 
-	
-		grad_obj[0:num_elems] = (H * grad_obj[0:num_elems])/Hs
+    # Always use patch-based initialization
+    if random_latent_init:
+        latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
+    else:
+        latent_init = np.zeros((2 * num_patches, 1))
+    
+    mma_init = np.concatenate(
+        (0.5 * np.ones((num_elems, 1)), latent_init), axis=0
+    )
+    mma_state = mma.init_mma(mma_init, mma_params)
 
-		if (elemsWithForces.size > 0):
-			grad_obj[elemsWithForces] = min(grad_obj)
+    # KE setup (shared)
+    if isinstance(fe_solver.mat_prop, list):
+        if isinstance(fe_solver, hex_structural_fea.HexStructuralFEA):
+            KE_list = [
+                hex_element_stiffness.hex8_stiffness_matrix_structural(
+                    mp.youngs_modulus, mp.poissons_ratio, fe_solver.mesh.elem_size
+                )
+                for mp in fe_solver.mat_prop
+            ]
+            KE = KE_list[0]
+        elif isinstance(fe_solver, hex_thermal_fea.HexThermalFEA):
+            KE_list = [
+                hex_element_stiffness.hex8_stiffness_matrix_thermal(
+                    mp.thermal_conductivity, fe_solver.mesh.elem_size
+                )
+                for mp in fe_solver.mat_prop
+            ]
+            KE = KE_list[0]
+        print("Assuming all elements have the same material properties")
+    else:
+        if isinstance(fe_solver, hex_structural_fea.HexStructuralFEA):
+            KE = hex_element_stiffness.hex8_stiffness_matrix_structural(
+                fe_solver.mat_prop.youngs_modulus,
+                fe_solver.mat_prop.poissons_ratio,
+                fe_solver.mesh.elem_size,
+            )
+        elif isinstance(fe_solver, hex_thermal_fea.HexThermalFEA):
+            KE = hex_element_stiffness.hex8_stiffness_matrix_thermal(
+                fe_solver.mat_prop.thermal_conductivity, fe_solver.mesh.elem_size
+            )
 
+    x_old = volFractionConstraint * np.ones(num_design_var, dtype=float)
+    timeFEA = 0
+    timeMMA = 0
 
-		# print(f"TO PARAMS ELEMS TO KEEP",to_params.ElemsToKeep)
-		# to_params.ElemsToKeep = None
-		if (to_params.ElemsToKeep is not None):
-			grad_obj[to_params.ElemsToKeep] = min(grad_obj)
-			#x[to_params.ElemsToKeep] = 1.0
+    if fe_solver.elem_body_force is not None:
+        elem_force = fe_solver.elem_body_force.copy()
+        nNodes = fe_solver.mesh.num_nodes
+        nodal_body_force = np.zeros((nNodes * 3,))
+        nodal_body_force[0::3] = fe_solver.mesh.elem_to_node_field_mapping @ elem_force[0::3]
+        nodal_body_force[1::3] = fe_solver.mesh.elem_to_node_field_mapping @ elem_force[1::3]
+        nodal_body_force[2::3] = fe_solver.mesh.elem_to_node_field_mapping @ elem_force[2::3]
+    else:
+        nodal_body_force = None
+    if continuationScheme:
+        penal = 1.2
 
-		vf = np.mean(xDesign)
-		# cons = _volume_constraint(xDesign, to_params.DesiredVolFraction)
-		# grad_cons = np.zeros_like(x)
-		# grad_cons[0:num_elems] = np.ones(num_elems)/to_params.DesiredVolFraction/num_elems
-		# print(f"elem_size: {fe_solver.mesh.elem_size}")
+    success = True
 
-		# if to_params.TargetMass is not None:
-		xConstraint_tensor = torch.tensor(x).float()
-		xConstraint_tensor.requires_grad = True
-		pseudoDensity = xConstraint_tensor[0:num_elems]
-		zcTensor = xConstraint_tensor[num_elems:]
-		zc = zcTensor.view(2,-1).T
-		decoded = materialEncoder.vaeNet.decoder(zc)
-		_, massDensity = materialEncoder.getMaterialProperties(decoded)
-		totalMass = torch.einsum('m,m->m',massDensity, pseudoDensity).sum() * fe_solver.mesh.elem_size[0]* fe_solver.mesh.elem_size[1]* fe_solver.mesh.elem_size[2]
-		massConstraint = ((totalMass/to_params.TargetMass) - 1.0)
-		massConstraint.backward()
-		cons = massConstraint.detach().numpy()
-		print(f"totalMass: {totalMass:.3f}, TargetMass: {to_params.TargetMass:.3f}")
-		grad_cons = xConstraint_tensor.grad.detach().numpy()
-	
-		
-		timeMMAStart = time.time()
-		mma_state = mma.update_mma(mma_state,
-														   mma_params,
-														 	 obj,
-															 np.array([grad_obj]).reshape((num_design_var, 1)),
-														 	 np.array([cons]).reshape((1, 1)),
-															 grad_cons.reshape((1, num_design_var))
-															 )
-		timeMMA += time.time() - timeMMAStart
+    while not mma_state.is_converged:
+        x = mma_state.x.reshape(-1)
+        # Always use patch-based optimization
+        if use_ellipse_LSR:
+            x = vae_info.map_to_ellipse_torch_patch(x, 2 * num_patches)
+        else:
+            x = vae_info.unnormalize_last_n(arr=x, n = 2*num_patches)
+        xTensor = torch.tensor(x).float()
+        xTensor.requires_grad = True
+        xDesign = x[0:num_elems]
+        zD = xTensor[num_elems:]
+        zDesign = zD.view(2, -1).T
+        decoded = materialEncoder.vaeNet.decoder(zDesign)
+        youngsModulus, _ = materialEncoder.getMaterialProperties(decoded)
+        ym = youngsModulus.detach().numpy()
+        # Redistribute material properties to elements based on patches
+        EDesign = np.zeros_like(patchwork_colors, dtype=float)
+        for patch_id in range(num_patches):
+            EDesign[patchwork_colors == patch_id] = ym[patch_id]
 
-		change = np.max(np.abs(x - x_old))
-		x_old = x
-		print(f"it.: {mma_state.epoch}, obj.: {obj[0]:.6g} vf: {vf:.3f}",
-					f"ch: {change:.3f}")
-		history['compliance'].append(obj[0])
-		history['volume'].append(np.mean(x))
-		history['change'].append(change)
+        fe_solver.mat_prop = [
+            mat_lib.create_material_with_defaults(name=f"Material_{i+1}", youngs_modulus=EDesign[i])
+            for i in range(EDesign.shape[0])
+        ]
+        fe_solver.set_structural_material(fe_solver.mat_prop)
 
-		if (len(history['compliance'])) >= minMMAIterations:
-			dJ = (history['compliance'][-1] - history['compliance'][-2]) / history['compliance'][-2]
-			if abs(dJ) < rel_conv_tol and (cons) < rel_conv_tol:
-				break
-		if (continuationScheme):
-			penal *= 1.1
-			penal = min(penal, 3.0)
-		if time.time() - tStart > timeLimit:
-			success = False
-			print("MMA optimization terminated due to time limit.")
-			break
-		if (history['compliance'][-1] > 100*history['compliance'][0]):
-			print("Optimization terminated due to large compliance increase.")
-			success = False
-			break
+        print(f"Done with material properties")
+        timeFEAStart = time.time()
+        sol = fe_solver.solve(xDesign, material_model)
+        obj = np.einsum('i, i -> ', fe_solver.total_force, sol)
+        timeFEA += time.time() - timeFEAStart
+        obj = np.array([obj])
 
-	if mma_state.epoch >= maxMMAIterations:
-		print("MMA optimization did not converge.")
-		success = False
-		
-	fe_solver.mesh.setPseudoDensity(x[0:num_elems])
-	print(f"Time FEA: {timeFEA:.2f} s, Time MMA: {timeMMA:.2f} s")
-	print(f"Total Time: {timeFEA+timeMMA:.2f} s")
-	EDesign[xDesign < 0.001] = 1e-3
-	plt.hist(xDesign, bins = 10)
+        ce = (np.dot(sol[fe_solver.mesh.edofMat].reshape(num_elems, 24), KE) * sol[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
 
-	return np.asarray(EDesign), history,success
+        penal = 3.0  # Use a constant penalty factor
+        dJ_dxDesign = (-penal * xDesign ** (penal - 1)) * EDesign * ce
+        dJ_dEDesign = np.asarray((xDesign ** penal) * ce)
 
-def preprocessData():
-	df = pd.read_excel('./data/TeledyneDatabase2.xlsx')# solidworksMaterialDatabaseCost # aluminum
-	dataIdentifier = {'name': df[df.columns[0]], 'className':df[df.columns[1]], 'classID':df[df.columns[2]]} # name of the material and type
-	
-	rawData = df[df.columns[3:]].to_numpy()
-	YoungsModulus = rawData[:,7]
-	EMax = np.max(YoungsModulus) # GPa
-	print("Max E: ", EMax, " GPa")
-	trainInfo = np.log10(df[df.columns[3:]].to_numpy())
-	dataScaleMax = torch.tensor(np.max(trainInfo, axis = 0))
-	dataScaleMin = torch.tensor(np.min(trainInfo, axis = 0))
-	normalizedData = (torch.tensor(trainInfo) - dataScaleMin)/(dataScaleMax - dataScaleMin)
-	trainingData = normalizedData.clone().float()
+        # Always use patch-based gradient computation
+        reduced_dJ_dEDesign = np.zeros(num_patches)
+        for patch_id in range(num_patches):
+            reduced_dJ_dEDesign[patch_id] = np.mean(dJ_dEDesign[patchwork_colors == patch_id])
+        dJ_dEDesign_tensor = torch.tensor(reduced_dJ_dEDesign)
 
-	dataInfo = {'UltimateStrength':{'idx':0,'scaleMin':dataScaleMin[0], 'scaleMax':dataScaleMax[0]},\
-			'YieldStress':	{'idx':1,'scaleMin':dataScaleMin[1], 'scaleMax':dataScaleMax[1]},\
-			'MassDensity':	{'idx':2,'scaleMin':dataScaleMin[2], 'scaleMax':dataScaleMax[2]},\
-			'CostPerPound':{'idx':3,'scaleMin':dataScaleMin[3], 'scaleMax':dataScaleMax[3]},\
-			'MeltingTempC':	{'idx':4,'scaleMin':dataScaleMin[4], 'scaleMax':dataScaleMax[4]},\
-			'MaxUseTempC':	{'idx':5,'scaleMin':dataScaleMin[5], 'scaleMax':dataScaleMax[5]},\
-			'Elong2Fail':{'idx':6,'scaleMin':dataScaleMin[6], 'scaleMax':dataScaleMax[6]},\
-			'ElasticModulus':{'idx':7,'scaleMin':dataScaleMin[7], 'scaleMax':dataScaleMax[7]},\
-			'CriticalityIdx':{'idx':8,'scaleMin':dataScaleMin[8], 'scaleMax':dataScaleMax[8]}}
+        youngsModulus.backward(dJ_dEDesign_tensor)
+        dJ_dzDesign = xTensor.grad.detach().numpy()
+        grad_obj = np.concatenate((dJ_dxDesign, -dJ_dzDesign[num_elems:].flatten()))
 
-	return trainingData, dataInfo, dataIdentifier, trainInfo, EMax
+        if nodal_body_force is not None:
+            ce_body_force = (sol[fe_solver.mesh.edofMat].reshape(num_elems, 24) * nodal_body_force[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+            grad_obj += 2 * ce_body_force
+
+        grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
+
+        if elemsWithForces.size > 0:
+            grad_obj[elemsWithForces] = min(grad_obj)
+
+        if to_params.ElemsToKeep is not None:
+            grad_obj[to_params.ElemsToKeep] = min(grad_obj)
+
+        vf = np.mean(xDesign)
+
+        # Always use patch-based constraint computation
+        xConstraint_tensor = torch.tensor(x).float()
+        xConstraint_tensor.requires_grad = True
+        pseudoDensity = xConstraint_tensor[0:num_elems]
+        zcTensor = xConstraint_tensor[num_elems:]
+        zc = zcTensor.view(2, -1).T
+        decoded = materialEncoder.vaeNet.decoder(zc)
+        _, massDensity = materialEncoder.getMaterialProperties(decoded)
+        md = torch.zeros(patchwork_colors.size, dtype=torch.float32)
+        for patch_id in range(num_patches):
+            md[patchwork_colors == patch_id] = massDensity[patch_id]
+        totalMass = torch.einsum('m,m->m', md, pseudoDensity).sum() * fe_solver.mesh.elem_size[0] ** 3
+        print(f"Current mass: {totalMass.item():.4f}, Target mass: {to_params.TargetMass:.4f}")
+        massConstraint = ((totalMass / to_params.TargetMass) - 1.0)
+        massConstraint.backward()
+        cons = massConstraint.detach().numpy()
+        grad_cons = xConstraint_tensor.grad.detach().numpy()
+
+        timeMMAStart = time.time()
+        mma_state = mma.update_mma(
+            mma_state,
+            mma_params,
+            obj,
+            np.array([grad_obj]).reshape((num_design_var, 1)),
+            np.array([cons]).reshape((1, 1)),
+            grad_cons.reshape((1, num_design_var))
+        )
+        timeMMA += time.time() - timeMMAStart
+        # Always use patch-based change tracking
+        change = np.max(np.abs(x - x_old))
+        x_old = x
+        print(f"it.: {mma_state.epoch}, obj.: {obj[0]:.6g} vf: {vf:.3f}", f"ch: {change:.3f}")
+        history['compliance'].append(obj[0])
+        history['volume'].append(np.mean(xDesign))
+        history['change'].append(change)
+
+        if (len(history['compliance'])) >= minMMAIterations:
+            dJ = (history['compliance'][-1] - history['compliance'][-2]) / history['compliance'][-2]
+            if abs(dJ) < rel_conv_tol and (cons) < rel_conv_tol:
+                break
+        if continuationScheme:
+            penal *= 1.1
+            penal = min(penal, 3.0)
+        if time.time() - tStart > timeLimit:
+            success = False
+            print("MMA optimization terminated due to time limit.")
+            break
+        if (history['compliance'][-1] > 100 * history['compliance'][0]):
+            print("Optimization terminated due to large compliance increase.")
+            success = False
+            break
+
+    if mma_state.epoch >= maxMMAIterations:
+        print("MMA optimization did not converge.")
+        success = False
+
+    # Always use patch-based return logic
+    fe_solver.mesh.setPseudoDensity(x[0:num_elems])
+    md[xDesign < 0.001] = 1e-3
+    md = md.detach().numpy()
+    EDesign[xDesign < 0.001] = 1e-3
+    plt.hist(xDesign, bins=10)
+    plt.hist(np.asarray(EDesign), bins=10)
+    plt.show()
+    return np.asarray(EDesign), history, success, zDesign.detach().cpu().numpy()
+
+import pickle
+
+def preprocessData(criticality_threshold=None, use_reduced_features=False):
+    df = pd.read_excel('./data/TeledyneDatabase2.xlsx')
+    # Always filter if threshold is provided and column exists
+    if criticality_threshold is not None and 'Criticality Index' in df.columns:
+        df = df[df['Criticality Index'] < criticality_threshold]
+        print(f"Number of materials with Criticality Index < {criticality_threshold}: {len(df)}")
+    else:
+        print(f"Number of materials: {len(df)}")
+
+    dataIdentifier = {
+        'name': df[df.columns[0]],
+        'className': df[df.columns[1]],
+        'classID': df[df.columns[2]]
+    }
+
+    if use_reduced_features:
+        # Density is 6th column (index 5), Elastic Modulus is 11th (index 10)
+        rawData = df.iloc[:, [5, 10]].to_numpy()
+        feature_names = ['MassDensity', 'ElasticModulus']
+        YoungsModulus = rawData[:, 1]
+    else:
+        # Use all columns after the first three
+        rawData = df.iloc[:, 3:].to_numpy()
+        feature_names = list(df.columns[3:])
+        # Young's modulus is at index 10 in the original DataFrame
+        YoungsModulus = df.iloc[:, 10].to_numpy()
+
+    EMax = np.max(YoungsModulus)
+    print("Max E: ", EMax, " GPa")
+
+    trainInfo = np.log10(rawData)
+    dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
+    dataScaleMin = torch.tensor(np.min(trainInfo, axis=0))
+    normalizedData = (torch.tensor(trainInfo) - dataScaleMin) / (dataScaleMax - dataScaleMin)
+    trainingData = normalizedData.clone().float()
+
+    dataInfo = {}
+    for i, name in enumerate(feature_names):
+        dataInfo[name] = {'idx': i, 'scaleMin': dataScaleMin[i], 'scaleMax': dataScaleMax[i]}
+
+    return trainingData, dataInfo, dataIdentifier, trainInfo, EMax
+def create_meshgrid(n):
+    x = np.linspace(-3, 3, n)
+    y = np.linspace(-3, 3, n)
+    X, Y = np.meshgrid(x, y)
+
+    return X, Y
+
+def meshgrid_to_tensor(X, Y):
+    # Flatten X and Y and stack them along the last axis to create (n*n, 2) shape
+    X_flat = X.flatten()
+    Y_flat = Y.flatten()
+    points_tensor = torch.stack([torch.tensor(X_flat), torch.tensor(Y_flat)], dim=1)
+    return points_tensor.float()
+
+def unlognorm(x, scaleMax, scaleMin):
+    return 10.**(x*(scaleMax-scaleMin) + scaleMin)
+# Define a function to evaluate at the grid points (example: a simple function)
 
 
 
 if __name__ == "__main__":    
-	from topopt_structural_benchmarks import *
-	from LSRImports import *
-	# import struct_fea as fea
-	# import linear_solvers as lin_solv
-	import time
-	import matplotlib.pyplot as plt
-	# import deflation
-	# import os
-	import pandas as pd
-	import sys 
-	import os
-	script_dir = os.path.dirname(__file__) #<-- absolute dir the script is in
-	rel_path = "./data/vaeNet_ref.nt"
-	abs_file_path = os.path.join(script_dir, rel_path)
-	# jax.config.update("jax_enable_x64", True)
-	# optimizationMethod = TO_METHODS.DENSITYMMA_LSR # DENSITYMMA, DENSITYOC, PARETO, LEVELSET
+    from METALS_TO_examples import *
+    from LSRImports import *
+    import time
+    import pandas as pd
+    import sys 
+    import os
+    import warnings
+    import matplotlib
+    import matplotlib.cm as cm  
+    def functional_value(points_tensor):
+        decoded = materialEncoder.vaeNet.decoder(points_tensor)
+        youngModulus = unlognorm(decoded[:,materialEncoder.dataInfo['ElasticModulus']['idx']], 
+                                 materialEncoder.dataInfo['ElasticModulus']['scaleMax'],
+                                 materialEncoder.dataInfo['ElasticModulus']['scaleMin'])
+        physicalDensity = unlognorm(decoded[:,materialEncoder.dataInfo['MassDensity']['idx']],
+                                   materialEncoder.dataInfo['MassDensity']['scaleMax'],
+                                   materialEncoder.dataInfo['MassDensity']['scaleMin'])
+        return youngModulus.detach().numpy().reshape((100,100)), physicalDensity.detach().numpy().reshape((100,100))
 
-	#runTOTests(); exit(0) # Run all tests for each example in the StructuralTOExamples enum
-	
-	trainingData, dataInfo, dataIdentifier, trainInfo,EMax = preprocessData()
-	numMaterialsInTrainingData, numFeatures = trainingData.shape
+    def plot_filled_contour(X, Y, Z):
+        plt.figure(figsize=(6, 6))
+        contour = plt.contourf(X, Y, Z, cmap='viridis')  # Use a colormap
+        plt.colorbar(label='Young\'s Modulus in GPa')
+        plt.title('Filled Contour Plot')
+        plt.axis('equal')
 
-	latentDim, hiddenDim = 2, 250
-	numEpochs = 40000
-	klFactor = 5e-5
-	learningRate = 2e-3
-	savedNet = './data/vaeNet_ref.nt'
-	vaeSettings = {'encoder':{'inputDim':numFeatures, 'hiddenDim':hiddenDim, 'latentDim':latentDim},\
-				'decoder':{'latentDim':latentDim, 'hiddenDim':hiddenDim, 'outputDim':numFeatures}}
+    script_dir = os.path.dirname(__file__)
+    rel_path = "../data/vaeNet_ref.nt"
+    abs_file_path = os.path.join(script_dir, rel_path)
 
-	materialEncoder = MaterialEncoder(trainingData, dataInfo, dataIdentifier, vaeSettings)
-	# start = time.perf_counter()
-	print(sys.path)
-	materialEncoder.loadAutoencoderFromFile(abs_file_path);
+    thresholds = [2.55,1.5,1.25,1,0.75,0.5] 
+    final_compliances = []
+    use_reduced_features = True  # Set to False for full feature set
 
+    for threshold in thresholds:
+        print(f"\nProcessing {'reduced features' if use_reduced_features else f'Criticality Index < {threshold}'}")
+        trainingData, dataInfo, dataIdentifier, trainInfo, EMax = preprocessData(
+            criticality_threshold=threshold, use_reduced_features=use_reduced_features)
+        numMaterialsInTrainingData, numFeatures = trainingData.shape
 
+        latentDim, hiddenDim = 2, 250
+        numEpochs = 40000
+        klFactor = 5e-5
+        learningRate = 2e-3
+        savedNet = './data/vaeNet_ref.nt'
+        vaeSettings = {'encoder':{'inputDim':numFeatures, 'hiddenDim':hiddenDim, 'latentDim':latentDim},
+                       'decoder':{'latentDim':latentDim, 'hiddenDim':hiddenDim, 'outputDim':numFeatures}}
 
+        materialEncoder = MaterialEncoder(trainingData, dataInfo, dataIdentifier, vaeSettings)
+        convgHistory = materialEncoder.trainAutoencoder(numEpochs, klFactor, savedNet, learningRate)
+        predData =  materialEncoder.vaeNet(trainingData)
+        zReal = materialEncoder.vaeNet.encoder.z.detach().numpy()          
+        # Ellipse constraint setup (only if using ellipse LSR)
+        use_ellipse_LSR = False  # Control flag for ellipse-related logic
+        if use_ellipse_LSR:
+            print("Ellipse constraints ARE being used.")
+          
+            enclosing_ellipse = welzl(np.array(zReal, dtype=float))
+            center,a,b,t = enclosing_ellipse
+            constraints = {'distance': {'isOn':False, 'center':center, 'a':a, 'b':b, 'theta':t, 'delta':0.0, 'beta':20}}  # Adjust as needed  
+            materialEncoder.constraints = constraints
+        else:
+            # No ellipse constraints
+            print("Ellipse constraints are NOT being used.")
+            materialEncoder.constraints = {}
 
-	# Choose the TO problem
-	to_problem = StructuralTOExamples.BliskWithBladeMass
-	solver = lin_solv.Solvers.PARDISO # Typically PARDISO, but DPCG for DOF > 200,000
-	debug = False 
+        to_problem = METALSTOExamples.EdgeCantilever
+        solver = lin_solv.Solvers.PARDISO
+        debug = False 
 
-	# Get the structural problem
-	mesh, mat_prop, bc,elem_body_force, to_params = getStructuralTOProblem(to_problem)
+        mesh, mat_prop, bc, elem_body_force, to_params = getMETALSTOProblem(to_problem)
+        # to_params.nDOFDesired = 5000
+        to_params.TargetMass = 10
+        elem_body_force = None
 
-	elem_body_force = None
-	dsolver = deflation.DeflationSolver()
-	# initialize the fe solver 
-	if (solver == lin_solv.Solvers.DPCG):
-		nGroups =  min(dsolver.maxGroups,max(dsolver.minGroups,round(3*mesh.num_nodes/dsolver.dofPerGroup)))
-		dsolver.create_deflation_groups(mesh, nGroups)
-		dsolver.create_delfation_matrix(mesh)
-		dsolver.W = dsolver.W[bc.free_dofs, :]
+        dsolver = deflation.DeflationSolver()
+        if (solver == lin_solv.Solvers.DPCG):
+            nGroups =  min(dsolver.maxGroups, max(dsolver.minGroups, round(3*mesh.num_nodes/dsolver.dofPerGroup)))
+            dsolver.create_deflation_groups(mesh, nGroups)
+            dsolver.create_delfation_matrix(mesh)
+            dsolver.W = dsolver.W[bc.free_dofs, :]
 
-	fe_solver = hex_structural_fea.HexStructuralFEA(mesh = mesh,
-				mat_prop = mat_prop,
-				bc = bc,
-				solver = solver,
-				dsolver = dsolver,
-				rtol = 1e-8,
-				elem_body_force = elem_body_force)
-	
+        fe_solver = hex_structural_fea.HexStructuralFEA(
+            mesh=mesh,
+            mat_prop=mat_prop,
+            bc=bc,
+            solver=solver,
+            dsolver=dsolver,
+            rtol=1e-8,
+            elem_body_force=elem_body_force
+        )
 
-	print('Solver: ', fe_solver.solver.name)
-	print("nDof: ", 3*fe_solver.mesh.num_nodes)
-	print("nElem: ", fe_solver.mesh.num_elems)	
-	
-	title = f'nDOF: {3*fe_solver.mesh.num_nodes}, nElem: {fe_solver.mesh.num_elems}'
-	#plots.plotMesh(mesh, bc,title = title)
+        # --- Plot colored patches for the original, non-optimized design ---
 
+        nPatchesDesired = -10  # Set the desired number of patches here
+        
+        # Determine if we should show patches based on nPatchesDesired
+        show_patches = (nPatchesDesired is not None and 
+                       nPatchesDesired > 1 and 
+                       nPatchesDesired < fe_solver.mesh.num_elems)
+        
+        if show_patches:
+            patchwork_colors = patchwork(fe_solver.mesh, nPatchesDesired=nPatchesDesired)
+            elem_centers = fe_solver.mesh.elem_centers
+            fig = plt.figure(figsize=(8, 6))
+            ax = fig.add_subplot(111, projection='3d')
+            num_patches = len(np.unique(patchwork_colors))
+            
+            # Generate more distinct colors for large number of patches
+            if num_patches > 50:
+                # Use HSV color space for better distinction with many colors
+                # Generate evenly spaced hues with varying saturation and value
+                np.random.seed(42)  # For reproducible colors
+                colors = []
+                for i in range(num_patches):
+                    hue = (i * 137.508) % 360  # Golden angle spacing for better distribution
+                    sat = 0.6 + 0.4 * (i % 3) / 2  # Vary saturation between 0.6-1.0
+                    val = 0.7 + 0.3 * ((i // 3) % 3) / 2  # Vary value between 0.7-1.0
+                    rgb = matplotlib.colors.hsv_to_rgb([hue/360, sat, val])
+                    colors.append(rgb)
+                colors = np.array(colors)
+                
+                # Create custom colormap
+                from matplotlib.colors import ListedColormap
+                cmap = ListedColormap(colors)
+            else:
+                # Use standard colormap for smaller number of patches
+                cmap = cm.get_cmap('nipy_spectral', num_patches)
 
-	startTime = time.time()
-	print("OptimizationMethod: MMA_LSR")
-	u, history,success = topopt_mma_lsr(fe_solver = fe_solver,
-																		vae_info = materialEncoder,
-								to_params = to_params,
-								debug = debug)
-	timeTaken = time.time() - startTime
-	fig, ax1 = plt.subplots()
+            sc = ax.scatter(
+                elem_centers[:, 0], elem_centers[:, 1], elem_centers[:, 2],
+                c=patchwork_colors, cmap=cmap, s=40
+            )
+            plt.title(f"Patchwork Coloring of Original Design ({num_patches} patches)", fontsize=18)
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.set_zlabel("Z")
+            plt.colorbar(sc, label="Patch ID")
+            ax.set_box_aspect([
+                np.ptp(elem_centers[:, 0]),
+                np.ptp(elem_centers[:, 1]),
+                np.ptp(elem_centers[:, 2])
+            ])
+            plt.tight_layout()
+            plt.show()
+        else:
+            print(f"No patch visualization - using element-wise optimization (nPatchesDesired={nPatchesDesired})")
+            
+        fe_solver.plot_mesh()
+        startTime = time.time()
+        u, history, success, zDesign = topopt_mma_lsr_combined(
+            fe_solver=fe_solver,
+            vae_info=materialEncoder,
+            to_params=to_params,
+            debug=debug, 
+            random_latent_init=True,
+            nPatchesDesired=nPatchesDesired,
+            use_ellipse_LSR=use_ellipse_LSR
+        )
+        timeTaken = time.time() - startTime
 
-	# Plot compliance on left y-axis
-	ax1.set_xlabel('Iterations')
-	ax1.set_ylabel('Compliance', color='tab:blue')
-	ax1.plot(history['compliance'], color='tab:blue', label='Compliance')
-	ax1.tick_params(axis='y', labelcolor='tab:blue')
+        final_compliances.append(history['compliance'][-1])
+        fe_solver.plot_elem_field(u, title=f"Youngs Modulus for Criticality Index < {threshold} (Time: {timeTaken:.2f} s)")
 
-	# Plot volume fraction on right y-axis with dotted line
-	ax2 = ax1.twinx()
-	ax2.set_ylabel('Volume Fraction', color='tab:orange')
-	ax2.plot(history['volume'], color='tab:orange', linestyle=':', label='Volume Fraction')
-	ax2.tick_params(axis='y', labelcolor='tab:orange')
-	ax2.yaxis.set_major_formatter(plt.FormatStrFormatter('%.2f'))
+        n = 100  # Number of points in each direction
+        X, Y = create_meshgrid(n)
+        points_tensor = meshgrid_to_tensor(X, Y)
+        Z0, Z1 = functional_value(points_tensor)
+        plot_filled_contour(X, Y, Z0)
+        plt.scatter(zDesign[:,0], zDesign[:,1], c='r', s=10, label='Optimized Materials')
+        plt.scatter(zReal[:,0], zReal[:,1], c='k', s=10, label='Real Materials')
+        plt.xlabel('z0')
+        plt.ylabel('z1')
+        plt.legend()
+        plt.show()
 
-	plt.title('MMA: Volume and Compliance vs. Iterations')
+    # Save results as pickle
+    with open('compliance_vs_criticality_EdgeCantilever_Temp.pkl', 'wb') as f:
+        pickle.dump({'thresholds': thresholds, 'final_compliances': final_compliances}, f)
 
-	# Add legend
-	lines1, labels1 = ax1.get_legend_handles_labels()
-	lines2, labels2 = ax2.get_legend_handles_labels()
-	ax1.legend(lines1 + lines2, labels1 + labels2)
+    print("Saved compliance vs. criticality index threshold to compliance_vs_criticality_EdgeCantilever_Temp.pkl")
 
-	plt.grid(True)
-	plt.show(block=True)
-
-	title = f"MMA: nDOF: {3*fe_solver.mesh.num_nodes}, vol: {history['volume'][-1]:0.2f}, J: {history['compliance'][-1]:.3g}, time: {timeTaken:.0f} s"
-
-	print(f"Time taken: {timeTaken:.0f} s")
-	
-	plots.plotMesh(fe_solver.mesh, bc = None, u=None, title = title)
-	plots.plotElementFieldAndDensity(fe_solver.mesh, u,
-                        title='YoungModulus', cmap='viridis') #**
+    # Plotting compliance vs threshold
+    plt.figure()
+    plt.plot(thresholds, final_compliances, marker='o')
+    plt.xlabel('Criticality Index Threshold')
+    plt.ylabel('Final Compliance')
+    plt.title('Final Compliance vs. Criticality Index Threshold')
+    plt.gca().invert_xaxis()
+    plt.grid(True)
+    plt.show()
