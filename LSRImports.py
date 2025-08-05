@@ -8,7 +8,7 @@ import sys
 import os
 sys.path.append('../PyTO/src') #assuming the PyTO is in the parent directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
-import mma
+from mmaWrapper import runMMA
 from topopt_common import *
 from topopt_material_model import *
 import time

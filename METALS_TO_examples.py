@@ -22,8 +22,8 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         structural_problem = METALSStructuralExamples.EdgeCantilever
         to_params.Comment = "Classic TO Problem"
         to_params.YSymmetry = True
-        to_params.nDOFDesired = 50000
-        to_params.Constraints = [(TO_QOI.MASS, None, 10)]  # kg
+        to_params.nDOFDesired = nDOFDesired
+        to_params.Constraints = [(TO_QOI.MASS, None, 6)]  # kg
     elif to_problem == METALSTOExamples.BliskWithBladeMass:
         structural_problem = METALSStructuralExamples.BliskWithBladeMass
         to_params.Comment  = "Large DOF"

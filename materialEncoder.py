@@ -106,7 +106,51 @@ class MaterialEncoder:
 		
     return youngModulus, physicalDensity
     
+  def getMaterialProperties_tempdependent(self, decoded):
+    def unlognorm(x, scaleMax, scaleMin):
+        return 10**(x*(scaleMax-scaleMin) + scaleMin)
 
+    # MassDensity
+    massDensity = unlognorm(
+        decoded[:, self.dataInfo['MassDensity']['idx']],
+        self.dataInfo['MassDensity']['scaleMax'],
+        self.dataInfo['MassDensity']['scaleMin']
+    )
+    # Emin, Emid, Emax, Tmin, Tmax
+    Emin = decoded[:, self.dataInfo['Emin']['idx']]
+    Emid = decoded[:, self.dataInfo['Emid']['idx']]
+    Emax = decoded[:, self.dataInfo['Emax']['idx']]
+    Tmin = decoded[:, self.dataInfo['Tmin']['idx']]
+    Tmax = decoded[:, self.dataInfo['Tmax']['idx']]
+    # Only denormalize if scaleMax != scaleMin
+    for name, arr in zip(['Emin', 'Emid', 'Emax', 'Tmin', 'Tmax'], [Emin, Emid, Emax, Tmin, Tmax]):
+        info = self.dataInfo[name]
+        if info['scaleMax'] != info['scaleMin']:
+            arr = arr * (info['scaleMax'] - info['scaleMin']) + info['scaleMin']
+        if name == 'Emin':
+            Emin = arr
+        elif name == 'Emid':
+            Emid = arr
+        elif name == 'Emax':
+            Emax = arr
+        elif name == 'Tmin':
+            Tmin = arr
+        elif name == 'Tmax':
+            Tmax = arr
+
+    # Thermal Conductivity
+    tc_info = self.dataInfo['ThermalConductivity']
+    thermalConductivity = decoded[:, tc_info['idx']]
+    if tc_info['scaleMax'] != tc_info['scaleMin']:
+        thermalConductivity = thermalConductivity * (tc_info['scaleMax'] - tc_info['scaleMin']) + tc_info['scaleMin']
+
+    # Convert units if needed
+    Emin = Emin * 1e9
+    Emid = Emid * 1e9
+    Emax = Emax * 1e9
+    massDensity = massDensity * (0.001 / (1e-2)**3)  # g/cm^3 to kg/m^3
+
+    return Emin, Emid, Emax, Tmin, Tmax, massDensity, thermalConductivity
   def normalize_last_n(self, arr, n, min_val=-3, max_val=3):
     # Copy the original array to avoid modifying it in-place
     arr_copy = np.copy(arr)
