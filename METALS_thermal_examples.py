@@ -69,7 +69,7 @@ def createEdgeCantileverThermalProblem(mesh=None, nDOFDesired: int = 5000, L: li
 
     return mesh, mat_prop, bc
 def createEdgeCantileverThermalProblem_TempBC(mesh=None, nDOFDesired: int = 5000, L: list = [0.4, 0.2, 0.1],
-                                              thermal_conductivity=1.0, temp_left=1000.0, temp_right=200.0):
+                                              thermal_conductivity=1.0, temp_left=275.0, temp_right=50.0):
     """
     Creates a thermal edge cantilever problem with prescribed temperatures on both ends.
     """
