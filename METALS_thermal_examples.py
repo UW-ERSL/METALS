@@ -10,21 +10,21 @@ class METALSThermalExamples(enum.Enum):
     BliskBlade = enum.auto()  # Blisk blade thermal problem
     # Add more as needed
 
-def getMETALSThermalProblem(problem: METALSThermalExamples, mesh=None, **kwargs):
+def getMETALSThermalProblem(problem: METALSThermalExamples,nDOFDesired: int = 20000, mesh=None, **kwargs):
     """
     Returns a thermal problem based on the given problem name.
     If mesh is provided, it will be reused for the thermal problem.
     """
     if problem == METALSThermalExamples.EdgeCantilever:
-        return createEdgeCantileverThermalProblem(mesh=mesh, **kwargs)
+        return createEdgeCantileverThermalProblem(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
     elif problem == METALSThermalExamples.BliskBlade:
-        return createBliskBladeThermalProblem_TempBC(mesh=mesh, **kwargs)
+        return createBliskBladeThermalProblem_TempBC(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
     elif problem == METALSThermalExamples.EdgeCantilever_TempBC:
-        return createEdgeCantileverThermalProblem_TempBC(mesh=mesh, **kwargs)
+        return createEdgeCantileverThermalProblem_TempBC(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
     else:
         raise ValueError("Invalid thermal example name.")
 
-def createEdgeCantileverThermalProblem(mesh=None, nDOFDesired: int = 5000, L: list = [0.4, 0.2, 0.1],
+def createEdgeCantileverThermalProblem(mesh=None, nDOFDesired: int = 20000, L: list = [0.4, 0.2, 0.1],
                                        thermal_conductivity=1.0, heat_source=1000.0, boundary_temp=300.0):
     """
     Creates a thermal edge cantilever problem using the same mesh as the structural problem if provided.

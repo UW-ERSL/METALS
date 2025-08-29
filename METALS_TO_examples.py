@@ -23,14 +23,14 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.Comment = "Classic TO Problem"
         to_params.YSymmetry = True
         to_params.nDOFDesired = nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 6)]  # kg
+        to_params.Constraints = [(TO_QOI.MASS, None, 10)]  # kg
     elif to_problem == METALSTOExamples.BliskWithBladeMass:
         structural_problem = METALSStructuralExamples.BliskWithBladeMass
         to_params.Comment  = "Large DOF"
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = True
-        to_params.nDOFDesired = 100000
-        to_params.Constraints = [(TO_QOI.MASS, None, 0.6)]  # kg
+        to_params.nDOFDesired = nDOFDesired
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.01)]  # kg
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     
@@ -49,8 +49,8 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         # Get the elements to keep for the blade
         centerPt = [0,0,0]
         axis = [0,0,1]
-        outerRadius1 = 0.22
-        outerRadius2 = 0.3
+        outerRadius1 = 0.057
+        outerRadius2 = 0.08
         bladeElements = mesh.get_elems_within_annular_region(centerPt,axis,outerRadius1,outerRadius2)
         to_params.ElemsToKeep = np.union1d(to_params.ElemsToKeep, bladeElements)
 

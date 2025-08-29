@@ -91,19 +91,19 @@ class MaterialEncoder:
     return fig, ax
   
   def getMaterialProperties(self, decoded):
-	    
+      
     def unlognorm(x, scaleMax, scaleMin):
       return 10**(x*(scaleMax-scaleMin) + scaleMin)
-		
+    
     youngModulus = unlognorm(decoded[:,self.dataInfo['ElasticModulus']['idx']], \
-															self.dataInfo['ElasticModulus']['scaleMax'],\
-															self.dataInfo['ElasticModulus']['scaleMin'])
+                              self.dataInfo['ElasticModulus']['scaleMax'],\
+                              self.dataInfo['ElasticModulus']['scaleMin'])
     physicalDensity = unlognorm(decoded[:,self.dataInfo['MassDensity']['idx']],
-												self.dataInfo['MassDensity']['scaleMax'],
-												self.dataInfo['MassDensity']['scaleMin'])
+                        self.dataInfo['MassDensity']['scaleMax'],
+                        self.dataInfo['MassDensity']['scaleMin'])
     youngModulus = youngModulus*1e9 # convert from Pa
     physicalDensity = physicalDensity*(0.001/(1e-2)**3) # convert from g/cm^3 to kg/m^3
-		
+    
     return youngModulus, physicalDensity
     
   def getMaterialProperties_tempdependent(self, decoded):
@@ -116,41 +116,40 @@ class MaterialEncoder:
         self.dataInfo['MassDensity']['scaleMax'],
         self.dataInfo['MassDensity']['scaleMin']
     )
-    # Emin, Emid, Emax, Tmin, Tmax
-    Emin = decoded[:, self.dataInfo['Emin']['idx']]
-    Emid = decoded[:, self.dataInfo['Emid']['idx']]
-    Emax = decoded[:, self.dataInfo['Emax']['idx']]
-    Tmin = decoded[:, self.dataInfo['Tmin']['idx']]
-    Tmax = decoded[:, self.dataInfo['Tmax']['idx']]
+    # Ea, Eb, Ec, Ed
+    Ea = decoded[:, self.dataInfo['Ea']['idx']]
+    Eb = decoded[:, self.dataInfo['Eb']['idx']]
+    Ec = decoded[:, self.dataInfo['Ec']['idx']]
+    Ed = decoded[:, self.dataInfo['Ed']['idx']]
     # Only denormalize if scaleMax != scaleMin
-    for name, arr in zip(['Emin', 'Emid', 'Emax', 'Tmin', 'Tmax'], [Emin, Emid, Emax, Tmin, Tmax]):
+    for name, arr in zip(['Ea', 'Eb', 'Ec', 'Ed'], [Ea, Eb, Ec, Ed]):
         info = self.dataInfo[name]
         if info['scaleMax'] != info['scaleMin']:
             arr = arr * (info['scaleMax'] - info['scaleMin']) + info['scaleMin']
-        if name == 'Emin':
-            Emin = arr
-        elif name == 'Emid':
-            Emid = arr
-        elif name == 'Emax':
-            Emax = arr
-        elif name == 'Tmin':
-            Tmin = arr
-        elif name == 'Tmax':
-            Tmax = arr
+        # If not, arr is already correct
+        if name == 'Ea':
+            Ea = arr
+        elif name == 'Eb':
+            Eb = arr
+        elif name == 'Ec':
+            Ec = arr
+        elif name == 'Ed':
+            Ed = arr
 
     # Thermal Conductivity
     tc_info = self.dataInfo['ThermalConductivity']
     thermalConductivity = decoded[:, tc_info['idx']]
     if tc_info['scaleMax'] != tc_info['scaleMin']:
         thermalConductivity = thermalConductivity * (tc_info['scaleMax'] - tc_info['scaleMin']) + tc_info['scaleMin']
+    # If not, use as is
 
-    # Convert units if needed
-    Emin = Emin * 1e9
-    Emid = Emid * 1e9
-    Emax = Emax * 1e9
+    Ea = Ea * 1e9
+    Eb = Eb * 1e9
+    Ec = Ec * 1e9
+    Ed = Ed * 1e9
     massDensity = massDensity * (0.001 / (1e-2)**3)  # g/cm^3 to kg/m^3
-
-    return Emin, Emid, Emax, Tmin, Tmax, massDensity, thermalConductivity
+    # Thermal conductivity is already in W/mK in your sheet
+    return Ea, Eb, Ec, Ed, massDensity, thermalConductivity
   def normalize_last_n(self, arr, n, min_val=-3, max_val=3):
     # Copy the original array to avoid modifying it in-place
     arr_copy = np.copy(arr)
@@ -158,19 +157,19 @@ class MaterialEncoder:
     arr_copy[int(n)*-1:] = (arr_copy[int(n)*-1:] - min_val) / (max_val - min_val)
     return arr_copy
 
-	# Unnormalizing function
+  # Unnormalizing function
   def unnormalize_last_n(self, arr, n, min_val=-3, max_val=3):
-		# Copy the normalized array
+    # Copy the normalized array
     arr_copy = np.copy(arr)
-		# Select the last n values and unnormalize them
+    # Select the last n values and unnormalize them
     arr_copy[int(n)*-1:] = arr_copy[int(n)*-1:] * (max_val - min_val) + min_val
     return arr_copy
   
   def map_to_ellipse_torch_patch(self, arr, num_material_vars):
     last_n = int(num_material_vars/2)
     arrsize = arr.size - num_material_vars
-    print('arrsize', arrsize)
-    print('last_n', last_n)
+    # print('arrsize', arrsize)
+    # print('last_n', last_n)
     arr_copy = arr.copy()
     # arr_copy.retain_grad()
     z0 = arr_copy[arrsize:arrsize+last_n]
@@ -210,7 +209,7 @@ class MaterialEncoder:
 
   def map_to_ellipse(self, arr):
     last_n = int(arr.size / 3)
-    print(last_n)
+    # print(last_n)
     arr_copy = arr.copy()
     # arr_copy.retain_grad()
     z0 = arr_copy[last_n:2 * last_n]
@@ -296,10 +295,10 @@ class MaterialEncoder:
       return 10**(x*(scaleMax-scaleMin) + scaleMin)
     decoded = self.vaeNet.decoder(points_tensor)
     youngModulus = unlognorm(decoded[:,self.dataInfo['ElasticModulus']['idx']], 
-								  self.dataInfo['ElasticModulus']['scaleMax'],
-								  self.dataInfo['ElasticModulus']['scaleMin'])
+                  self.dataInfo['ElasticModulus']['scaleMax'],
+                  self.dataInfo['ElasticModulus']['scaleMin'])
     physicalDensity = unlognorm(decoded[:,self.dataInfo['MassDensity']['idx']],
-							self.dataInfo['MassDensity']['scaleMax'],
-							self.dataInfo['MassDensity']['scaleMin'])
+              self.dataInfo['MassDensity']['scaleMax'],
+              self.dataInfo['MassDensity']['scaleMin'])
     return youngModulus.detach().numpy().reshape((100,100)), physicalDensity.detach().numpy().reshape((100,100))
 
