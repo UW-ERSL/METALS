@@ -337,21 +337,26 @@ if __name__ == "__main__":
 
     run_topopt(
         use_temp_dependent=False,
-        nPatchesDesired=16,
+        nPatchesDesired=100,
         random_latent_init=True,
         debug=False,
         maxMMAIterations=50,
         use_pretrained_vae=True,  
         plot_patches_flag=True,
-        gamma_init=1e-2,
+        gamma_init=0,
         gamma_max=1000,
-        gamma_factor=10,
+        gamma_factor=0,
         calls_per_stage=10,
         rel_conv_tol=1e-4,
-        nDOFDesired=10000,
+        nDOFDesired=100000,
         to_problem_name="EdgeCantilever", #EdgeCantilever or BliskWithBladeMass
         thermal_problem_name="EdgeCantilever_TempBC" # "BliskBlade", "EdgeCantilever", "EdgeCantilever_TempBC"
 
+    # For EdgeCantilever, the correct thermal problem(s) are "EdgeCantilever_TempBC" or "EdgeCantilever"
+    # For BliskWithBladeMass, the correct thermal problem(s) are "BliskBlade".
+    # If incorrect thermal problem is specified wrt the selected TO problem, the correct one will be used after issuing a warning.
+    # For EdgeCantilever, "EdgeCantilever_TempBC" will be used by default unless specified
+    )
     """
     -------------------------------------------------------------------------------
     | Parameter            | Description                                         | Default Value         |
@@ -380,8 +385,3 @@ if __name__ == "__main__":
     | thermal_problem_name | Name of thermal problem (if applicable)             | None                 |
     -------------------------------------------------------------------------------
     """
-    # For EdgeCantilever, the correct thermal problem(s) are "EdgeCantilever_TempBC" or "EdgeCantilever"
-    # For BliskWithBladeMass, the correct thermal problem(s) are "BliskBlade".
-    # If incorrect thermal problem is specified wrt the selected TO problem, the correct one will be used after issuing a warning.
-    # For EdgeCantilever, "EdgeCantilever_TempBC" will be used by default unless specified
-    )

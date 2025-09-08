@@ -117,7 +117,7 @@ def optimizationFunction_structural(
     if 'J0' not in shared_vars or shared_vars['J0'] is None:
         shared_vars['J0'] = None
     x = np.asarray(x).flatten()
-    x = vae_info.map_to_ellipse_torch_patch(x, 2 * num_patches) if hasattr(vae_info, "map_to_ellipse_torch_patch") else vae_info.unnormalize_last_n(arr=x, n=2*num_patches)
+    x = vae_info.unnormalize_last_n(arr=x, n=2*num_patches)
     xTensor = torch.tensor(x).float()
     xTensor.requires_grad = True
     xDesign = x[0:num_elems]
