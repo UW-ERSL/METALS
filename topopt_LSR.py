@@ -32,7 +32,9 @@ def run_topopt(
     rel_conv_tol=1e-3,
     nDOFDesired=5000,
     to_problem_name="EdgeCantilever",
-    thermal_problem_name=None
+    thermal_problem_name=None,
+    apply_filter_to_materials=True,
+    results_filename="topopt_results.pkl"
 ):
     # --- Set VAE save/load path based on mode ---
     if use_temp_dependent:
@@ -188,7 +190,7 @@ def run_topopt(
         def mma_obj(x, gamma):
             return optimizationFunction_tempdependent(
                 x, fe_solver_structural, fe_solver_thermal, to_params, materialEncoder,
-                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=gamma, debug=debug
+                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=gamma, debug=debug, apply_filter_to_materials=apply_filter_to_materials
             )
 
         mma_obj_wrapped = build_itertrack_obj(mma_obj, gamma_init, calls_per_stage, gamma_max, gamma_factor)
@@ -209,7 +211,7 @@ def run_topopt(
         def mma_obj(x,gamma):
             return optimizationFunction_structural(
                 x, fe_solver_structural, to_params, materialEncoder,
-                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,gamma=gamma, debug=debug
+                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,gamma=gamma, debug=debug, apply_filter_to_materials=apply_filter_to_materials
             )
         mma_obj_wrapped = build_itertrack_obj(mma_obj, gamma_init, calls_per_stage, gamma_max, gamma_factor)
 
@@ -327,31 +329,53 @@ def run_topopt(
         print(f"Final mass: {final_mass:.4f}")
     print("Target mass: ", target_mass)
     print("--- End of Summary ---\n")
-
     # Save results
-    with open('topopt_results.pkl', 'wb') as f:
-        pickle.dump({'xDesign': xDesign, 'EDesign': EDesign, 'zDesign': zDesign}, f)
-    print("Results saved to topopt_results.pkl")
+    results_to_save = {
+        'xDesign': xDesign,
+        'EDesign': EDesign,
+        'zDesign': zDesign,
+        'history': history,
+        'thermalConductivity': shared_vars.get('thermalConductivity', None),
+        'massDensity': shared_vars.get('massDensity', None),
+        'z_real': z_real_np,
+        'initial_compliance': initial_compliance,
+        'final_compliance': final_compliance,
+        'final_mass': final_mass,
+        'target_mass': target_mass,
+        'to_problem_name': to_problem_name,
+        'thermal_problem_name': thermal_problem_name,
+        'nDOFDesired': nDOFDesired,
+        'nPatchesDesired': nPatchesDesired,
+        'latentDim': latentDim,
+        'vae_hiddenDim': vae_hiddenDim,
+        'apply_filter_to_materials': apply_filter_to_materials,
+        'use_temp_dependent': use_temp_dependent,
+        'results_filename': results_filename,
+    }
+    with open(results_filename, 'wb') as f:
+        pickle.dump(results_to_save, f)
+    print(f"Results saved to {results_filename}")
 
 if __name__ == "__main__":
 
     run_topopt(
         use_temp_dependent=False,
-        nPatchesDesired=100,
+        nPatchesDesired=0,
         random_latent_init=True,
         debug=False,
         maxMMAIterations=50,
         use_pretrained_vae=True,  
-        plot_patches_flag=True,
-        gamma_init=0,
+        plot_patches_flag=False,
+        gamma_init=1e-2,
         gamma_max=1000,
-        gamma_factor=0,
+        gamma_factor=100,
         calls_per_stage=10,
         rel_conv_tol=1e-4,
-        nDOFDesired=100000,
+        nDOFDesired=10000,
         to_problem_name="EdgeCantilever", #EdgeCantilever or BliskWithBladeMass
-        thermal_problem_name="EdgeCantilever_TempBC" # "BliskBlade", "EdgeCantilever", "EdgeCantilever_TempBC"
-
+        thermal_problem_name="EdgeCantilever_TempBC", # "BliskBlade", "EdgeCantilever", "EdgeCantilever_TempBC"
+        apply_filter_to_materials=False,
+        results_filename="EdgeCantilever_NoFilterMat.pkl"
     # For EdgeCantilever, the correct thermal problem(s) are "EdgeCantilever_TempBC" or "EdgeCantilever"
     # For BliskWithBladeMass, the correct thermal problem(s) are "BliskBlade".
     # If incorrect thermal problem is specified wrt the selected TO problem, the correct one will be used after issuing a warning.
