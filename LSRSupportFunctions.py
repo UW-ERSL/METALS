@@ -112,7 +112,7 @@ def patchwork(mesh, nPatchesDesired=8):
 #     return elemPatchNumber
 # --- Pure Structural Optimization Function ---
 def optimizationFunction_structural(
-    x, fe_solver, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars, gamma=100, debug=False
+    x, fe_solver, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True
 ):
     if 'J0' not in shared_vars or shared_vars['J0'] is None:
         shared_vars['J0'] = None
@@ -121,6 +121,8 @@ def optimizationFunction_structural(
     xTensor = torch.tensor(x).float()
     xTensor.requires_grad = True
     xDesign = x[0:num_elems]
+  
+    #fe_solver.plot_pseudo_density()
     zD = xTensor[num_elems:]
     zDesign = zD.view(2, -1).T
     decoded = materialEncoder.vaeNet.decoder(zDesign)
@@ -151,7 +153,13 @@ def optimizationFunction_structural(
     youngsModulus.backward(dJ_dEDesign_tensor)
     dJ_dzDesign = xTensor.grad.detach().numpy()
     grad_obj = np.concatenate((dJ_dxDesign, -dJ_dzDesign[num_elems:].flatten()))
+    # Apply filter to density and (optionally) latent variables
     grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
+    if apply_filter_to_materials:
+        print("Applying filter to material latent variables.")
+        grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
+        grad_obj[2*num_elems:3*num_elems] = (H * grad_obj[2*num_elems:3*num_elems]) / Hs
+
     grad_obj = grad_obj / J0
     vf = np.mean(xDesign)
     xConstraint_tensor = torch.tensor(x).float()
@@ -223,7 +231,7 @@ def optimizationFunction_structural(
 
 # --- Temp-Dependent Optimization Function ---
 def optimizationFunction_tempdependent(
-    x, fe_solver_structural, fe_solver_thermal, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=100, debug=False
+    x, fe_solver_structural, fe_solver_thermal, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True
 ):
     if 'J0' not in shared_vars or shared_vars['J0'] is None:
         shared_vars['J0'] = None
@@ -289,7 +297,12 @@ def optimizationFunction_tempdependent(
     E.backward(dJ_dE, retain_graph=True)
     dJ_dzDesign = xTensor.grad[num_elems:].detach().cpu().numpy()
     grad_obj = np.concatenate((dJ_dxDesign, -dJ_dzDesign.flatten()))
+    # Apply filter to density and (optionally) latent variables
     grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
+    if apply_filter_to_materials:
+        print("Applying filter to material latent variables.")
+        grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
+        grad_obj[2*num_elems:3*num_elems] = (H * grad_obj[2*num_elems:3*num_elems]) / Hs
     grad_obj = grad_obj / J0
     vf = np.mean(xDesign)
 
