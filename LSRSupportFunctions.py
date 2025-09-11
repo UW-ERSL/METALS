@@ -70,46 +70,6 @@ def patchwork(mesh, nPatchesDesired=8):
     elemPatchNumber = (indices[:, 0] + nX * indices[:, 1] + nX * nY * indices[:, 2]).astype(np.int32)
     return elemPatchNumber
 
-# def patchwork(mesh, nPatchesDesired=8):
-#     xyz = mesh.elem_centers
-#     xMin, yMin, zMin = np.min(xyz, axis=0)
-#     xMax, yMax, zMax = np.max(xyz, axis=0)
-#     xLength, yLength, zLength = xMax - xMin, yMax - yMin, zMax - zMin
-
-#     # Estimate grid splits based on aspect ratio and desired patch count
-#     aspect = np.array([xLength, yLength, zLength])
-#     aspect = aspect / np.max(aspect)
-#     cube_root = nPatchesDesired ** (1/3)
-#     splits = np.round(cube_root * aspect).astype(int)
-#     splits[splits < 1] = 1
-
-#     # Efficient local search for best splits
-#     best_splits = splits.copy()
-#     best_score = float('inf')
-#     for dx in range(-2, 3):
-#         for dy in range(-2, 3):
-#             for dz in range(-2, 3):
-#                 test = splits + np.array([dx, dy, dz])
-#                 test[test < 1] = 1
-#                 npatches = np.prod(test)
-#                 # Patch sizes
-#                 patch_sizes = np.array([xLength/test[0], yLength/test[1], zLength/test[2]])
-#                 aspect_ratio = patch_sizes.max() / patch_sizes.min()
-#                 # Score: weighted sum of patch count error and aspect ratio
-#                 score = abs(npatches - nPatchesDesired) + 0.1 * (aspect_ratio - 1)
-#                 if score < best_score:
-#                     best_score = score
-#                     best_splits = test.copy()
-#     nX, nY, nZ = best_splits
-
-#     sizeX = xLength / nX
-#     sizeY = yLength / nY
-#     sizeZ = zLength / nZ
-#     rel_pos = xyz - np.array([xMin, yMin, zMin])
-#     indices = np.floor(rel_pos / np.array([sizeX, sizeY, sizeZ])).astype(np.int32)
-#     indices = np.minimum(indices, np.array([nX - 1, nY - 1, nZ - 1]))
-#     elemPatchNumber = (indices[:, 0] + nX * indices[:, 1] + nX * nY * indices[:, 2]).astype(np.int32)
-#     return elemPatchNumber
 # --- Pure Structural Optimization Function ---
 def optimizationFunction_structural(
     x, fe_solver, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True
@@ -122,6 +82,7 @@ def optimizationFunction_structural(
     xTensor.requires_grad = True
     xDesign = x[0:num_elems]
   
+    #fe_solver.mesh.setPseudoDensity(xDesign)
     #fe_solver.plot_pseudo_density()
     zD = xTensor[num_elems:]
     zDesign = zD.view(2, -1).T
@@ -157,8 +118,8 @@ def optimizationFunction_structural(
     grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
     if apply_filter_to_materials:
         print("Applying filter to material latent variables.")
-        grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
-        grad_obj[2*num_elems:3*num_elems] = (H * grad_obj[2*num_elems:3*num_elems]) / Hs
+        grad_obj[num_elems:num_elems + num_patches] = (H * grad_obj[num_elems:num_elems + num_patches]) / Hs
+        grad_obj[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_obj[num_elems + num_patches:num_elems + 2*num_patches]) / Hs
 
     grad_obj = grad_obj / J0
     vf = np.mean(xDesign)
@@ -376,92 +337,6 @@ def optimizationFunction_tempdependent(
     else:
         print(f"Iteration: Distance penalty = {penalty.item():.3e} (zero or negative)") 
     return obj, grad_obj, cons, grad_cons
-
-# --- Preprocess Data Functions ---
-def preprocessData_structural():
-    import pandas as pd
-    df = pd.read_excel('./data/TeledyneDatabase.xlsx')
-    rawData = df.iloc[:, [5, 10]].to_numpy()
-    feature_names = ['MassDensity', 'ElasticModulus']
-    YoungsModulus = rawData[:, 1]
-    EMax = np.max(YoungsModulus)
-    trainInfo = np.log10(rawData)
-    dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
-    dataScaleMin = torch.tensor(np.min(trainInfo, axis=0))
-    normalizedData = (torch.tensor(trainInfo) - dataScaleMin) / (dataScaleMax - dataScaleMin)
-    trainingData = normalizedData.clone().float()
-    dataInfo = {}
-    for i, name in enumerate(feature_names):
-        dataInfo[name] = {'idx': i, 'scaleMin': dataScaleMin[i], 'scaleMax': dataScaleMax[i]}
-    dataIdentifier = {
-        'name': df[df.columns[0]],
-        'className': df[df.columns[1]],
-        'classID': df[df.columns[2]]
-    }
-    return trainingData, dataInfo, dataIdentifier, trainInfo, EMax
-
-def preprocessData_tempdependent():
-    """
-    Loads and normalizes material data for temperature-dependent polynomial mode.
-    Returns:
-        trainingData: torch.Tensor of normalized features [MassDensity, Ea, Eb, Ec, Ed]
-        dataInfo: dict with normalization info for each feature
-        dataIdentifier: dict with material names and classes
-        trainInfo: np.ndarray of normalized data (for reference)
-        EMax: None (not used in this mode)
-    """
-    import pandas as pd
-    df = pd.read_excel('./data/TeledyneDatabase2_Temp_scaled.xlsx')
-
-    # MassDensity (6th col, index 5), Ea (13th, 12), Eb (14th, 13), Ec (15th, 14), Ed (16th, 15)
-    rawData = df.iloc[:, [5, 12, 13, 14, 15, 16]].to_numpy()
-    feature_names = ['MassDensity', 'Ea', 'Eb', 'Ec', 'Ed','ThermalConductivity']
-
-    # Only log-transform MassDensity (col 0), min-max normalize the rest
-    mass_density = rawData[:, 0]
-    mass_density = np.where(mass_density <= 0, 1e-8, mass_density)
-    log_mass_density = np.log10(mass_density)
-    md_min, md_max = log_mass_density.min(), log_mass_density.max()
-    norm_mass_density = (log_mass_density - md_min) / (md_max - md_min)
-
-    poly_coeffs = rawData[:, 1:5]
-    poly_min = poly_coeffs.min(axis=0)
-    poly_max = poly_coeffs.max(axis=0)
-    norm_poly_coeffs = np.zeros_like(poly_coeffs)
-    for i in range(4):
-        if poly_max[i] == poly_min[i]:
-            norm_poly_coeffs[:, i] = poly_coeffs[:, i]
-            print(f"{feature_names[i+1]} not normalized (constant value).")
-        else:
-            norm_poly_coeffs[:, i] = (poly_coeffs[:, i] - poly_min[i]) / (poly_max[i] - poly_min[i])
-    # Thermal conductivity normalization
-    thermal_cond = rawData[:, 5]
-    tc_min, tc_max = thermal_cond.min(), thermal_cond.max()
-    if tc_max == tc_min:
-        norm_thermal_cond = thermal_cond
-        print("Thermal conductivity not normalized (constant value).")
-    else:
-        norm_thermal_cond = (thermal_cond - tc_min) / (tc_max - tc_min)
-
-    normalizedData = np.column_stack([norm_mass_density, norm_poly_coeffs, norm_thermal_cond])
-    trainingData = torch.tensor(normalizedData).float()
-
-    dataInfo = {
-        'MassDensity': {'idx': 0, 'scaleMin': md_min, 'scaleMax': md_max, 'is_log': True},
-        'Ea': {'idx': 1, 'scaleMin': poly_min[0], 'scaleMax': poly_max[0], 'is_log': False},
-        'Eb': {'idx': 2, 'scaleMin': poly_min[1], 'scaleMax': poly_max[1], 'is_log': False},
-        'Ec': {'idx': 3, 'scaleMin': poly_min[2], 'scaleMax': poly_max[2], 'is_log': False},
-        'Ed': {'idx': 4, 'scaleMin': poly_min[3], 'scaleMax': poly_max[3], 'is_log': False},
-        'ThermalConductivity': {'idx': 5, 'scaleMin': tc_min, 'scaleMax': tc_max, 'is_log': False}
-    }
-    dataIdentifier = {
-        'name': df[df.columns[0]],
-        'className': df[df.columns[1]],
-        'classID': df[df.columns[2]]
-    }
-    trainInfo = normalizedData
-    Emax=None
-    return trainingData, dataInfo, dataIdentifier, trainInfo, Emax
 
 def plot_loading_and_bc(mesh, bc, title="Loading and Boundary Conditions"):
     fig = plt.figure(figsize=(8, 6))

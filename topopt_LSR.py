@@ -9,8 +9,11 @@ import os
 import pickle
 from materialEncoder import MaterialEncoder
 from LSRImports import *
+from ReadMaterialData import ReadMaterialData
 
 def run_topopt(
+    to_problem,
+    thermal_problem=None,
     use_temp_dependent=False,
     nPatchesDesired=8,
     random_latent_init=True,
@@ -28,27 +31,25 @@ def run_topopt(
     gamma_init=100,
     gamma_max=100,
     gamma_factor=1,
-    calls_per_stage=10,
     rel_conv_tol=1e-3,
     nDOFDesired=5000,
-    to_problem_name="EdgeCantilever",
-    thermal_problem_name=None,
     apply_filter_to_materials=True,
+    material_excel_file=None,
     results_filename="topopt_results.pkl"
 ):
     # --- Set VAE save/load path based on mode ---
-    if use_temp_dependent:
-        saveNet = './data/vaeNet_ref_tempdependent.nt'
-    else:
-        saveNet = './data/vaeNet_ref_purestructural.nt'
+    if saveNet is None:
+        saveNet = './data/vaeNet_ref_tempdependent.nt' if use_temp_dependent else './data/vaeNet_ref_purestructural.nt'
 
     # --- Data preprocessing ---
-    if use_temp_dependent:
-        trainingData, dataInfo, dataIdentifier, trainInfo, Emax = preprocessData_tempdependent()
-        numFeatures = trainingData.shape[1]
-    else:
-        trainingData, dataInfo, dataIdentifier, trainInfo, EMax = preprocessData_structural()
-        numFeatures = trainingData.shape[1]
+    if material_excel_file is None:
+        material_excel_file = './data/TeledyneDatabase2_Temp_scaled.xlsx' if use_temp_dependent else './data/TeledyneDatabase.xlsx'
+
+    material_data = ReadMaterialData(material_excel_file)
+    trainingData = material_data.trainingData
+    dataInfo = material_data.dataInfo
+    dataIdentifier = material_data.dataIdentifier
+    numFeatures = trainingData.shape[1]
 
     vaeSettings = {
         'encoder': {'inputDim': numFeatures, 'hiddenDim': vae_hiddenDim, 'latentDim': latentDim},
@@ -68,22 +69,12 @@ def run_topopt(
         materialEncoder.trainAutoencoder(numEpochs, klFactor, saveNet, learningRate)
     # After loading or training the VAE
     with torch.no_grad():
-        enc_out = materialEncoder.vaeNet.encoder(trainingData)
-        if isinstance(enc_out, tuple):
-            z_mu = enc_out[0]
-        else:
-            z_mu = enc_out
-        materialEncoder.training_latents = z_mu.cpu()
+        materialEncoder.training_latents = materialEncoder.vaeNet.encoder(trainingData).cpu()
+
     # --- Problem setup ---
-    # Select TO problem based on user input
-    if to_problem_name == "EdgeCantilever":
-        to_problem = METALSTOExamples.EdgeCantilever
-    elif to_problem_name == "BliskWithBladeMass":
-        to_problem = METALSTOExamples.BliskWithBladeMass
-    else:
-        raise ValueError(f"Unknown TO problem name: {to_problem_name}")
-    nDOFDesired = nDOFDesired if nDOFDesired is not None else 20000
-    mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params = getMETALSTOProblem(to_problem, nDOFDesired=nDOFDesired)
+    mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params = getMETALSTOProblem(
+        to_problem, nDOFDesired=nDOFDesired
+    )
 
     solver = lin_solv.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
@@ -111,44 +102,9 @@ def run_topopt(
         KE = hex_element_stiffness.hex8_stiffness_matrix_structural(
             mat_prop_struct.youngs_modulus, mat_prop_struct.poissons_ratio, mesh_structural.elem_size
         )
-    # --- Thermal Problem Selection ---
-    print("Selecting thermal problem...")
-    if use_temp_dependent:
-        valid_thermal = False
-        if thermal_problem_name is not None:
-            if to_problem == METALSTOExamples.EdgeCantilever:
-                if thermal_problem_name == "EdgeCantilever":
-                    thermal_problem = METALSThermalExamples.EdgeCantilever
-                    valid_thermal = True
-                elif thermal_problem_name == "EdgeCantilever_TempBC":
-                    thermal_problem = METALSThermalExamples.EdgeCantilever_TempBC
-                    valid_thermal = True
-            elif to_problem == METALSTOExamples.BliskWithBladeMass:
-                if thermal_problem_name == "BliskBlade":
-                    thermal_problem = METALSThermalExamples.BliskBlade
-                    valid_thermal = True
 
-            if not valid_thermal:
-                print(f"Invalid thermal problem '{thermal_problem_name}' for selected TO problem '{to_problem_name}'. Auto-selecting correct thermal problem.")
-                if to_problem == METALSTOExamples.EdgeCantilever:
-                    thermal_problem = METALSThermalExamples.EdgeCantilever_TempBC
-                elif to_problem == METALSTOExamples.BliskWithBladeMass:
-                    thermal_problem = METALSThermalExamples.BliskBlade
-                else:
-                    raise ValueError("No matching thermal problem for selected TO problem.")
-                print(f"Selected thermal problem: {thermal_problem.name}")
-            else:
-                print(f"Selected thermal problem: {thermal_problem.name}")
-        else:
-            # Auto-select based on TO problem
-            if to_problem == METALSTOExamples.EdgeCantilever:
-                thermal_problem = METALSThermalExamples.EdgeCantilever_TempBC
-            elif to_problem == METALSTOExamples.BliskWithBladeMass:
-                thermal_problem = METALSThermalExamples.BliskBlade
-            else:
-                raise ValueError("No matching thermal problem for selected TO problem.")
-            print(f"Selected thermal problem: {thermal_problem.name}")
-
+    # --- Thermal Problem ---
+    if use_temp_dependent and thermal_problem is not None:
         mesh_thermal, mat_prop_thermal, bc_thermal = getMETALSThermalProblem(
             thermal_problem, nDOFDesired=nDOFDesired
         )
@@ -159,6 +115,9 @@ def run_topopt(
             solver=solver,
             rtol=1e-8
         )
+    else:
+        fe_solver_thermal = None
+
     # --- Patch ID ---
     patch_id = patchwork(mesh_structural, nPatchesDesired=nPatchesDesired)
     num_patches = len(np.unique(patch_id))
@@ -168,53 +127,37 @@ def run_topopt(
     # --- MMA Optimization ---
     [H, Hs] = createFilters(fe_solver_structural, to_params)
     shared_vars = {}
-    # --- Plot patch id coloring ---
-    if plot_patches_flag is True:
+
+    # --- Patch plotting ---
+    if plot_patches_flag:
         from LSRSupportFunctions import plot_patches
         plot_patches(mesh_structural, nPatchesDesired=nPatchesDesired, title_prefix="Patch ID Coloring of Structural Mesh")
+
+    # --- Gamma as mutable object for update ---
+    gamma = {'value': gamma_init}
+
+    # --- MMA Objective Functions ---
     if use_temp_dependent:
-        def build_itertrack_obj(func, gamma_init, calls_per_stage, gamma_max, gamma_factor):
-            state = {'calls': 0, 'gamma': gamma_init}
-            def wrapper(x):
-                result = func(x, state['gamma'])
-                state['calls'] += 1
-                if state['calls'] % calls_per_stage == 0:
-                    if state['gamma'] < gamma_max:
-                        state['gamma'] *= gamma_factor
-                        if state['gamma'] > gamma_max:
-                            state['gamma'] = gamma_max
-                    print(f"Stage {state['calls']//calls_per_stage}, gamma = {state['gamma']}")
-                return result
-            return wrapper
-
-        def mma_obj(x, gamma):
-            return optimizationFunction_tempdependent(
+        def mma_obj(x):
+            obj, grad_obj, cons, grad_cons = optimizationFunction_tempdependent(
                 x, fe_solver_structural, fe_solver_thermal, to_params, materialEncoder,
-                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=gamma, debug=debug, apply_filter_to_materials=apply_filter_to_materials
+                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=gamma['value'],
+                debug=debug, apply_filter_to_materials=apply_filter_to_materials
             )
-
-        mma_obj_wrapped = build_itertrack_obj(mma_obj, gamma_init, calls_per_stage, gamma_max, gamma_factor)
+            gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
+            print(f"Gamma updated to: {gamma['value']}")
+            return obj, grad_obj, cons, grad_cons
     else:
-        def build_itertrack_obj(func, gamma_init, calls_per_stage, gamma_max, gamma_factor):
-            state = {'calls': 0, 'gamma': gamma_init}
-            def wrapper(x):
-                result = func(x, state['gamma'])
-                state['calls'] += 1
-                if state['calls'] % calls_per_stage == 0:
-                    if state['gamma'] < gamma_max:
-                        state['gamma'] *= gamma_factor
-                        if state['gamma'] > gamma_max:
-                            state['gamma'] = gamma_max
-                    print(f"Stage {state['calls']//calls_per_stage}, gamma = {state['gamma']}")
-                return result
-            return wrapper
-        def mma_obj(x,gamma):
-            return optimizationFunction_structural(
+        def mma_obj(x):
+            obj, grad_obj, cons, grad_cons = optimizationFunction_structural(
                 x, fe_solver_structural, to_params, materialEncoder,
-                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,gamma=gamma, debug=debug, apply_filter_to_materials=apply_filter_to_materials
+                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
+                gamma=gamma['value'], debug=debug, apply_filter_to_materials=apply_filter_to_materials
             )
-        mma_obj_wrapped = build_itertrack_obj(mma_obj, gamma_init, calls_per_stage, gamma_max, gamma_factor)
-
+            gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
+            print(f"Gamma updated to: {gamma['value']}")
+            return obj, grad_obj, cons, grad_cons
+    
     # Initial guess
     if random_latent_init:
         latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
@@ -227,12 +170,9 @@ def run_topopt(
     nConstraints = 1
 
     # --- Run MMA ---
-    if use_temp_dependent:
-        print("Running MMA optimization (temperature-dependent case)...")
-    else:
-        print("Running MMA optimization (pure structural case)...")
+    print("Running MMA optimization...")
     [xOptimal, f0val, df0dx, gval, dgdx, nFEAs] = runMMA(
-        nVariables, nConstraints, mma_obj_wrapped, mma_init.reshape(-1, 1), lowerBound,
+        nVariables, nConstraints, mma_obj, mma_init.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
         move_limit=0.2, kktTol=1e-6, fTolerance=rel_conv_tol, gTolerance=rel_conv_tol, verbose=True
     )
@@ -256,20 +196,9 @@ def run_topopt(
             colormap='plasma'
         )
 
-    # # Plot mass density field
-    # if hasattr(fe_solver_structural, "plot_elem_field"):
-    #     fe_solver_structural.plot_elem_field(
-    #         np.asarray(shared_vars.get('massDensity', None) if 'massDensity' in shared_vars else None),
-    #         title='Mass Density',
-    #         colormap='cividis'
-    #     )
-
     # Plot latent space
     with torch.no_grad():
-        z_real = materialEncoder.vaeNet.encoder(trainingData)
-        if isinstance(z_real, tuple):
-            z_real = z_real[0]
-        z_real_np = z_real.cpu().numpy()
+        z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
     z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
@@ -283,11 +212,7 @@ def run_topopt(
     plt.show()
 
     # --- Plot compliance and volume fraction history ---
-    if 'history' in shared_vars:
-        history = shared_vars['history']
-    else:
-        history = {}
-
+    history = shared_vars.get('history', {})
     if 'compliance' in history and 'volfrac' in history:
         fig, ax1 = plt.subplots()
         ax1.plot(history['compliance'], 'b-', label='Compliance')
@@ -304,16 +229,13 @@ def run_topopt(
     else:
         print("No compliance/volume fraction history found in shared_vars['history'].")
 
-
     # --- Print compliance and mass summary ---
     initial_compliance = shared_vars.get('J0', None)
-    final_compliance = None
+    final_compliance = history['compliance'][-1] if 'compliance' in history else None
     final_mass = shared_vars.get('final_mass', None)
     target_mass = to_params.Constraints[0][2]
-    if 'history' in shared_vars and 'compliance' in shared_vars['history']:
-        final_compliance = shared_vars['history']['compliance'][-1]
-    if 'history' in shared_vars and 'mass' in shared_vars['history']:
-        shared_vars['final_mass'] = shared_vars['history']['mass'][-1]
+    if 'mass' in history:
+        shared_vars['final_mass'] = history['mass'][-1]
     else:
         shared_vars['final_mass'] = shared_vars.get('current_mass', None)
 
@@ -342,8 +264,8 @@ def run_topopt(
         'final_compliance': final_compliance,
         'final_mass': final_mass,
         'target_mass': target_mass,
-        'to_problem_name': to_problem_name,
-        'thermal_problem_name': thermal_problem_name,
+        'to_problem': to_problem,
+        'thermal_problem': thermal_problem,
         'nDOFDesired': nDOFDesired,
         'nPatchesDesired': nPatchesDesired,
         'latentDim': latentDim,
@@ -357,55 +279,54 @@ def run_topopt(
     print(f"Results saved to {results_filename}")
 
 if __name__ == "__main__":
-
     run_topopt(
+        to_problem=METALSTOExamples.EdgeCantilever,
+        thermal_problem=METALSThermalExamples.EdgeCantilever_TempBC,
         use_temp_dependent=False,
-        nPatchesDesired=0,
+        nPatchesDesired= 10,
         random_latent_init=True,
         debug=False,
-        maxMMAIterations=50,
-        use_pretrained_vae=True,  
+        maxMMAIterations=100,
+        use_pretrained_vae=True,
         plot_patches_flag=False,
-        gamma_init=1e-2,
-        gamma_max=1000,
-        gamma_factor=100,
-        calls_per_stage=10,
+        gamma_init=0,
+        gamma_max=1e4,
+        gamma_factor=2,
         rel_conv_tol=1e-4,
         nDOFDesired=10000,
-        to_problem_name="EdgeCantilever", #EdgeCantilever or BliskWithBladeMass
-        thermal_problem_name="EdgeCantilever_TempBC", # "BliskBlade", "EdgeCantilever", "EdgeCantilever_TempBC"
         apply_filter_to_materials=False,
         results_filename="EdgeCantilever_NoFilterMat.pkl"
-    # For EdgeCantilever, the correct thermal problem(s) are "EdgeCantilever_TempBC" or "EdgeCantilever"
-    # For BliskWithBladeMass, the correct thermal problem(s) are "BliskBlade".
-    # If incorrect thermal problem is specified wrt the selected TO problem, the correct one will be used after issuing a warning.
-    # For EdgeCantilever, "EdgeCantilever_TempBC" will be used by default unless specified
     )
     """
-    -------------------------------------------------------------------------------
-    | Parameter            | Description                                         | Default Value         |
-    -------------------------------------------------------------------------------
-    | use_temp_dependent   | Use temperature-dependent optimization              | False                |
-    | nPatchesDesired      | Number of patches for mesh coloring                 | 8                    |
-    | random_latent_init   | Random initialization of latent variables           | True                 |
-    | debug                | Enable debug mode                                   | False                |
-    | maxMMAIterations     | Maximum MMA optimization iterations                 | 200                  |
-    | timeLimit            | Time limit for optimization (seconds)               | 7200                 |
-    | klFactor             | KL divergence factor for VAE training               | 5e-5                 |
-    | learningRate         | Learning rate for VAE training                      | 2e-3                 |
-    | numEpochs            | Number of epochs for VAE training                   | 40000                |
-    | vae_hiddenDim        | Hidden layer dimension for VAE                      | 250                  |
-    | latentDim            | Latent space dimension for VAE                      | 2                    |
-    | saveNet              | Path to save/load VAE network                       | None                 |
-    | use_pretrained_vae   | Use pre-trained VAE network                         | False                |
-    | plot_patches_flag    | Plot mesh patch coloring                            | False                |
-    | gamma_init           | Initial penalty factor for distance penalization    | 100                  |
-    | gamma_max            | Maximum penalty factor for distance penalization    | 100                  |
-    | gamma_factor         | Multiplicative factor for penalty update            | 1                    |
-    | calls_per_stage      | MMA calls per penalty update stage                  | 10                   |
-    | rel_conv_tol         | Relative convergence tolerance                      | 1e-3                 |
-    | nDOFDesired          | Desired number of mesh degrees of freedom           | 5000                 |
-    | to_problem_name      | Name of topology optimization problem               | "EdgeCantilever"     |
-    | thermal_problem_name | Name of thermal problem (if applicable)             | None                 |
-    -------------------------------------------------------------------------------
+    Runs topology optimization with VAE-based material design.
+
+    | Parameter                | Type      | Default                  | Description                                                                 |
+    |--------------------------|-----------|--------------------------|-----------------------------------------------------------------------------|
+    | to_problem               | object    | (required)               | Topology optimization problem definition object                             |
+    | thermal_problem          | object    | None                     | Thermal problem definition object (optional, for temp-dependent problems)   |
+    | use_temp_dependent       | bool      | False                    | Use temperature-dependent optimization                                      |
+    | nPatchesDesired          | int       | 8                        | Number of patches for patchwork coloring                                    |
+    | random_latent_init       | bool      | True                     | Randomly initialize latent variables                                        |
+    | debug                    | bool      | False                    | Enable debug mode                                                           |
+    | maxMMAIterations         | int       | 200                      | Maximum number of MMA iterations                                            |
+    | timeLimit                | int/float | 7200                     | Time limit for MMA optimization (seconds)                                   |
+    | klFactor                 | float     | 5e-5                     | KL divergence factor for VAE training                                       |
+    | learningRate             | float     | 2e-3                     | Learning rate for VAE training                                              |
+    | numEpochs                | int       | 40000                    | Number of epochs for VAE training                                           |
+    | vae_hiddenDim            | int       | 250                      | Hidden layer dimension for VAE                                              |
+    | latentDim                | int       | 2                        | Latent space dimension for VAE                                              |
+    | saveNet                  | str       | None                     | Path to save/load VAE network                                               |
+    | use_pretrained_vae       | bool      | False                    | Use a pre-trained VAE if available                                          |
+    | plot_patches_flag        | bool      | False                    | Plot patchwork coloring                                                     |
+    | gamma_init               | float     | 100                      | Initial value of penalty parameter gamma                                    |
+    | gamma_max                | float     | 100                      | Maximum value of gamma                                                      |
+    | gamma_factor             | float     | 1                        | Multiplicative update factor for gamma                                      |
+    | rel_conv_tol             | float     | 1e-3                     | Relative convergence tolerance for MMA                                      |
+    | nDOFDesired              | int       | 5000                     | Desired number of degrees of freedom in mesh                                |
+    | apply_filter_to_materials| bool      | True                     | Apply filter to material properties                                         |
+    | material_excel_file      | str       | None                     | Path to material property Excel file                                        |
+    | results_filename         | str       | "topopt_results.pkl"     | Output filename for saving results                                          |
+
+    Results are saved to `results_filename` and plots are shown.
+    You can view the results and even compare two different files by running the postprocess_topopt_lsr.py file
     """
