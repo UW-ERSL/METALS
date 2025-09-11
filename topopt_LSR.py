@@ -296,7 +296,7 @@ if __name__ == "__main__":
         nDOFDesired=10000,
         apply_filter_to_materials=False,
         results_filename="EdgeCantilever_NoFilterMat.pkl"
-    )
+    ) 
     """
     Runs topology optimization with VAE-based material design.
 
