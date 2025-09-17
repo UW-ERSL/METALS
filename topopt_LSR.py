@@ -28,15 +28,24 @@ def run_topopt(
     saveNet=None,
     use_pretrained_vae=False,
     plot_patches_flag=False,
-    gamma_init=100,
-    gamma_max=100,
-    gamma_factor=1,
+    use_penalization=True,
     rel_conv_tol=1e-3,
     nDOFDesired=5000,
     apply_filter_to_materials=True,
     material_excel_file=None,
     results_filename="topopt_results.pkl"
 ):
+    # --- Set gamma and normalization based on penalization flag ---
+    if use_penalization:
+        gamma_init = 1e-6
+        gamma_max = 1000
+        gamma_factor = 2
+        print(f"Penalization is ENABLED (gamma_init={gamma_init}, gamma_max={gamma_max}, gamma_factor={gamma_factor}).")
+    else:
+        gamma_init = 0
+        gamma_max = 0
+        gamma_factor = 1
+        print(f"Penalization is DISABLED. Ellipse-based normalization will be used for latent variables.")
     # --- Set VAE save/load path based on mode ---
     if saveNet is None:
         saveNet = './data/vaeNet_ref_tempdependent.nt' if use_temp_dependent else './data/vaeNet_ref_purestructural.nt'
@@ -70,7 +79,17 @@ def run_topopt(
     # After loading or training the VAE
     with torch.no_grad():
         materialEncoder.training_latents = materialEncoder.vaeNet.encoder(trainingData).cpu()
-
+    zReal = materialEncoder.vaeNet.encoder.z.detach().numpy()
+    
+    # Ellipse constraint setup (only if using ellipse LSR)
+    if use_penalization==False:
+        enclosing_ellipse = welzl(np.array(zReal, dtype=float))
+        center,a,b,t = enclosing_ellipse
+        constraints = {'distance': {'isOn':False, 'center':center, 'a':a, 'b':b, 'theta':t, 'delta':0.0, 'beta':20}}  # Adjust as needed  
+        materialEncoder.constraints = constraints
+    else:
+        # No ellipse constraints
+        materialEncoder.constraints = {}
     # --- Problem setup ---
     mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params = getMETALSTOProblem(
         to_problem, nDOFDesired=nDOFDesired
@@ -141,28 +160,37 @@ def run_topopt(
         def mma_obj(x):
             obj, grad_obj, cons, grad_cons = optimizationFunction_tempdependent(
                 x, fe_solver_structural, fe_solver_thermal, to_params, materialEncoder,
-                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=gamma['value'],
-                debug=debug, apply_filter_to_materials=apply_filter_to_materials
+                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars,
+                gamma=gamma['value'],
+                debug=debug,
+                apply_filter_to_materials=apply_filter_to_materials,
+                use_penalization=use_penalization
             )
-            gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
-            print(f"Gamma updated to: {gamma['value']}")
+            if use_penalization:
+                gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
+                print(f"Gamma updated to: {gamma['value']}")
             return obj, grad_obj, cons, grad_cons
     else:
         def mma_obj(x):
             obj, grad_obj, cons, grad_cons = optimizationFunction_structural(
                 x, fe_solver_structural, to_params, materialEncoder,
                 patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
-                gamma=gamma['value'], debug=debug, apply_filter_to_materials=apply_filter_to_materials
+                gamma=gamma['value'],
+                debug=debug,
+                apply_filter_to_materials=apply_filter_to_materials,
+                use_penalization=use_penalization
             )
-            gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
-            print(f"Gamma updated to: {gamma['value']}")
+            if use_penalization:
+                gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
+                print(f"Gamma updated to: {gamma['value']}")
             return obj, grad_obj, cons, grad_cons
-    
     # Initial guess
     if random_latent_init:
         latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
     else:
         latent_init = np.zeros((2 * num_patches, 1))
+    latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
+    latent_init[num_patches:2*num_patches,0] = (H * latent_init[num_patches:2*num_patches,0]) / Hs
     mma_init = np.concatenate((0.5 * np.ones((num_elems, 1)), latent_init), axis=0)
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
@@ -170,7 +198,10 @@ def run_topopt(
     nConstraints = 1
 
     # --- Run MMA ---
-    print("Running MMA optimization...")
+    if use_temp_dependent:
+        print("Running MMA optimization with temperature-dependent LSR...")
+    else:
+        print("Running MMA optimization with pure structural LSR...")
     [xOptimal, f0val, df0dx, gval, dgdx, nFEAs] = runMMA(
         nVariables, nConstraints, mma_obj, mma_init.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
@@ -283,20 +314,18 @@ if __name__ == "__main__":
         to_problem=METALSTOExamples.EdgeCantilever,
         thermal_problem=METALSThermalExamples.EdgeCantilever_TempBC,
         use_temp_dependent=False,
-        nPatchesDesired= 10,
+        nPatchesDesired= 0,
         random_latent_init=True,
         debug=False,
         maxMMAIterations=100,
         use_pretrained_vae=True,
         plot_patches_flag=False,
-        gamma_init=0,
-        gamma_max=1e4,
-        gamma_factor=2,
-        rel_conv_tol=1e-4,
+        use_penalization=True,
+        rel_conv_tol=1e-5,
         nDOFDesired=10000,
-        apply_filter_to_materials=False,
-        results_filename="EdgeCantilever_NoFilterMat.pkl"
-    ) 
+        apply_filter_to_materials=True,
+        results_filename="EdgeCantilever_PureStructural_NoPenalization15kg.pkl"
+    )
     """
     Runs topology optimization with VAE-based material design.
 

@@ -5,6 +5,8 @@ import torch
 import os
 import sys
 
+from smallestEllipse import plot_ellipse, welzl
+
 # --- Import your project modules for mesh and plotting ---
 sys.path.append(os.path.dirname(__file__))
 
@@ -74,22 +76,26 @@ def plot_side_by_side_mesh_field(results1, results2, field_key, title, cmap, mes
 def plot_side_by_side_latent(z_real1, z_opt1, z_real2, z_opt2, file1, file2):
     fig, axs = plt.subplots(1, 2, figsize=(12, 6))
     if z_real1 is not None and z_opt1 is not None:
-        axs[0].scatter(z_real1[:, 0], z_real1[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
-        axs[0].scatter(z_opt1[:, 0], z_opt1[:, 1], c='red', marker='o', s=40, label='Optimized Materials', alpha=0.5)
+        axs[0].scatter(z_real1[:, 0], z_real1[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+        axs[0].scatter(z_opt1[:, 0], z_opt1[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
         axs[0].set_xlabel('$z_1$')
         axs[0].set_ylabel('$z_2$')
         axs[0].set_title(f'Latent Space\n{file1}')
+        axs[0].set_xlim([-3, 3])
+        axs[0].set_ylim([-3, 3])
         axs[0].legend()
         axs[0].grid(True)
         axs[0].set_aspect('equal', 'box')
     else:
         axs[0].set_title(f'Latent Space\n{file1}\nNot found')
     if z_real2 is not None and z_opt2 is not None:
-        axs[1].scatter(z_real2[:, 0], z_real2[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
-        axs[1].scatter(z_opt2[:, 0], z_opt2[:, 1], c='red', marker='o', s=40, label='Optimized Materials', alpha=0.5)
+        axs[1].scatter(z_real2[:, 0], z_real2[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+        axs[1].scatter(z_opt2[:, 0], z_opt2[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
         axs[1].set_xlabel('$z_1$')
         axs[1].set_ylabel('$z_2$')
         axs[1].set_title(f'Latent Space\n{file2}')
+        axs[1].set_xlim([-3, 3])
+        axs[1].set_ylim([-3, 3])
         axs[1].legend()
         axs[1].grid(True)
         axs[1].set_aspect('equal', 'box')
@@ -161,6 +167,7 @@ def print_side_by_side_summary(results1, results2, file1, file2):
     print("-" * 80)
 
 def main():
+    plot_ellipses=False
     default_file = "topopt_results.pkl"
     compare = input("Compare two files? (Y/N): ").strip().lower()
     if compare == 'y':
@@ -190,8 +197,8 @@ def main():
             if z_real_np is not None and zDesign is not None:
                 z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
                 plt.figure(figsize=(8, 8))
-                plt.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
-                plt.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=40, label='Optimized Materials', alpha=0.5)
+                plt.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=150, label='Real Materials', alpha=1.0)
+                plt.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
                 plt.xlabel('$z_1$')
                 plt.ylabel('$z_2$')
                 plt.title('Optimized Materials vs Real Materials in Latent Space')
@@ -288,15 +295,32 @@ def main():
         zDesign = results1.get('zDesign')
         if z_real_np is not None and zDesign is not None:
             z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
-            plt.figure(figsize=(8, 8))
-            plt.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
-            plt.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=40, label='Optimized Materials', alpha=0.5)
-            plt.xlabel('$z_1$')
-            plt.ylabel('$z_2$')
-            plt.title('Optimized Materials vs Real Materials in Latent Space')
-            plt.legend()
-            plt.grid(True)
-            plt.gca().set_aspect('equal', 'box')
+            fig, ax = plt.subplots(figsize=(8, 8))
+            ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+            ax.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+            # Plot ellipses if flag is True
+            if plot_ellipses:
+                constraints = results1.get('constraints', None)
+                use_penalization = results1.get('use_penalization', False)
+                lsr_ellipse = None
+                if constraints and 'distance' in constraints and constraints['distance'].get('isOn', False) and not use_penalization:
+                    lsr = constraints['distance']
+                    lsr_ellipse = (lsr['center'], lsr['a'], lsr['b'], lsr['theta'])
+                    plot_ellipse(lsr_ellipse, str='b--')
+                    ax.plot([], [], 'b--', label='LSR Ellipse')
+                # Always plot enclosing ellipse for real points
+                enclosing_ellipse = welzl(z_real_np)
+                if enclosing_ellipse is not None:
+                    plot_ellipse(enclosing_ellipse, str='k-')
+                    ax.plot([], [], 'k-', label='Enclosing Ellipse')
+            ax.set_xlabel('$z_1$')
+            ax.set_ylabel('$z_2$')
+            ax.set_title('Optimized Materials vs Real Materials in Latent Space')
+            ax.set_xlim([-3, 3])
+            ax.set_ylim([-3, 3])
+            ax.legend()
+            ax.grid(True)
+            ax.set_aspect('equal', 'box')
             plt.show()
         history = results1.get('history', {})
         if 'compliance' in history and 'volfrac' in history:

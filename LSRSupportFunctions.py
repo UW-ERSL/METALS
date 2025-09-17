@@ -72,12 +72,16 @@ def patchwork(mesh, nPatchesDesired=8):
 
 # --- Pure Structural Optimization Function ---
 def optimizationFunction_structural(
-    x, fe_solver, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True
+    x, fe_solver, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True, use_penalization=True
 ):
     if 'J0' not in shared_vars or shared_vars['J0'] is None:
         shared_vars['J0'] = None
-    x = np.asarray(x).flatten()
-    x = vae_info.unnormalize_last_n(arr=x, n=2*num_patches)
+    if use_penalization:
+        x = np.asarray(x).flatten()
+        x = vae_info.unnormalize_last_n(arr=x, n=2*num_patches)
+    else:
+        x = np.asarray(x).flatten()
+        x = vae_info.map_to_ellipse_torch_patch(x, num_material_vars=2*num_patches)
     xTensor = torch.tensor(x).float()
     xTensor.requires_grad = True
     xDesign = x[0:num_elems]
@@ -114,13 +118,6 @@ def optimizationFunction_structural(
     youngsModulus.backward(dJ_dEDesign_tensor)
     dJ_dzDesign = xTensor.grad.detach().numpy()
     grad_obj = np.concatenate((dJ_dxDesign, -dJ_dzDesign[num_elems:].flatten()))
-    # Apply filter to density and (optionally) latent variables
-    grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
-    if apply_filter_to_materials:
-        print("Applying filter to material latent variables.")
-        grad_obj[num_elems:num_elems + num_patches] = (H * grad_obj[num_elems:num_elems + num_patches]) / Hs
-        grad_obj[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_obj[num_elems + num_patches:num_elems + 2*num_patches]) / Hs
-
     grad_obj = grad_obj / J0
     vf = np.mean(xDesign)
     xConstraint_tensor = torch.tensor(x).float()
@@ -152,6 +149,16 @@ def optimizationFunction_structural(
         shared_vars['history'] = {'compliance': [], 'volfrac': []}
     shared_vars['history']['compliance'].append(float(obj))
     shared_vars['history']['volfrac'].append(float(vf))
+    # Apply filter to density and (optionally) latent variables
+    grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
+    grad_cons[0:num_elems] = (H * grad_cons[0:num_elems]) / Hs
+    if apply_filter_to_materials:
+        print("Applying filter to material latent variables.")
+        print(f"num_elems: {num_elems}, num_patches: {num_patches}")
+        grad_obj[num_elems:num_elems + num_patches] = (H * grad_obj[num_elems:num_elems + num_patches]) / Hs
+        grad_obj[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_obj[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
+        grad_cons[num_elems:num_elems + num_patches] = (H * grad_cons[num_elems:num_elems + num_patches]) / Hs
+        grad_cons[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_cons[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
     grad_obj= np.array([grad_obj]).reshape((num_design_var, 1))
     cons = np.array([cons]).reshape((1, 1))
     grad_cons = grad_cons.reshape((1, num_design_var))
@@ -173,9 +180,8 @@ def optimizationFunction_structural(
     xTensor.grad = None
     penalty.backward(retain_graph=True)
     dpen = xTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_patches, latentDim)
-
     # Add penalty gradient to grad_obj (for latent variables only)
-    grad_obj[num_elems:,0] += dpen.flatten()     
+    grad_obj[num_elems:,0] += dpen.flatten()      
     import math
 
     # Print order of magnitude for scaled compliance and penalty
@@ -192,12 +198,16 @@ def optimizationFunction_structural(
 
 # --- Temp-Dependent Optimization Function ---
 def optimizationFunction_tempdependent(
-    x, fe_solver_structural, fe_solver_thermal, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True
+    x, fe_solver_structural, fe_solver_thermal, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True, use_penalization=True
 ):
     if 'J0' not in shared_vars or shared_vars['J0'] is None:
         shared_vars['J0'] = None
-    x = np.asarray(x).flatten()
-    x = vae_info.unnormalize_last_n(arr=x, n=2*num_patches)
+    if use_penalization:
+        x = np.asarray(x).flatten()
+        x = vae_info.unnormalize_last_n(arr=x, n=2*num_patches)
+    else:
+        x = np.asarray(x).flatten()
+        x = vae_info.map_to_ellipse_torch_patch(x, num_material_vars=2*num_patches)
     xTensor = torch.tensor(x).float()
     xTensor.requires_grad = True
     xDesign = x[0:num_elems]
@@ -258,16 +268,8 @@ def optimizationFunction_tempdependent(
     E.backward(dJ_dE, retain_graph=True)
     dJ_dzDesign = xTensor.grad[num_elems:].detach().cpu().numpy()
     grad_obj = np.concatenate((dJ_dxDesign, -dJ_dzDesign.flatten()))
-    # Apply filter to density and (optionally) latent variables
-    grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
-    if apply_filter_to_materials:
-        print("Applying filter to material latent variables.")
-        grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
-        grad_obj[2*num_elems:3*num_elems] = (H * grad_obj[2*num_elems:3*num_elems]) / Hs
     grad_obj = grad_obj / J0
     vf = np.mean(xDesign)
-
-
     xConstraint_tensor = torch.tensor(x).float()
     xConstraint_tensor.requires_grad = True
     pseudoDensity = xConstraint_tensor[0:num_elems]
@@ -299,11 +301,20 @@ def optimizationFunction_tempdependent(
         shared_vars['history'] = {'compliance': [], 'volfrac': []}
     shared_vars['history']['compliance'].append(float(obj))
     shared_vars['history']['volfrac'].append(float(vf))
+    # Apply filter to density and (optionally) latent variables
+    grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
+    grad_cons[0:num_elems] = (H * grad_cons[0:num_elems]) / Hs
+    if apply_filter_to_materials:
+        print("Applying filter to material latent variables.")
+        print(f"num_elems: {num_elems}, num_patches: {num_patches}")
+        grad_obj[num_elems:num_elems + num_patches] = (H * grad_obj[num_elems:num_elems + num_patches]) / Hs
+        grad_obj[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_obj[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
+        grad_cons[num_elems:num_elems + num_patches] = (H * grad_cons[num_elems:num_elems + num_patches]) / Hs
+        grad_cons[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_cons[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
     grad_obj= np.array([grad_obj]).reshape((num_design_var, 1))
     cons = np.array([cons]).reshape((1, 1))
     grad_cons = grad_cons.reshape((1, num_design_var))
-
-    # --- Latent space penalization ---
+   # --- Latent space penalization ---
     Z_data = vae_info.training_latents.to(zDesign.device)  # shape (N_train, latentDim)
     p_softmin = -1
     # gamma = 1
@@ -321,9 +332,8 @@ def optimizationFunction_tempdependent(
     xTensor.grad = None
     penalty.backward(retain_graph=True)
     dpen = xTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_patches, latentDim)
-
     # Add penalty gradient to grad_obj (for latent variables only)
-    grad_obj[num_elems:,0] += dpen.flatten()     
+    grad_obj[num_elems:,0] += dpen.flatten()  
     import math
 
     # Print order of magnitude for scaled compliance and penalty
