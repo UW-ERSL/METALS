@@ -1,0 +1,180 @@
+{
+  "version": "2025.01",
+  "stl_file_path": "BliskFullNoBlades.STL",
+  "settings": {
+    "unit_system": "MKS",
+    "temperature_unit": "Kelvin",
+    "angle_unit": "Degree"
+  },
+  "analysis_settings": {
+    "n_elements": 50082,
+    "solver_type": "PARDISO"
+  },
+  "material_data": {
+    "name": "Steel",
+    "properties": {
+      "Young's Modulus": 210000000000.0,
+      "Poisson's Ratio": 0.3,
+      "Yield Strength": 250000000.0,
+      "Density": 7850,
+      "Thermal Conductivity": 50,
+      "Thermal Expansion": 1.2e-05,
+      "Specific Heat Capacity": 500,
+      "Price": 0.8
+    }
+  },
+  "structuralBC": {
+    "fixed_faces_indices": [
+      2462,
+      2463,
+      2464,
+      2465,
+      2466,
+      2467,
+      2468,
+      2469,
+      2470,
+      2471,
+      2472,
+      2473,
+      2474,
+      2475,
+      2476,
+      2477,
+      2478,
+      2479,
+      2480,
+      2481,
+      2482,
+      2483,
+      2484,
+      2485,
+      2486,
+      2487,
+      2488,
+      2489,
+      2490,
+      2491,
+      2492,
+      2493,
+      2494,
+      2495,
+      2496,
+      2497,
+      7750,
+      7751,
+      7752,
+      7753,
+      7754,
+      7755,
+      7756,
+      7757,
+      7758,
+      7759,
+      7760,
+      7761,
+      7762,
+      7763,
+      7764,
+      7765,
+      7766,
+      7767,
+      7768,
+      7769,
+      7770,
+      7771,
+      7772,
+      7773,
+      7774,
+      7775,
+      7776,
+      7777,
+      7778,
+      7779,
+      7780,
+      7781,
+      7782,
+      7783,
+      7784,
+      7785
+    ],
+    "load_faces_indices": [],
+    "load_forces": [],
+    "constraint_counts": {
+      "fixed_triangles": 72,
+      "loaded_triangles": 0
+    }
+  },
+  "thermalBC": {
+    "fixed_temps": [],
+    "heat_sources": [],
+    "total_heat_sources": [],
+    "thermal_counts": {
+      "fixed_temps": 0,
+      "heat_sources": 0,
+      "total_heat_sources": 0,
+      "convection": 0
+    }
+  },
+  "topopt_constraints": {
+    "manufacturing": {
+      "extrude": {
+        "enabled": false,
+        "value": "XDir"
+      },
+      "am_build": {
+        "enabled": false,
+        "value": "+XDir"
+      },
+      "draw_direction": {
+        "enabled": false,
+        "value": "XDir"
+      },
+      "cyclic_symmetry": {
+        "enabled": false,
+        "value": "(8) 45 deg"
+      }
+    },
+    "patterns": {
+      "x_grid": {
+        "enabled": false,
+        "value": 2
+      },
+      "y_grid": {
+        "enabled": false,
+        "value": 2
+      },
+      "z_grid": {
+        "enabled": false,
+        "value": 2
+      }
+    },
+    "performance": {
+      "stress_safety": {
+        "enabled": false,
+        "value": 1.0
+      },
+      "max_displacement": {
+        "enabled": false,
+        "value": 160.0
+      },
+      "min_frequency": {
+        "enabled": false,
+        "value": 1000.0
+      },
+      "max_temperature": {
+        "enabled": false,
+        "value": 2000.0
+      }
+    },
+    "symmetry": {
+      "x_symmetry": true,
+      "y_symmetry": true,
+      "z_symmetry": false
+    },
+    "other": {
+      "connected_topology": false,
+      "keep_fixed_faces": true
+    }
+  }
+}

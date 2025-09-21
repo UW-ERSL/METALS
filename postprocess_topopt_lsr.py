@@ -55,85 +55,100 @@ def load_mesh_from_problem(to_problem_name, nDOFDesired):
     return mesh_structural, mat_prop_struct, bc_struct
 
 def plot_mesh_field(mesh_structural, mat_prop_struct, bc_struct, field, title, cmap):
-    fea = HexStructuralFEA(mesh=mesh_structural, mat_prop=mat_prop_struct, bc=bc_struct,
-                           solver=None, dsolver=None)
-    fea.plot_elem_field(field, title=title, colormap=cmap)
+    try:
+        fea = HexStructuralFEA(mesh=mesh_structural, mat_prop=mat_prop_struct, bc=bc_struct,
+                               solver=None, dsolver=None)
+        fea.plot_elem_field(field, title=title, colormap=cmap)
+    except Exception as e:
+        print(f"Could not plot mesh field '{title}': {e}")
 
 def plot_side_by_side_mesh_field(results1, results2, field_key, title, cmap, mesh1, mat1, bc1, mesh2, mat2, bc2, file1, file2):
     field1 = results1.get(field_key)
     field2 = results2.get(field_key)
     if field1 is not None:
-        fea1 = HexStructuralFEA(mesh=mesh1, mat_prop=mat1, bc=bc1, solver=None, dsolver=None)
-        fea1.plot_elem_field(field1, title=f"{title}\n{file1}", colormap=cmap)
+        try:
+            fea1 = HexStructuralFEA(mesh=mesh1, mat_prop=mat1, bc=bc1, solver=None, dsolver=None)
+            fea1.plot_elem_field(field1, title=f"{title}\n{file1}", colormap=cmap)
+        except Exception as e:
+            print(f"Could not plot {title} ({file1}): {e}")
     else:
         print(f"{title} ({file1}): Not found")
     if field2 is not None:
-        fea2 = HexStructuralFEA(mesh=mesh2, mat_prop=mat2, bc=bc2, solver=None, dsolver=None)
-        fea2.plot_elem_field(field2, title=f"{title}\n{file2}", colormap=cmap)
+        try:
+            fea2 = HexStructuralFEA(mesh=mesh2, mat_prop=mat2, bc=bc2, solver=None, dsolver=None)
+            fea2.plot_elem_field(field2, title=f"{title}\n{file2}", colormap=cmap)
+        except Exception as e:
+            print(f"Could not plot {title} ({file2}): {e}")
     else:
         print(f"{title} ({file2}): Not found")
 
 def plot_side_by_side_latent(z_real1, z_opt1, z_real2, z_opt2, file1, file2):
-    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
-    if z_real1 is not None and z_opt1 is not None:
-        axs[0].scatter(z_real1[:, 0], z_real1[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
-        axs[0].scatter(z_opt1[:, 0], z_opt1[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-        axs[0].set_xlabel('$z_1$')
-        axs[0].set_ylabel('$z_2$')
-        axs[0].set_title(f'Latent Space\n{file1}')
-        axs[0].set_xlim([-3, 3])
-        axs[0].set_ylim([-3, 3])
-        axs[0].legend()
-        axs[0].grid(True)
-        axs[0].set_aspect('equal', 'box')
-    else:
-        axs[0].set_title(f'Latent Space\n{file1}\nNot found')
-    if z_real2 is not None and z_opt2 is not None:
-        axs[1].scatter(z_real2[:, 0], z_real2[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
-        axs[1].scatter(z_opt2[:, 0], z_opt2[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-        axs[1].set_xlabel('$z_1$')
-        axs[1].set_ylabel('$z_2$')
-        axs[1].set_title(f'Latent Space\n{file2}')
-        axs[1].set_xlim([-3, 3])
-        axs[1].set_ylim([-3, 3])
-        axs[1].legend()
-        axs[1].grid(True)
-        axs[1].set_aspect('equal', 'box')
-    else:
-        axs[1].set_title(f'Latent Space\n{file2}\nNot found')
-    plt.tight_layout()
-    plt.show()
+    try:
+        fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+        if z_real1 is not None and z_opt1 is not None:
+            axs[0].scatter(z_real1[:, 0], z_real1[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+            axs[0].scatter(z_opt1[:, 0], z_opt1[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+            axs[0].set_xlabel('$z_1$')
+            axs[0].set_ylabel('$z_2$')
+            axs[0].set_title(f'Latent Space\n{file1}')
+            axs[0].set_xlim([-3, 3])
+            axs[0].set_ylim([-3, 3])
+            axs[0].legend()
+            axs[0].grid(True)
+            axs[0].set_aspect('equal', 'box')
+        else:
+            axs[0].set_title(f'Latent Space\n{file1}\nNot found')
+        if z_real2 is not None and z_opt2 is not None:
+            axs[1].scatter(z_real2[:, 0], z_real2[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+            axs[1].scatter(z_opt2[:, 0], z_opt2[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+            axs[1].set_xlabel('$z_1$')
+            axs[1].set_ylabel('$z_2$')
+            axs[1].set_title(f'Latent Space\n{file2}')
+            axs[1].set_xlim([-3, 3])
+            axs[1].set_ylim([-3, 3])
+            axs[1].legend()
+            axs[1].grid(True)
+            axs[1].set_aspect('equal', 'box')
+        else:
+            axs[1].set_title(f'Latent Space\n{file2}\nNot found')
+        plt.tight_layout()
+        plt.show()
+    except Exception as e:
+        print(f"Could not plot side-by-side latent spaces: {e}")
 
 def plot_side_by_side_history(history1, history2, file1, file2):
-    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
-    if 'compliance' in history1 and 'volfrac' in history1:
-        ax1 = axs[0]
-        ax1.plot(history1['compliance'], 'b-', label='Compliance')
-        ax1.set_xlabel('Iteration')
-        ax1.set_ylabel('Compliance', color='b')
-        ax1.tick_params(axis='y', labelcolor='b')
-        ax2 = ax1.twinx()
-        ax2.plot(history1['volfrac'], 'r--', label='Volume Fraction')
-        ax2.set_ylabel('Volume Fraction', color='r')
-        ax2.tick_params(axis='y', labelcolor='r')
-        ax1.set_title(f'History\n{file1}')
-    else:
-        axs[0].set_title(f'History\n{file1}\nNot found')
-    if 'compliance' in history2 and 'volfrac' in history2:
-        ax1 = axs[1]
-        ax1.plot(history2['compliance'], 'b-', label='Compliance')
-        ax1.set_xlabel('Iteration')
-        ax1.set_ylabel('Compliance', color='b')
-        ax1.tick_params(axis='y', labelcolor='b')
-        ax2 = ax1.twinx()
-        ax2.plot(history2['volfrac'], 'r--', label='Volume Fraction')
-        ax2.set_ylabel('Volume Fraction', color='r')
-        ax2.tick_params(axis='y', labelcolor='r')
-        ax1.set_title(f'History\n{file2}')
-    else:
-        axs[1].set_title(f'History\n{file2}\nNot found')
-    plt.tight_layout()
-    plt.show()
+    try:
+        fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+        if 'compliance' in history1 and 'volfrac' in history1:
+            ax1 = axs[0]
+            ax1.plot(history1['compliance'], 'b-', label='Compliance')
+            ax1.set_xlabel('Iteration')
+            ax1.set_ylabel('Compliance', color='b')
+            ax1.tick_params(axis='y', labelcolor='b')
+            ax2 = ax1.twinx()
+            ax2.plot(history1['volfrac'], 'r--', label='Volume Fraction')
+            ax2.set_ylabel('Volume Fraction', color='r')
+            ax2.tick_params(axis='y', labelcolor='r')
+            ax1.set_title(f'History\n{file1}')
+        else:
+            axs[0].set_title(f'History\n{file1}\nNot found')
+        if 'compliance' in history2 and 'volfrac' in history2:
+            ax1 = axs[1]
+            ax1.plot(history2['compliance'], 'b-', label='Compliance')
+            ax1.set_xlabel('Iteration')
+            ax1.set_ylabel('Compliance', color='b')
+            ax1.tick_params(axis='y', labelcolor='b')
+            ax2 = ax1.twinx()
+            ax2.plot(history2['volfrac'], 'r--', label='Volume Fraction')
+            ax2.set_ylabel('Volume Fraction', color='r')
+            ax2.tick_params(axis='y', labelcolor='r')
+            ax1.set_title(f'History\n{file2}')
+        else:
+            axs[1].set_title(f'History\n{file2}\nNot found')
+        plt.tight_layout()
+        plt.show()
+    except Exception as e:
+        print(f"Could not plot side-by-side history: {e}")
 
 def print_side_by_side_summary(results1, results2, file1, file2):
     def summary_str(results):
@@ -167,7 +182,7 @@ def print_side_by_side_summary(results1, results2, file1, file2):
     print("-" * 80)
 
 def main():
-    plot_ellipses=False
+    plot_ellipses = False  # Set to False to disable ellipse plotting
     default_file = "topopt_results.pkl"
     compare = input("Compare two files? (Y/N): ").strip().lower()
     if compare == 'y':
@@ -182,44 +197,70 @@ def main():
             # --- Single file mode ---
             to_problem_name = results1.get('to_problem_name', "EdgeCantilever")
             nDOFDesired = results1.get('nDOFDesired', 10000)
-            mesh_structural, mat_prop_struct, bc_struct = load_mesh_from_problem(to_problem_name, nDOFDesired)
-            xDesign = results1.get('xDesign')
-            if xDesign is not None:
-                mesh_structural.setPseudoDensity(xDesign)
-            EDesign = results1.get('EDesign')
-            if EDesign is not None:
-                plot_mesh_field(mesh_structural, mat_prop_struct, bc_struct, EDesign, "Young's Modulus (Optimized)", 'viridis')
-            thermalConductivity = results1.get('thermalConductivity', None)
-            if thermalConductivity is not None:
-                plot_mesh_field(mesh_structural, mat_prop_struct, bc_struct, thermalConductivity, "Thermal Conductivity (Optimized)", 'plasma')
+            try:
+                mesh_structural, mat_prop_struct, bc_struct = load_mesh_from_problem(to_problem_name, nDOFDesired)
+                xDesign = results1.get('xDesign')
+                if xDesign is not None:
+                    mesh_structural.setPseudoDensity(xDesign)
+                EDesign = results1.get('EDesign')
+                if EDesign is not None:
+                    plot_mesh_field(mesh_structural, mat_prop_struct, bc_struct, EDesign, "Young's Modulus (Optimized)", 'viridis')
+                thermalConductivity = results1.get('thermalConductivity', None)
+                if thermalConductivity is not None:
+                    plot_mesh_field(mesh_structural, mat_prop_struct, bc_struct, thermalConductivity, "Thermal Conductivity (Optimized)", 'plasma')
+            except Exception as e:
+                print(f"Could not plot mesh fields: {e}")
             z_real_np = results1.get('z_real', None)
             zDesign = results1.get('zDesign')
-            if z_real_np is not None and zDesign is not None:
-                z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
-                plt.figure(figsize=(8, 8))
-                plt.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=150, label='Real Materials', alpha=1.0)
-                plt.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-                plt.xlabel('$z_1$')
-                plt.ylabel('$z_2$')
-                plt.title('Optimized Materials vs Real Materials in Latent Space')
-                plt.legend()
-                plt.grid(True)
-                plt.gca().set_aspect('equal', 'box')
-                plt.show()
+            try:
+                if z_real_np is not None and zDesign is not None:
+                    z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
+                    fig, ax = plt.subplots(figsize=(8, 8))
+                    ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=150, label='Real Materials', alpha=1.0)
+                    ax.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+                    # Plot ellipses if flag is True
+                    if plot_ellipses:
+                        constraints = results1.get('constraints', None)
+                        use_penalization = results1.get('use_penalization', False)
+                        lsr_ellipse = None
+                        if constraints and 'distance' in constraints and constraints['distance'].get('isOn', False) and not use_penalization:
+                            lsr = constraints['distance']
+                            lsr_ellipse = (lsr['center'], lsr['a'], lsr['b'], lsr['theta'])
+                            plot_ellipse(lsr_ellipse, str='b--')
+                            ax.plot([], [], 'b--', label='LSR Ellipse')
+                        # Always plot enclosing ellipse for real points
+                        enclosing_ellipse = welzl(z_real_np)
+                        if enclosing_ellipse is not None:
+                            plot_ellipse(enclosing_ellipse, str='k-')
+                            ax.plot([], [], 'k-', label='Enclosing Ellipse')
+                    ax.set_xlabel('$z_1$')
+                    ax.set_ylabel('$z_2$')
+                    ax.set_title('Optimized Materials vs Real Materials in Latent Space')
+                    ax.set_xlim([-3, 3])
+                    ax.set_ylim([-3, 3])
+                    ax.legend()
+                    ax.grid(True)
+                    ax.set_aspect('equal', 'box')
+                    plt.show()
+            except Exception as e:
+                print(f"Could not plot latent space: {e}")
             history = results1.get('history', {})
-            if 'compliance' in history and 'volfrac' in history:
-                fig, ax1 = plt.subplots()
-                ax1.plot(history['compliance'], 'b-', label='Compliance')
-                ax1.set_xlabel('Iteration')
-                ax1.set_ylabel('Compliance', color='b')
-                ax1.tick_params(axis='y', labelcolor='b')
-                ax2 = ax1.twinx()
-                ax2.plot(history['volfrac'], 'r--', label='Volume Fraction')
-                ax2.set_ylabel('Volume Fraction', color='r')
-                ax2.tick_params(axis='y', labelcolor='r')
-                plt.title('Compliance and Volume Fraction vs Iteration')
-                fig.tight_layout()
-                plt.show()
+            try:
+                if 'compliance' in history and 'volfrac' in history:
+                    fig, ax1 = plt.subplots()
+                    ax1.plot(history['compliance'], 'b-', label='Compliance')
+                    ax1.set_xlabel('Iteration')
+                    ax1.set_ylabel('Compliance', color='b')
+                    ax1.tick_params(axis='y', labelcolor='b')
+                    ax2 = ax1.twinx()
+                    ax2.plot(history['volfrac'], 'r--', label='Volume Fraction')
+                    ax2.set_ylabel('Volume Fraction', color='r')
+                    ax2.tick_params(axis='y', labelcolor='r')
+                    plt.title('Compliance and Volume Fraction vs Iteration')
+                    fig.tight_layout()
+                    plt.show()
+            except Exception as e:
+                print(f"Could not plot history: {e}")
             print("\n--- Optimization Summary ---")
             initial_compliance = results1.get('initial_compliance', None)
             final_compliance = results1.get('final_compliance', None)
@@ -242,22 +283,25 @@ def main():
         results1, file1 = get_pickle_results(file1, default_file)
         results2, file2 = get_pickle_results(file2, default_file)
         # Meshes
-        to_problem_name1 = results1.get('to_problem_name', "EdgeCantilever")
-        nDOFDesired1 = results1.get('nDOFDesired', 10000)
-        mesh1, mat1, bc1 = load_mesh_from_problem(to_problem_name1, nDOFDesired1)
-        xDesign1 = results1.get('xDesign')
-        if xDesign1 is not None:
-            mesh1.setPseudoDensity(xDesign1)
-        to_problem_name2 = results2.get('to_problem_name', "EdgeCantilever")
-        nDOFDesired2 = results2.get('nDOFDesired', 10000)
-        mesh2, mat2, bc2 = load_mesh_from_problem(to_problem_name2, nDOFDesired2)
-        xDesign2 = results2.get('xDesign')
-        if xDesign2 is not None:
-            mesh2.setPseudoDensity(xDesign2)
-        plot_side_by_side_mesh_field(results1, results2, 'EDesign', "Young's Modulus (Optimized)", 'viridis',
-                                    mesh1, mat1, bc1, mesh2, mat2, bc2, file1, file2)
-        plot_side_by_side_mesh_field(results1, results2, 'thermalConductivity', "Thermal Conductivity (Optimized)", 'plasma',
-                                    mesh1, mat1, bc1, mesh2, mat2, bc2, file1, file2)
+        try:
+            to_problem_name1 = results1.get('to_problem_name', "EdgeCantilever")
+            nDOFDesired1 = results1.get('nDOFDesired', 10000)
+            mesh1, mat1, bc1 = load_mesh_from_problem(to_problem_name1, nDOFDesired1)
+            xDesign1 = results1.get('xDesign')
+            if xDesign1 is not None:
+                mesh1.setPseudoDensity(xDesign1)
+            to_problem_name2 = results2.get('to_problem_name', "EdgeCantilever")
+            nDOFDesired2 = results2.get('nDOFDesired', 10000)
+            mesh2, mat2, bc2 = load_mesh_from_problem(to_problem_name2, nDOFDesired2)
+            xDesign2 = results2.get('xDesign')
+            if xDesign2 is not None:
+                mesh2.setPseudoDensity(xDesign2)
+            plot_side_by_side_mesh_field(results1, results2, 'EDesign', "Young's Modulus (Optimized)", 'viridis',
+                                        mesh1, mat1, bc1, mesh2, mat2, bc2, file1, file2)
+            plot_side_by_side_mesh_field(results1, results2, 'thermalConductivity', "Thermal Conductivity (Optimized)", 'plasma',
+                                        mesh1, mat1, bc1, mesh2, mat2, bc2, file1, file2)
+        except Exception as e:
+            print(f"Could not plot side-by-side mesh fields: {e}")
         # Latent space
         z_real1 = results1.get('z_real', None)
         zDesign1 = results1.get('zDesign')
@@ -281,61 +325,70 @@ def main():
         # --- Single file mode ---
         to_problem_name = results1.get('to_problem_name', "EdgeCantilever")
         nDOFDesired = results1.get('nDOFDesired', 10000)
-        mesh_structural, mat_prop_struct, bc_struct = load_mesh_from_problem(to_problem_name, nDOFDesired)
-        xDesign = results1.get('xDesign')
-        if xDesign is not None:
-            mesh_structural.setPseudoDensity(xDesign)
-        EDesign = results1.get('EDesign')
-        if EDesign is not None:
-            plot_mesh_field(mesh_structural, mat_prop_struct, bc_struct, EDesign, "Young's Modulus (Optimized)", 'viridis')
-        thermalConductivity = results1.get('thermalConductivity', None)
-        if thermalConductivity is not None:
-            plot_mesh_field(mesh_structural, mat_prop_struct, bc_struct, thermalConductivity, "Thermal Conductivity (Optimized)", 'plasma')
+        try:
+            mesh_structural, mat_prop_struct, bc_struct = load_mesh_from_problem(to_problem_name, nDOFDesired)
+            xDesign = results1.get('xDesign')
+            if xDesign is not None:
+                mesh_structural.setPseudoDensity(xDesign)
+            EDesign = results1.get('EDesign')
+            if EDesign is not None:
+                plot_mesh_field(mesh_structural, mat_prop_struct, bc_struct, EDesign, "Young's Modulus (Optimized)", 'viridis')
+            thermalConductivity = results1.get('thermalConductivity', None)
+            if thermalConductivity is not None:
+                plot_mesh_field(mesh_structural, mat_prop_struct, bc_struct, thermalConductivity, "Thermal Conductivity (Optimized)", 'plasma')
+        except Exception as e:
+            print(f"Could not plot mesh fields: {e}")
         z_real_np = results1.get('z_real', None)
         zDesign = results1.get('zDesign')
-        if z_real_np is not None and zDesign is not None:
-            z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
-            fig, ax = plt.subplots(figsize=(8, 8))
-            ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
-            ax.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-            # Plot ellipses if flag is True
-            if plot_ellipses:
-                constraints = results1.get('constraints', None)
-                use_penalization = results1.get('use_penalization', False)
-                lsr_ellipse = None
-                if constraints and 'distance' in constraints and constraints['distance'].get('isOn', False) and not use_penalization:
-                    lsr = constraints['distance']
-                    lsr_ellipse = (lsr['center'], lsr['a'], lsr['b'], lsr['theta'])
-                    plot_ellipse(lsr_ellipse, str='b--')
-                    ax.plot([], [], 'b--', label='LSR Ellipse')
-                # Always plot enclosing ellipse for real points
-                enclosing_ellipse = welzl(z_real_np)
-                if enclosing_ellipse is not None:
-                    plot_ellipse(enclosing_ellipse, str='k-')
-                    ax.plot([], [], 'k-', label='Enclosing Ellipse')
-            ax.set_xlabel('$z_1$')
-            ax.set_ylabel('$z_2$')
-            ax.set_title('Optimized Materials vs Real Materials in Latent Space')
-            ax.set_xlim([-3, 3])
-            ax.set_ylim([-3, 3])
-            ax.legend()
-            ax.grid(True)
-            ax.set_aspect('equal', 'box')
-            plt.show()
+        try:
+            if z_real_np is not None and zDesign is not None:
+                z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
+                fig, ax = plt.subplots(figsize=(8, 8))
+                ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+                ax.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+                # Plot ellipses if flag is True
+                if plot_ellipses:
+                    constraints = results1.get('constraints', None)
+                    use_penalization = results1.get('use_penalization', False)
+                    lsr_ellipse = None
+                    if constraints and 'distance' in constraints and constraints['distance'].get('isOn', False) and not use_penalization:
+                        lsr = constraints['distance']
+                        lsr_ellipse = (lsr['center'], lsr['a'], lsr['b'], lsr['theta'])
+                        plot_ellipse(lsr_ellipse, str='b--')
+                        ax.plot([], [], 'b--', label='LSR Ellipse')
+                    # Always plot enclosing ellipse for real points
+                    enclosing_ellipse = welzl(z_real_np)
+                    if enclosing_ellipse is not None:
+                        plot_ellipse(enclosing_ellipse, str='k-')
+                        ax.plot([], [], 'k-', label='Enclosing Ellipse')
+                ax.set_xlabel('$z_1$')
+                ax.set_ylabel('$z_2$')
+                ax.set_title('Optimized Materials vs Real Materials in Latent Space')
+                ax.set_xlim([-3, 3])
+                ax.set_ylim([-3, 3])
+                ax.legend()
+                ax.grid(True)
+                ax.set_aspect('equal', 'box')
+                plt.show()
+        except Exception as e:
+            print(f"Could not plot latent space: {e}")
         history = results1.get('history', {})
-        if 'compliance' in history and 'volfrac' in history:
-            fig, ax1 = plt.subplots()
-            ax1.plot(history['compliance'], 'b-', label='Compliance')
-            ax1.set_xlabel('Iteration')
-            ax1.set_ylabel('Compliance', color='b')
-            ax1.tick_params(axis='y', labelcolor='b')
-            ax2 = ax1.twinx()
-            ax2.plot(history['volfrac'], 'r--', label='Volume Fraction')
-            ax2.set_ylabel('Volume Fraction', color='r')
-            ax2.tick_params(axis='y', labelcolor='r')
-            plt.title('Compliance and Volume Fraction vs Iteration')
-            fig.tight_layout()
-            plt.show()
+        try:
+            if 'compliance' in history and 'volfrac' in history:
+                fig, ax1 = plt.subplots()
+                ax1.plot(history['compliance'], 'b-', label='Compliance')
+                ax1.set_xlabel('Iteration')
+                ax1.set_ylabel('Compliance', color='b')
+                ax1.tick_params(axis='y', labelcolor='b')
+                ax2 = ax1.twinx()
+                ax2.plot(history['volfrac'], 'r--', label='Volume Fraction')
+                ax2.set_ylabel('Volume Fraction', color='r')
+                ax2.tick_params(axis='y', labelcolor='r')
+                plt.title('Compliance and Volume Fraction vs Iteration')
+                fig.tight_layout()
+                plt.show()
+        except Exception as e:
+            print(f"Could not plot history: {e}")
         print("\n--- Optimization Summary ---")
         initial_compliance = results1.get('initial_compliance', None)
         final_compliance = results1.get('final_compliance', None)

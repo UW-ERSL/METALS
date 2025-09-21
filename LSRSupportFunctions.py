@@ -68,6 +68,19 @@ def patchwork(mesh, nPatchesDesired=8):
     indices = np.floor(rel_pos / np.array([sizeX, sizeY, sizeZ])).astype(np.int32)
     indices = np.minimum(indices, np.array([nX - 1, nY - 1, nZ - 1]))
     elemPatchNumber = (indices[:, 0] + nX * indices[:, 1] + nX * nY * indices[:, 2]).astype(np.int32)
+    # Count number of elements in each patch
+    unique, counts = np.unique(elemPatchNumber, return_counts=True)
+    num_elems_per_patch = np.zeros(np.max(elemPatchNumber) + 1, dtype=int)
+    num_elems_per_patch[unique] = counts
+    print(f"Number of elements per patch: {num_elems_per_patch}")
+
+    # Remove empty patches and renumber so patch numbers are contiguous
+    unique_patches, inverse_indices = np.unique(elemPatchNumber, return_inverse=True)
+    elemPatchNumber = inverse_indices.astype(np.int32)
+
+    print(f"Number of patches: {len(unique_patches)}")
+    for i, count in enumerate(np.bincount(elemPatchNumber)):
+        print(f"Patch {i}: {count} elements")
     return elemPatchNumber
 
 # --- Pure Structural Optimization Function ---
@@ -159,6 +172,15 @@ def optimizationFunction_structural(
         grad_obj[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_obj[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
         grad_cons[num_elems:num_elems + num_patches] = (H * grad_cons[num_elems:num_elems + num_patches]) / Hs
         grad_cons[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_cons[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
+    elemsWithForces = find_elements_with_forces(fe_solver.mesh, fe_solver.bc.force,3)
+    if (elemsWithForces.size > 0):
+        grad_obj[elemsWithForces] = min(grad_obj)
+
+
+    # print(to_params.ElemsToKeep)
+
+    if (to_params.ElemsToKeep is not None):
+        grad_obj[to_params.ElemsToKeep] = min(grad_obj)
     grad_obj= np.array([grad_obj]).reshape((num_design_var, 1))
     cons = np.array([cons]).reshape((1, 1))
     grad_cons = grad_cons.reshape((1, num_design_var))
@@ -311,6 +333,15 @@ def optimizationFunction_tempdependent(
         grad_obj[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_obj[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
         grad_cons[num_elems:num_elems + num_patches] = (H * grad_cons[num_elems:num_elems + num_patches]) / Hs
         grad_cons[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_cons[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
+    elemsWithForces = find_elements_with_forces(fe_solver_structural.mesh, fe_solver_structural.bc.force,3)
+    if (elemsWithForces.size > 0):
+        grad_obj[elemsWithForces] = min(grad_obj)
+
+
+    # print(to_params.ElemsToKeep)
+
+    if (to_params.ElemsToKeep is not None):
+        grad_obj[to_params.ElemsToKeep] = min(grad_obj)
     grad_obj= np.array([grad_obj]).reshape((num_design_var, 1))
     cons = np.array([cons]).reshape((1, 1))
     grad_cons = grad_cons.reshape((1, num_design_var))

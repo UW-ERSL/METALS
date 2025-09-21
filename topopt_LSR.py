@@ -189,8 +189,9 @@ def run_topopt(
         latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
     else:
         latent_init = np.zeros((2 * num_patches, 1))
-    latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
-    latent_init[num_patches:2*num_patches,0] = (H * latent_init[num_patches:2*num_patches,0]) / Hs
+    if (apply_filter_to_materials):
+        latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
+        latent_init[num_patches:2*num_patches,0] = (H * latent_init[num_patches:2*num_patches,0]) / Hs
     mma_init = np.concatenate((0.5 * np.ones((num_elems, 1)), latent_init), axis=0)
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
@@ -311,20 +312,20 @@ def run_topopt(
 
 if __name__ == "__main__":
     run_topopt(
-        to_problem=METALSTOExamples.EdgeCantilever,
+        to_problem=METALSTOExamples.BliskSectionWithSymmetry,
         thermal_problem=METALSThermalExamples.EdgeCantilever_TempBC,
         use_temp_dependent=False,
-        nPatchesDesired= 0,
+        nPatchesDesired= 20,
         random_latent_init=True,
         debug=False,
-        maxMMAIterations=100,
+        maxMMAIterations=80,
         use_pretrained_vae=True,
         plot_patches_flag=False,
         use_penalization=True,
-        rel_conv_tol=1e-5,
-        nDOFDesired=10000,
-        apply_filter_to_materials=True,
-        results_filename="EdgeCantilever_PureStructural_NoPenalization15kg.pkl"
+        rel_conv_tol=1e-7,
+        nDOFDesired=100000,
+        apply_filter_to_materials=False,
+        results_filename="BliskSectionWithSymmetry_YesPenalization0pt035kg_150iter_100000DOF.pkl"
     )
     """
     Runs topology optimization with VAE-based material design.

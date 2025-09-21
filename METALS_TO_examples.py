@@ -5,6 +5,7 @@ from LSRImports import *
 class METALSTOExamples(enum.Enum):
 	EdgeCantilever = enum.auto()  # Another variant of edge cantilever
 	BliskWithBladeMass = enum.auto()
+	BliskSectionWithSymmetry = enum.auto()
 
 def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
@@ -31,6 +32,13 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.RemoveHangingElems = True
         to_params.nDOFDesired = nDOFDesired
         to_params.Constraints = [(TO_QOI.MASS, None, 0.01)]  # kg
+    elif to_problem == METALSTOExamples.BliskSectionWithSymmetry:
+        structural_problem = METALSStructuralExamples.BliskSectionWithSymmetry
+        to_params.Comment  = "Large DOF"
+        to_params.KeepFixedElems = True
+        to_params.RemoveHangingElems = False
+        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.025)]  # kg
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     
@@ -53,5 +61,11 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         outerRadius2 = 0.08
         bladeElements = mesh.get_elems_within_annular_region(centerPt,axis,outerRadius1,outerRadius2)
         to_params.ElemsToKeep = np.union1d(to_params.ElemsToKeep, bladeElements)
-
+    if to_problem == METALSTOExamples.BliskSectionWithSymmetry:
+        centerPt = [0,0,0]
+        axis = [0,0,1]
+        outerRadius1 = 0.0558
+        outerRadius2 = 0.1
+        bladeElements = mesh.get_elems_within_annular_region(centerPt,axis,outerRadius1,outerRadius2)
+        to_params.ElemsToKeep = np.union1d(to_params.ElemsToKeep, bladeElements)
     return mesh, mat_prop, bc, elem_body_force, to_params
