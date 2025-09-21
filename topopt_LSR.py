@@ -112,7 +112,7 @@ def run_topopt(
         rtol=1e-8,
         elem_body_force=elem_body_force
     )
-    fe_solver_structural.plot_mesh(title="Structural Mesh with Boundary Conditions", plot_bc=True)
+    #fe_solver_structural.plot_mesh(title="Structural Mesh with Boundary Conditions", plot_bc=True)
     if isinstance(mat_prop_struct, list):
         KE = hex_element_stiffness.hex8_stiffness_matrix_structural(
             mat_prop_struct[0].youngs_modulus, mat_prop_struct[0].poissons_ratio, mesh_structural.elem_size
@@ -318,7 +318,7 @@ if __name__ == "__main__":
         nPatchesDesired= 20,
         random_latent_init=True,
         debug=False,
-        maxMMAIterations=80,
+        maxMMAIterations=50,
         use_pretrained_vae=True,
         plot_patches_flag=False,
         use_penalization=True,

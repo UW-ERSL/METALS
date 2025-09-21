@@ -72,15 +72,12 @@ def patchwork(mesh, nPatchesDesired=8):
     unique, counts = np.unique(elemPatchNumber, return_counts=True)
     num_elems_per_patch = np.zeros(np.max(elemPatchNumber) + 1, dtype=int)
     num_elems_per_patch[unique] = counts
-    print(f"Number of elements per patch: {num_elems_per_patch}")
-
+  
     # Remove empty patches and renumber so patch numbers are contiguous
     unique_patches, inverse_indices = np.unique(elemPatchNumber, return_inverse=True)
     elemPatchNumber = inverse_indices.astype(np.int32)
 
-    print(f"Number of patches: {len(unique_patches)}")
-    for i, count in enumerate(np.bincount(elemPatchNumber)):
-        print(f"Patch {i}: {count} elements")
+   
     return elemPatchNumber
 
 # --- Pure Structural Optimization Function ---
