@@ -326,7 +326,7 @@ if __name__ == "__main__":
         nDOFDesired=100000,
         apply_filter_to_materials=False,
         results_filename="BliskSectionWithSymmetry_YesPenalization0pt035kg_150iter_100000DOF.pkl"
-    )
+    ) 
     """
     Runs topology optimization with VAE-based material design.
 
