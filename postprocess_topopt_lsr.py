@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import torch
 import os
 import sys
-
+from topopt_LSR import ProblemType
 from smallestEllipse import plot_ellipse, welzl
 
 # --- Import your project modules for mesh and plotting ---

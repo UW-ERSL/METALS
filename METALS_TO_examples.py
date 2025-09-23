@@ -6,7 +6,7 @@ class METALSTOExamples(enum.Enum):
 	EdgeCantilever = enum.auto()  # Another variant of edge cantilever
 	BliskWithBladeMass = enum.auto()
 	BliskSectionWithSymmetry = enum.auto()
-
+	BridgeMMTO = enum.auto()
 def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
 
@@ -38,7 +38,14 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = False
         to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 0.025)]  # kg
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.035)]  # kg
+    elif to_problem == METALSTOExamples.BridgeMMTO:
+        structural_problem = METALSStructuralExamples.BridgeMMTO
+        to_params.Comment  = "Benchmark 2.5D"
+        to_params.XSymmetry = True 
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000)]
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     

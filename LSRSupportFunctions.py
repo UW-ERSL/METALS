@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import matplotlib.cm as cm
 from LSRImports import *
+import math
 def plot_patches(mesh, nPatchesDesired=8, title_prefix="Patchwork Coloring"):
     patchwork_colors = patchwork(mesh, nPatchesDesired=nPatchesDesired)
     elem_centers = mesh.elem_centers
@@ -115,7 +116,9 @@ def optimizationFunction_structural(
     obj = np.einsum('i, i -> ', fe_solver.total_force, sol)
     if shared_vars['J0'] is None:
         shared_vars['J0'] = obj
+        print(f"J0: {obj}")
     J0 = shared_vars['J0']
+    print(f"J: {obj}")
     obj_norm = obj / J0
     ce = (np.dot(sol[fe_solver.mesh.edofMat].reshape(num_elems, 24), KE) * sol[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
     penal = 3.0
@@ -201,18 +204,20 @@ def optimizationFunction_structural(
     dpen = xTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_patches, latentDim)
     # Add penalty gradient to grad_obj (for latent variables only)
     grad_obj[num_elems:,0] += dpen.flatten()      
-    import math
+    
 
     # Print order of magnitude for scaled compliance and penalty
-    if obj_norm > 0:
-        print(f"Iteration: Scaled compliance (obj/J0) = {obj_norm:.3e} (10^{int(math.log10(obj_norm))})")
-    else:
-        print(f"Iteration: Scaled compliance (obj/J0) = {obj_norm:.3e} (zero or negative)")
+    # if obj_norm > 0:
+    #     print(f"Iteration: Scaled compliance (obj/J0) = {obj_norm:.3e} (10^{int(math.log10(obj_norm))})")
+    # else:
+    #     print(f"Iteration: Scaled compliance (obj/J0) = {obj_norm:.3e} (zero or negative)")
 
-    if penalty.item() > 0:
-        print(f"Iteration: Distance penalty = {penalty.item():.3e} (10^{int(math.log10(penalty.item()))})")
-    else:
-        print(f"Iteration: Distance penalty = {penalty.item():.3e} (zero or negative)") 
+    # if penalty.item() > 0:
+    #     print(f"Iteration: Distance penalty = {penalty.item():.3e} (10^{int(math.log10(penalty.item()))})")
+    # else:
+    #     print(f"Iteration: Distance penalty = {penalty.item():.3e} (zero or negative)") 
+
+
     return obj, grad_obj, cons, grad_cons
 
 # --- Temp-Dependent Optimization Function ---
