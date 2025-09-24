@@ -16,6 +16,7 @@ class ProblemType(Enum):
     PURE_STRUCTURAL = auto()
     TEMP_DEPENDENT = auto()
     BENCHMARK = auto()
+    BENCHMARK_COST = auto()
 
 def run_topopt(
     to_problem,
@@ -43,9 +44,9 @@ def run_topopt(
 ):
     # --- Set gamma and normalization based on penalization flag ---
     if use_penalization:
-        gamma_init = 1e-6
+        gamma_init = 0
         gamma_max = 1000
-        gamma_factor = 1.25
+        gamma_factor = 0
         print(f"Penalization is ENABLED (gamma_init={gamma_init}, gamma_max={gamma_max}, gamma_factor={gamma_factor}).")
     else:
         gamma_init = 0
@@ -63,6 +64,9 @@ def run_topopt(
     elif problem_type == ProblemType.BENCHMARK:
         default_excel = './data/BenchmarkDatabase.xlsx'
         default_vae = './data/vaeNet_ref_benchmark.nt'
+    elif problem_type == ProblemType.BENCHMARK_COST:
+        default_excel = './data/BenchmarkDatabaseCost.xlsx'
+        default_vae = './data/vaeNet_ref_benchmark_cost.nt'
     else:
         raise ValueError("Unknown problem type.")
 
@@ -188,6 +192,22 @@ def run_topopt(
                 gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
                 print(f"Gamma updated to: {gamma['value']}")
             return obj, grad_obj, cons, grad_cons
+        nConstraints = 1
+    elif problem_type == ProblemType.BENCHMARK_COST:
+        def mma_obj(x):
+            obj, grad_obj, cons, grad_cons = optimizationFunction_structuralcost(
+                x, fe_solver_structural, to_params, materialEncoder,
+                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
+                gamma=gamma['value'],
+                debug=debug,
+                apply_filter_to_materials=apply_filter_to_materials,
+                use_penalization=use_penalization
+            )
+            if use_penalization:
+                gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
+                print(f"Gamma updated to: {gamma['value']}")
+            return obj, grad_obj, cons, grad_cons
+        nConstraints = 2
     else:
         def mma_obj(x):
             obj, grad_obj, cons, grad_cons = optimizationFunction_structural(
@@ -202,11 +222,12 @@ def run_topopt(
                 gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
                 print(f"Gamma updated to: {gamma['value']}")
             return obj, grad_obj, cons, grad_cons
+        nConstraints = 1
 
     # Initial guess
     if random_latent_init: 
         latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
-        latent_init = 0.1*np.ones((2 * num_patches, 1))
+        # latent_init = 0.1*np.ones((2 * num_patches, 1))
     else:
         latent_init = np.zeros((2 * num_patches, 1))
     if (apply_filter_to_materials): 
@@ -216,15 +237,19 @@ def run_topopt(
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
     nVariables = num_design_var
-    nConstraints = 1
-
     # --- Run MMA ---
     if problem_type == ProblemType.TEMP_DEPENDENT:
         print("Running MMA optimization with temperature-dependent LSR...")
+        nConstraints = 1
     elif problem_type == ProblemType.PURE_STRUCTURAL:
         print("Running MMA optimization with pure structural LSR...")
+        nConstraints = 1
     elif problem_type == ProblemType.BENCHMARK:
         print("Running MMA optimization with benchmark LSR...")
+        nConstraints = 1
+    elif problem_type == ProblemType.BENCHMARK_COST:
+        print("Running MMA optimization with benchmark cost LSR...")
+        nConstraints = 2
     else:
         raise ValueError("Unknown problem type.")
     [xOptimal, f0val, df0dx, gval, dgdx, nFEAs] = runMMA(
@@ -335,10 +360,11 @@ def run_topopt(
     print(f"Results saved to {results_filename}")
 
 if __name__ == "__main__":
+    # Example: Run BridgeMMTOCost problem with BENCHMARK_COST type
     run_topopt(
-        to_problem=METALSTOExamples.BridgeMMTO,
-        thermal_problem=METALSThermalExamples.EdgeCantilever_TempBC,
-        problem_type=ProblemType.BENCHMARK,
+        to_problem=METALSTOExamples.BridgeMMTOCost,
+        thermal_problem=None,
+        problem_type=ProblemType.BENCHMARK_COST,
         nPatchesDesired=0,
         random_latent_init=True,
         debug=False,
@@ -347,9 +373,9 @@ if __name__ == "__main__":
         plot_patches_flag=False,
         use_penalization=True,
         rel_conv_tol=1e-7,
-        nDOFDesired=10000,
-        apply_filter_to_materials=False,
-        results_filename="EdgeCantilever_YesPenalization0pt035kg_150iter_100000DOF.pkl"
+        nDOFDesired=50000,
+        apply_filter_to_materials=True,
+        results_filename="BridgeMMTOCost_YesPenalization0pt035kg_150iter_50000DOF.pkl"
     )
     """
     Runs topology optimization with VAE-based material design.

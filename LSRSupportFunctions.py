@@ -381,6 +381,132 @@ def optimizationFunction_tempdependent(
         print(f"Iteration: Distance penalty = {penalty.item():.3e} (zero or negative)") 
     return obj, grad_obj, cons, grad_cons
 
+# --- Structural Cost Optimization Function ---
+def optimizationFunction_structuralcost(
+    x, fe_solver, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True, use_penalization=True
+):
+    if 'J0' not in shared_vars or shared_vars['J0'] is None:
+        shared_vars['J0'] = None
+    if use_penalization:
+        x = np.asarray(x).flatten()
+        x = vae_info.unnormalize_last_n(arr=x, n=2*num_patches)
+    else:
+        x = np.asarray(x).flatten()
+        x = vae_info.map_to_ellipse_torch_patch(x, num_material_vars=2*num_patches)
+    xTensor = torch.tensor(x).float()
+    xTensor.requires_grad = True
+    xDesign = x[0:num_elems]
+    zD = xTensor[num_elems:]
+    zDesign = zD.view(2, -1).T
+    decoded = materialEncoder.vaeNet.decoder(zDesign)
+    youngsModulus, massDensity, cost = materialEncoder.getMaterialProperties_structuralcost(decoded)
+    ym = youngsModulus.detach().numpy()
+    EDesign = np.zeros_like(patchwork_colors, dtype=float)
+    for patch_id in range(num_patches):
+        EDesign[patchwork_colors == patch_id] = ym[patch_id]
+    fe_solver.mat_prop = [
+        mat_lib.create_material_with_defaults(name=f"Material_{i+1}", youngs_modulus=EDesign[i])
+        for i in range(EDesign.shape[0])
+    ]
+    fe_solver.set_structural_material(fe_solver.mat_prop)
+    sol = fe_solver.solve(xDesign, MaterialModel.SIMP)
+    obj = np.einsum('i, i -> ', fe_solver.total_force, sol)
+    if shared_vars['J0'] is None:
+        shared_vars['J0'] = obj
+        print(f"J0: {obj}")
+    J0 = shared_vars['J0']
+    print(f"J: {obj}")
+    obj_norm = obj / J0
+    ce = (np.dot(sol[fe_solver.mesh.edofMat].reshape(num_elems, 24), KE) * sol[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+    penal = 3.0
+    dJ_dxDesign = (-penal * xDesign ** (penal - 1)) * EDesign * ce
+    dJ_dEDesign = np.asarray((xDesign ** penal) * ce)
+    reduced_dJ_dEDesign = np.zeros(num_patches)
+    for patch_id in range(num_patches):
+        reduced_dJ_dEDesign[patch_id] = np.mean(dJ_dEDesign[patchwork_colors == patch_id])
+    dJ_dEDesign_tensor = torch.tensor(reduced_dJ_dEDesign)
+    youngsModulus.backward(dJ_dEDesign_tensor)
+    dJ_dzDesign = xTensor.grad.detach().numpy()
+    grad_obj = np.concatenate((dJ_dxDesign, -dJ_dzDesign[num_elems:].flatten()))
+    grad_obj = grad_obj / J0
+    vf = np.mean(xDesign)
+    # --- Mass and Cost Constraints ---
+    xConstraint_tensor = torch.tensor(x).float()
+    xConstraint_tensor.requires_grad = True
+    pseudoDensity = xConstraint_tensor[0:num_elems]
+    zcTensor = xConstraint_tensor[num_elems:]
+    zc = zcTensor.view(2, -1).T
+    decoded = materialEncoder.vaeNet.decoder(zc)
+    youngsModulus_c, massDensity_c, cost_c = materialEncoder.getMaterialProperties_structuralcost(decoded)
+    md = torch.zeros(patchwork_colors.size, dtype=torch.float32)
+    cost_vec = torch.zeros(patchwork_colors.size, dtype=torch.float32)
+    for patch_id in range(num_patches):
+        md[patchwork_colors == patch_id] = massDensity_c[patch_id]
+        cost_vec[patchwork_colors == patch_id] = cost_c[patch_id]
+    totalMass = torch.einsum('m,m->m', md, pseudoDensity).sum() * fe_solver.mesh.elem_size[0] ** 3
+    shared_vars['current_mass'] = float(totalMass.item())
+    if 'history' not in shared_vars:
+        shared_vars['history'] = {'compliance': [], 'volfrac': [], 'mass': [], 'cost': []}
+    shared_vars['history']['mass'].append(float(totalMass.item()))
+    massConstraint = ((totalMass / to_params.Constraints[0][2]) - 1.0)
+    massConstraint.backward(retain_graph=True)
+    cons_mass = massConstraint.detach().numpy()
+    grad_cons_mass = xConstraint_tensor.grad.detach().numpy()
+    xConstraint_tensor.grad = None
+    totalCost = torch.einsum('m,m,m->m', cost_vec, md, pseudoDensity).sum() * fe_solver.mesh.elem_size[0] ** 3
+    shared_vars['current_cost'] = float(totalCost.item())
+    shared_vars['history']['cost'].append(float(totalCost.item()))
+    costConstraint = ((totalCost / to_params.Constraints[1][2]) - 1.0)
+    costConstraint.backward()
+    cons_cost = costConstraint.detach().numpy()
+    grad_cons_cost = xConstraint_tensor.grad.detach().numpy()
+    # Print target and current mass/cost
+    target_mass = to_params.Constraints[0][2]
+    target_cost = to_params.Constraints[1][2]
+    print(f"Iteration: Target mass = {target_mass:.4f}, Current mass = {totalMass.item():.4f}")
+    print(f"Iteration: Target cost = {target_cost:.4f}, Current cost = {totalCost.item():.4f}")
+    shared_vars['EDesign'] = EDesign.copy()
+    shared_vars['zDesign'] = zDesign.clone()
+    if 'history' not in shared_vars:
+        shared_vars['history'] = {'compliance': [], 'volfrac': []}
+    shared_vars['history']['compliance'].append(float(obj))
+    shared_vars['history']['volfrac'].append(float(vf))
+    # Apply filter to density and (optionally) latent variables
+    grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
+    grad_cons_mass[0:num_elems] = (H * grad_cons_mass[0:num_elems]) / Hs
+    grad_cons_cost[0:num_elems] = (H * grad_cons_cost[0:num_elems]) / Hs
+    if apply_filter_to_materials:
+        print("Applying filter to material latent variables.")
+        print(f"num_elems: {num_elems}, num_patches: {num_patches}")
+        grad_obj[num_elems:num_elems + num_patches] = (H * grad_obj[num_elems:num_elems + num_patches]) / Hs
+        grad_obj[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_obj[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
+        grad_cons_mass[num_elems:num_elems + num_patches] = (H * grad_cons_mass[num_elems:num_elems + num_patches]) / Hs
+        grad_cons_mass[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_cons_mass[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
+        grad_cons_cost[num_elems:num_elems + num_patches] = (H * grad_cons_cost[num_elems:num_elems + num_patches]) / Hs
+        grad_cons_cost[num_elems + num_patches:num_elems + 2*num_patches] = (H * grad_cons_cost[num_elems + num_patches:num_elems + 2*num_patches]) / Hs  
+    elemsWithForces = find_elements_with_forces(fe_solver.mesh, fe_solver.bc.force,3)
+    if (elemsWithForces.size > 0):
+        grad_obj[elemsWithForces] = min(grad_obj)
+    if (to_params.ElemsToKeep is not None):
+        grad_obj[to_params.ElemsToKeep] = min(grad_obj)
+    grad_obj= np.array([grad_obj]).reshape((num_design_var, 1))
+    cons = np.array([cons_mass, cons_cost]).reshape((2, 1))
+    grad_cons = np.vstack([grad_cons_mass.reshape((1, num_design_var)), grad_cons_cost.reshape((1, num_design_var))])
+    # --- Latent space penalization ---
+    Z_data = vae_info.training_latents.to(zDesign.device)  # shape (N_train, latentDim)
+    p_softmin = -1
+    d_ij = torch.cdist(zDesign, Z_data, p=2)  # shape (num_patches, N_train)
+    soft_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
+    penalty = gamma * torch.sum(soft_i)/num_patches
+    # Add penalty to objective
+    obj = obj_norm + penalty.item()
+    # Backprop for penalty gradient
+    xTensor.grad = None
+    penalty.backward(retain_graph=True)
+    dpen = xTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_patches, latentDim)
+    grad_obj[num_elems:,0] += dpen.flatten()      
+    return obj, grad_obj, cons, grad_cons
+
 def plot_loading_and_bc(mesh, bc, title="Loading and Boundary Conditions"):
     fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(111, projection='3d')

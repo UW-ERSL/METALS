@@ -5,13 +5,38 @@ import pandas as pd
 class ReadMaterialData:
     def __init__(self, excel_file):
         self.excel_file = excel_file
-        # Decide which preprocessing to use based on file name
-        if "Temp" in excel_file or "temp" in excel_file:
+        # Decide which preprocessing to use based on file name (case-insensitive)
+        file_lower = excel_file.lower()  
+        if "temp" in file_lower:
             self.mode = "tempdependent"
             self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo, self.EMax = self.preprocessData_tempdependent()
+        elif "cost" in file_lower:
+            self.mode = "structuralcost"
+            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo, self.EMax = self.preprocessData_structuralcost()
         else:
             self.mode = "structural"
             self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo, self.EMax = self.preprocessData_structural()
+    def preprocessData_structuralcost(self):
+        df = pd.read_excel(self.excel_file)
+        # Read MassDensity (6th col, index 5), ElasticModulus (11th col, index 10), Cost (13th col, index 12)
+        rawData = df.iloc[:, [5, 10, 12]].to_numpy()
+        feature_names = ['MassDensity', 'ElasticModulus', 'Cost']
+        YoungsModulus = rawData[:, 1]
+        EMax = np.max(YoungsModulus)
+        trainInfo = np.log10(rawData)
+        dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
+        dataScaleMin = torch.tensor(np.min(trainInfo, axis=0))
+        normalizedData = (torch.tensor(trainInfo) - dataScaleMin) / (dataScaleMax - dataScaleMin)
+        trainingData = normalizedData.clone().float()
+        dataInfo = {}
+        for i, name in enumerate(feature_names):
+            dataInfo[name] = {'idx': i, 'scaleMin': dataScaleMin[i], 'scaleMax': dataScaleMax[i]}
+        dataIdentifier = {
+            'name': df[df.columns[0]],
+            'className': df[df.columns[1]],
+            'classID': df[df.columns[2]]
+        }
+        return trainingData, dataInfo, dataIdentifier, trainInfo, EMax
 
     def preprocessData_structural(self):
         df = pd.read_excel(self.excel_file)

@@ -3,10 +3,11 @@ from METALS_structural_examples import *
 from LSRImports import *
 
 class METALSTOExamples(enum.Enum):
-	EdgeCantilever = enum.auto()  # Another variant of edge cantilever
-	BliskWithBladeMass = enum.auto()
-	BliskSectionWithSymmetry = enum.auto()
-	BridgeMMTO = enum.auto()
+    EdgeCantilever = enum.auto()  # Another variant of edge cantilever
+    BliskWithBladeMass = enum.auto()
+    BliskSectionWithSymmetry = enum.auto()
+    BridgeMMTO = enum.auto()
+    BridgeMMTOCost = enum.auto()
 def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
 
@@ -46,6 +47,14 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000)]
+    elif to_problem == METALSTOExamples.BridgeMMTOCost:
+        structural_problem = METALSStructuralExamples.BridgeMMTO
+        to_params.Comment  = "Benchmark 2.5D with Cost Constraint"
+        to_params.XSymmetry = True 
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        # Constraint order: [(MASS, None, mass_limit), (COST, None, cost_limit)]
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     

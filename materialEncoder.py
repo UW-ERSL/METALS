@@ -6,6 +6,7 @@ from matplotlib.patches import Polygon, Ellipse
 import numpy as np
 
 class MaterialEncoder:
+
   def __init__(self, trainingData, dataInfo, dataIdentifier, vaeSettings,constraints=None):
     self.trainingData, self.dataInfo = trainingData, dataInfo
     self.dataIdentifier = dataIdentifier
@@ -150,6 +151,22 @@ class MaterialEncoder:
     massDensity = massDensity * (0.001 / (1e-2)**3)  # g/cm^3 to kg/m^3
     # Thermal conductivity is already in W/mK in your sheet
     return Ea, Eb, Ec, Ed, massDensity, thermalConductivity
+  def getMaterialProperties_structuralcost(self, decoded):
+    def unlognorm(x, scaleMax, scaleMin):
+      return 10**(x*(scaleMax-scaleMin) + scaleMin)
+
+    youngModulus = unlognorm(decoded[:, self.dataInfo['ElasticModulus']['idx']],
+                              self.dataInfo['ElasticModulus']['scaleMax'],
+                              self.dataInfo['ElasticModulus']['scaleMin'])
+    physicalDensity = unlognorm(decoded[:, self.dataInfo['MassDensity']['idx']],
+                        self.dataInfo['MassDensity']['scaleMax'],
+                        self.dataInfo['MassDensity']['scaleMin'])
+    cost = unlognorm(decoded[:, self.dataInfo['Cost']['idx']],
+                     self.dataInfo['Cost']['scaleMax'],
+                     self.dataInfo['Cost']['scaleMin'])
+    youngModulus = youngModulus*1e9 # convert from Pa
+    physicalDensity = physicalDensity*(0.001/(1e-2)**3) # convert from g/cm^3 to kg/m^3
+    return youngModulus, physicalDensity, cost
   def normalize_last_n(self, arr, n, min_val=-3, max_val=3):
     # Copy the original array to avoid modifying it in-place
     arr_copy = np.copy(arr)
