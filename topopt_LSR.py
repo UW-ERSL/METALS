@@ -44,9 +44,9 @@ def run_topopt(
 ):
     # --- Set gamma and normalization based on penalization flag ---
     if use_penalization:
-        gamma_init = 0
+        gamma_init = 1e-6
         gamma_max = 1000
-        gamma_factor = 0
+        gamma_factor = 1.1
         print(f"Penalization is ENABLED (gamma_init={gamma_init}, gamma_max={gamma_max}, gamma_factor={gamma_factor}).")
     else:
         gamma_init = 0
@@ -98,6 +98,17 @@ def run_topopt(
     else:
         print(f"Training autoencoder from scratch and saving to: {saveNet}")
         materialEncoder.trainAutoencoder(numEpochs, klFactor, saveNet, learningRate)
+        with torch.no_grad():
+            z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
+        ax.set_xlabel('$z_1$')
+        ax.set_ylabel('$z_2$')
+        ax.set_title('Optimized Materials vs Real Materials in Latent Space')
+        ax.legend()
+        ax.set_aspect('equal', 'box')
+        plt.grid(True)
+        plt.show()
     # After loading or training the VAE
     with torch.no_grad():
         materialEncoder.training_latents = materialEncoder.vaeNet.encoder(trainingData).cpu()
@@ -227,7 +238,7 @@ def run_topopt(
     # Initial guess
     if random_latent_init: 
         latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
-        # latent_init = 0.1*np.ones((2 * num_patches, 1))
+        #latent_init = 0*np.ones((2 * num_patches, 1))
     else:
         latent_init = np.zeros((2 * num_patches, 1))
     if (apply_filter_to_materials): 
@@ -368,8 +379,8 @@ if __name__ == "__main__":
         nPatchesDesired=0,
         random_latent_init=True,
         debug=False,
-        maxMMAIterations=100,
-        use_pretrained_vae=True,
+        maxMMAIterations= 50,
+        use_pretrained_vae=False,
         plot_patches_flag=False,
         use_penalization=True,
         rel_conv_tol=1e-7,
