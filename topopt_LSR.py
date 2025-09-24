@@ -27,10 +27,10 @@ def run_topopt(
     debug=False,
     maxMMAIterations=200,
     timeLimit=7200,
-    klFactor=5e-5,
-    learningRate=2e-3,
+    klFactor= 1e-6,
+    learningRate=1e-2,
     numEpochs=40000,
-    vae_hiddenDim=250,
+    vae_hiddenDim=50,
     latentDim=2,
     saveNet=None,
     use_pretrained_vae=False,
@@ -45,8 +45,8 @@ def run_topopt(
     # --- Set gamma and normalization based on penalization flag ---
     if use_penalization:
         gamma_init = 1e-6
-        gamma_max = 1000
-        gamma_factor = 1.1
+        gamma_max = 100
+        gamma_factor = 1.25
         print(f"Penalization is ENABLED (gamma_init={gamma_init}, gamma_max={gamma_max}, gamma_factor={gamma_factor}).")
     else:
         gamma_init = 0
@@ -187,7 +187,7 @@ def run_topopt(
 
     # --- Gamma as mutable object for update ---
     gamma = {'value': gamma_init}
-
+    iterationCount = 0
     # --- MMA Objective Functions ---
     if problem_type == ProblemType.TEMP_DEPENDENT:
         def mma_obj(x):
@@ -199,7 +199,9 @@ def run_topopt(
                 apply_filter_to_materials=apply_filter_to_materials,
                 use_penalization=use_penalization
             )
-            if use_penalization:
+            nonlocal iterationCount
+            iterationCount += 1
+            if (iterationCount% 10 ==0) and use_penalization:
                 gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
                 print(f"Gamma updated to: {gamma['value']}")
             return obj, grad_obj, cons, grad_cons
@@ -214,7 +216,9 @@ def run_topopt(
                 apply_filter_to_materials=apply_filter_to_materials,
                 use_penalization=use_penalization
             )
-            if use_penalization:
+            nonlocal iterationCount
+            iterationCount += 1
+            if (iterationCount% 1 ==0) and use_penalization:
                 gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
                 print(f"Gamma updated to: {gamma['value']}")
             return obj, grad_obj, cons, grad_cons
@@ -237,8 +241,8 @@ def run_topopt(
 
     # Initial guess
     if random_latent_init: 
-        latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
-        #latent_init = 0*np.ones((2 * num_patches, 1))
+        latent_init = np.random.uniform(0, 0.5, size=(2 * num_patches, 1))
+        latent_init = 0.0*np.ones((2 * num_patches, 1))
     else:
         latent_init = np.zeros((2 * num_patches, 1))
     if (apply_filter_to_materials): 
@@ -376,16 +380,16 @@ if __name__ == "__main__":
         to_problem=METALSTOExamples.BridgeMMTOCost,
         thermal_problem=None,
         problem_type=ProblemType.BENCHMARK_COST,
-        nPatchesDesired=0,
+        nPatchesDesired= 0,
         random_latent_init=True,
         debug=False,
-        maxMMAIterations= 50,
+        maxMMAIterations= 150,
         use_pretrained_vae=False,
         plot_patches_flag=False,
         use_penalization=True,
         rel_conv_tol=1e-7,
         nDOFDesired=50000,
-        apply_filter_to_materials=True,
+        apply_filter_to_materials=False,
         results_filename="BridgeMMTOCost_YesPenalization0pt035kg_150iter_50000DOF.pkl"
     )
     """

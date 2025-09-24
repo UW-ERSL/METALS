@@ -56,11 +56,19 @@ def patchwork(mesh, nPatchesDesired=8):
     xLength = np.max(xyz[:,0]) - xMin
     yLength = np.max(xyz[:,1]) - yMin
     zLength = np.max(xyz[:,2]) - zMin
-    temp = xLength * yLength * zLength
+
+    if (zLength < 1e-12):
+        print("2D problem detected (zLength is negligible). Using 2D patching.")
+        zLength = 1.0
+        temp = xLength * yLength 
+    else:
+        temp = xLength * yLength * zLength
     alpha = (nPatchesDesired / temp) ** (1.0 / 3)
+    print(f"Calculated alpha={alpha} for nPatchesDesired={nPatchesDesired}.")
     nX = max(round(alpha*xLength), 1)
     nY = max(round(alpha*yLength), 1)
     nZ = max(round(alpha*zLength), 1)
+    print(f"Dividing domain into nX={nX}, nY={nY}, nZ={nZ} patches.")
     nPatchesTentative = nX * nY * nZ
     sizeX = xLength / nX
     sizeY = yLength / nY
@@ -78,7 +86,7 @@ def patchwork(mesh, nPatchesDesired=8):
     unique_patches, inverse_indices = np.unique(elemPatchNumber, return_inverse=True)
     elemPatchNumber = inverse_indices.astype(np.int32)
 
-   
+    print(elemPatchNumber)
     return elemPatchNumber
 
 # --- Pure Structural Optimization Function ---
