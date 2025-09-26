@@ -39,9 +39,7 @@ class MaterialEncoder:
       if(epoch%500 == 0):
         print('Iter {:d} reconLoss {:.3e} klLoss {:.3e} loss {:.3e}'.\
               format(epoch, reconLoss.item(), klLoss.item(), loss.item()))
-      if (reconLoss < 1e-5):
-        print('Early stopping at epoch {:d} as reconLoss < 1e-5'.format(epoch))
-        break
+     
     self.vaeNet.encoder.isTraining = False
     torch.save(self.vaeNet.state_dict(), savedNet)
     return convgHistory

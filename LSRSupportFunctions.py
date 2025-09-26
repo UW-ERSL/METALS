@@ -502,8 +502,8 @@ def optimizationFunction_structuralcost(
     grad_cons = np.vstack([grad_cons_mass.reshape((1, num_design_var)), grad_cons_cost.reshape((1, num_design_var))])
     # --- Latent space penalization ---
     Z_data = vae_info.training_latents.to(zDesign.device)  # shape (N_train, latentDim)
-    p_softmin = -1
-    d_ij = torch.cdist(zDesign, Z_data, p=2)  # shape (num_patches, N_train)
+    p_softmin = -6
+    d_ij = torch.cdist(zDesign, Z_data, p=2) + 1e-6  # shape (num_patches, N_train)
     soft_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
     penalty = gamma * torch.sum(soft_i)/num_patches
     # Add penalty to objective

@@ -11,6 +11,7 @@ from materialEncoder import MaterialEncoder
 from LSRImports import *
 from ReadMaterialData import ReadMaterialData
 from enum import Enum, auto
+from scipy.spatial import ConvexHull
 
 class ProblemType(Enum):
     PURE_STRUCTURAL = auto()
@@ -27,16 +28,16 @@ def run_topopt(
     debug=False,
     maxMMAIterations=200,
     timeLimit=7200,
-    klFactor= 1e-6,
-    learningRate=1e-2,
-    numEpochs=40000,
-    vae_hiddenDim=50,
+    klFactor= 5e-6,
+    learningRate=2e-6,
+    numEpochs=100000,
+    vae_hiddenDim=500,
     latentDim=2,
     saveNet=None,
     use_pretrained_vae=False,
     plot_patches_flag=False,
     use_penalization=True,
-    rel_conv_tol=1e-3,
+    rel_conv_tol=1e-7,
     nDOFDesired=5000,
     apply_filter_to_materials=True,
     material_excel_file=None,
@@ -44,9 +45,9 @@ def run_topopt(
 ):
     # --- Set gamma and normalization based on penalization flag ---
     if use_penalization:
-        gamma_init = 1e-6
-        gamma_max = 100
-        gamma_factor = 1.25
+        gamma_init = 1e-3
+        gamma_max = 1000
+        gamma_factor = 2 # also change in optimizationFunction
         print(f"Penalization is ENABLED (gamma_init={gamma_init}, gamma_max={gamma_max}, gamma_factor={gamma_factor}).")
     else:
         gamma_init = 0
@@ -79,6 +80,7 @@ def run_topopt(
     material_data = ReadMaterialData(material_excel_file)
     trainingData = material_data.trainingData
     dataInfo = material_data.dataInfo
+
     dataIdentifier = material_data.dataIdentifier
     numFeatures = trainingData.shape[1]
 
@@ -100,15 +102,7 @@ def run_topopt(
         materialEncoder.trainAutoencoder(numEpochs, klFactor, saveNet, learningRate)
         with torch.no_grad():
             z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
-        fig, ax = plt.subplots(figsize=(8, 8))
-        ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
-        ax.set_xlabel('$z_1$')
-        ax.set_ylabel('$z_2$')
-        ax.set_title('Optimized Materials vs Real Materials in Latent Space')
-        ax.legend()
-        ax.set_aspect('equal', 'box')
-        plt.grid(True)
-        plt.show()
+       
     # After loading or training the VAE
     with torch.no_grad():
         materialEncoder.training_latents = materialEncoder.vaeNet.encoder(trainingData).cpu()
@@ -218,7 +212,11 @@ def run_topopt(
             )
             nonlocal iterationCount
             iterationCount += 1
-            if (iterationCount% 1 ==0) and use_penalization:
+            if (iterationCount < 50):
+                gamma['value'] = 0
+            elif (iterationCount == 50):
+                gamma['value'] = 1e-3
+            if use_penalization:
                 gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
                 print(f"Gamma updated to: {gamma['value']}")
             return obj, grad_obj, cons, grad_cons
@@ -240,11 +238,43 @@ def run_topopt(
         nConstraints = 1
 
     # Initial guess
+    latent_init = 0.0*np.ones((2 * num_patches, 1))
     if random_latent_init: 
-        latent_init = np.random.uniform(0, 0.5, size=(2 * num_patches, 1))
-        latent_init = 0.0*np.ones((2 * num_patches, 1))
-    else:
-        latent_init = np.zeros((2 * num_patches, 1))
+        latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
+        
+        # Generate N latent points within the convex hull of z_real_np
+        # N =  num_patches  # Number of latent points to generate
+
+        # # Get convex hull vertices
+        # hull = ConvexHull(z_real_np)
+        # hull_points = z_real_np[hull.vertices]
+
+        # def random_point_in_hull(hull_points, dim=2):
+        #     # Use random convex combination of hull vertices
+        #     coeffs = np.random.dirichlet(np.ones(len(hull_points)))
+        #     return np.dot(coeffs, hull_points)
+
+        # latent_init = np.zeros((N, 1))
+        # latent_points = []
+        # for _ in range(N):
+        #     pt = random_point_in_hull(hull_points)
+        #     latent_points.append(pt)
+        # latent_points = 0.25*np.array(latent_points) # Shrink towards center
+        # latent_points = latent_init.copy()
+        # latent_points = latent_points.reshape(num_patches, 2)
+        # fig, ax = plt.subplots(figsize=(8, 8))
+        # ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
+        # ax.scatter(latent_points[:, 0], latent_points[:, 1], c='blue', marker='o', s=40, label='Initial Latent Points', alpha=0.5)
+        # ax.set_xlabel('$z_1$')
+        # ax.set_ylabel('$z_2$')
+        # ax.set_title('Optimized Materials vs Real Materials in Latent Space')
+        # ax.legend()
+        # ax.set_aspect('equal', 'box')
+        # plt.grid(True)
+        # plt.show()
+        
+        
+       
     if (apply_filter_to_materials): 
         latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
         latent_init[num_patches:2*num_patches,0] = (H * latent_init[num_patches:2*num_patches,0]) / Hs
@@ -267,6 +297,7 @@ def run_topopt(
         nConstraints = 2
     else:
         raise ValueError("Unknown problem type.")
+    print("timeLimit",timeLimit)
     [xOptimal, f0val, df0dx, gval, dgdx, nFEAs] = runMMA(
         nVariables, nConstraints, mma_obj, mma_init.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
@@ -297,8 +328,10 @@ def run_topopt(
         z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
     z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
     fig, ax = plt.subplots(figsize=(8, 8))
-    ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
-    ax.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=40, label='Optimized Materials', alpha=0.5)
+    # Plot real material points with labels
+    ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=200, label='real materials', alpha=1.0)
+
+    ax.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
     ax.set_xlabel('$z_1$')
     ax.set_ylabel('$z_2$')
     ax.set_title('Optimized Materials vs Real Materials in Latent Space')
@@ -383,14 +416,14 @@ if __name__ == "__main__":
         nPatchesDesired= 0,
         random_latent_init=True,
         debug=False,
-        maxMMAIterations= 150,
+        maxMMAIterations= 100,
         use_pretrained_vae=False,
         plot_patches_flag=False,
         use_penalization=True,
         rel_conv_tol=1e-7,
-        nDOFDesired=50000,
-        apply_filter_to_materials=False,
-        results_filename="BridgeMMTOCost_YesPenalization0pt035kg_150iter_50000DOF.pkl"
+        nDOFDesired=10000,
+        apply_filter_to_materials=True,
+        results_filename="BliskSectionWithSymmetry_YesPenalization0pt035kg_150iter_20000DOF.pkl"
     )
     """
     Runs topology optimization with VAE-based material design.
