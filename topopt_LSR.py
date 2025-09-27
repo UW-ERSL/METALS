@@ -1,3 +1,4 @@
+from sympy import gamma
 from LSRSupportFunctions import *
 from METALS_TO_examples import METALSTOExamples, getMETALSTOProblem
 from METALS_thermal_examples import METALSThermalExamples, getMETALSThermalProblem
@@ -13,30 +14,50 @@ from ReadMaterialData import ReadMaterialData
 from enum import Enum, auto
 from scipy.spatial import ConvexHull
 
+import materialEncoder
+
+def plotLatentSpace(zReal, zDesign=None):
+    """Plot the latent space with real and designed materials.
+
+    Args:
+        zReal: Numpy array of shape (num_real_materials, latentDim) for real materials.
+        zDesign: Optional numpy array of shape (num_design_materials, latentDim) for designed materials.
+    """
+    fig, ax = plt.subplots(figsize=(8, 8))
+    if zDesign is not None:
+        ax.scatter(zDesign[:, 0], zDesign[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+    # Plot real material points with labels
+    ax.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200, label='real materials', alpha=1.0)
+    ax.set_xlabel('$z_1$')
+    ax.set_ylabel('$z_2$')
+    ax.set_title('Latent Space')
+    ax.legend()
+    ax.set_aspect('equal', 'box')
+    plt.grid(True)
+    plt.show()
 class ProblemType(Enum):
     PURE_STRUCTURAL = auto()
     TEMP_DEPENDENT = auto()
     BENCHMARK = auto()
     BENCHMARK_COST = auto()
+    STRUCTURAL_YIELD = auto()
 
 def run_topopt(
     to_problem,
     thermal_problem=None,
     problem_type=ProblemType.PURE_STRUCTURAL,
-    nPatchesDesired=8,
-    random_latent_init=True,
+    nPatchesDesired=0,
     debug=False,
-    maxMMAIterations=200,
+    nIterationsWithoutPenalization=50,
+    nIterationsWithPenalization=50,
     timeLimit=7200,
     klFactor= 5e-6,
-    learningRate=2e-6,
-    numEpochs=100000,
+    learningRate=2e-3,
+    numEpochs= 10000,
     vae_hiddenDim=500,
     latentDim=2,
     saveNet=None,
     use_pretrained_vae=False,
-    plot_patches_flag=False,
-    use_penalization=True,
     rel_conv_tol=1e-7,
     nDOFDesired=5000,
     apply_filter_to_materials=True,
@@ -44,16 +65,10 @@ def run_topopt(
     results_filename="topopt_results.pkl"
 ):
     # --- Set gamma and normalization based on penalization flag ---
-    if use_penalization:
-        gamma_init = 1e-3
-        gamma_max = 1000
-        gamma_factor = 2 # also change in optimizationFunction
-        print(f"Penalization is ENABLED (gamma_init={gamma_init}, gamma_max={gamma_max}, gamma_factor={gamma_factor}).")
-    else:
-        gamma_init = 0
-        gamma_max = 0
-        gamma_factor = 1
-        print(f"Penalization is DISABLED. Ellipse-based normalization will be used for latent variables.")
+   
+    gamma_init = 1e-3
+    gamma_max = 1000
+    gamma_factor = 2 # also change in optimizationFunction
 
     # --- Problem-type-dependent settings ---
     if problem_type == ProblemType.PURE_STRUCTURAL:
@@ -68,6 +83,9 @@ def run_topopt(
     elif problem_type == ProblemType.BENCHMARK_COST:
         default_excel = './data/BenchmarkDatabaseCost.xlsx'
         default_vae = './data/vaeNet_ref_benchmark_cost.nt'
+    elif problem_type == ProblemType.STRUCTURAL_YIELD:
+        default_excel = './data/LBracketDatabase.xlsx'
+        default_vae = './data/vaeNet_ref_structural_yield.nt'
     else:
         raise ValueError("Unknown problem type.")
 
@@ -102,25 +120,18 @@ def run_topopt(
         materialEncoder.trainAutoencoder(numEpochs, klFactor, saveNet, learningRate)
         with torch.no_grad():
             z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
-       
+        
     # After loading or training the VAE
     with torch.no_grad():
         materialEncoder.training_latents = materialEncoder.vaeNet.encoder(trainingData).cpu()
     zReal = materialEncoder.vaeNet.encoder.z.detach().numpy()
+    
 
-    # Ellipse constraint setup (only if using ellipse LSR)
-    if not use_penalization:
-        enclosing_ellipse = welzl(np.array(zReal, dtype=float))
-        center,a,b,t = enclosing_ellipse
-        constraints = {'distance': {'isOn':False, 'center':center, 'a':a, 'b':b, 'theta':t, 'delta':0.0, 'beta':20}}
-        materialEncoder.constraints = constraints
-    else:
-        materialEncoder.constraints = {}
+    materialEncoder.constraints = {}
 
     # --- Problem setup ---
     mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params = getMETALSTOProblem(
-        to_problem, nDOFDesired=nDOFDesired
-    )
+        to_problem, nDOFDesired=nDOFDesired)
 
     solver = lin_solv.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
@@ -171,16 +182,12 @@ def run_topopt(
     num_design_var = num_elems + num_patches * 2
 
     # --- MMA Optimization ---
+    print("Creating filter...")
     [H, Hs] = createFilters(fe_solver_structural, to_params)
     shared_vars = {}
 
-    # --- Patch plotting ---
-    if plot_patches_flag:
-        from LSRSupportFunctions import plot_patches
-        plot_patches(mesh_structural, nPatchesDesired=nPatchesDesired, title_prefix="Patch ID Coloring of Structural Mesh")
-
     # --- Gamma as mutable object for update ---
-    gamma = {'value': gamma_init}
+    gammaStruct = {'value': 0}
     iterationCount = 0
     # --- MMA Objective Functions ---
     if problem_type == ProblemType.TEMP_DEPENDENT:
@@ -188,37 +195,60 @@ def run_topopt(
             obj, grad_obj, cons, grad_cons = optimizationFunction_tempdependent(
                 x, fe_solver_structural, fe_solver_thermal, to_params, materialEncoder,
                 patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars,
-                gamma=gamma['value'],
+                gamma=gammaStruct['value'],
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
-                use_penalization=use_penalization
             )
             nonlocal iterationCount
             iterationCount += 1
-            if (iterationCount% 10 ==0) and use_penalization:
-                gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
-                print(f"Gamma updated to: {gamma['value']}")
-            return obj, grad_obj, cons, grad_cons
+            if (iterationCount < nIterationsWithoutPenalization):
+                gammaStruct['value'] = 0
+            elif (iterationCount == nIterationsWithoutPenalization):
+                gammaStruct['value'] = gamma_init
+                print(f"Gamma updated to: {gammaStruct['value']}")
+
+            gammaStruct['value'] = min(gammaStruct['value'] * gamma_factor, gamma_max)
+            
         nConstraints = 1
     elif problem_type == ProblemType.BENCHMARK_COST:
         def mma_obj(x):
             obj, grad_obj, cons, grad_cons = optimizationFunction_structuralcost(
                 x, fe_solver_structural, to_params, materialEncoder,
-                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
-                gamma=gamma['value'],
+                num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
+                gamma=gammaStruct['value'],
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
-                use_penalization=use_penalization
             )
             nonlocal iterationCount
             iterationCount += 1
-            if (iterationCount < 50):
-                gamma['value'] = 0
-            elif (iterationCount == 50):
-                gamma['value'] = 1e-3
-            if use_penalization:
-                gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
-                print(f"Gamma updated to: {gamma['value']}")
+            if (iterationCount < nIterationsWithoutPenalization):
+                gammaStruct['value'] = 0
+            elif (iterationCount == nIterationsWithoutPenalization):
+                gammaStruct['value'] = gamma_init
+                print(f"Gamma updated to: {gammaStruct['value']}")
+
+            gammaStruct['value'] = min(gammaStruct['value'] * gamma_factor, gamma_max)
+            return obj, grad_obj, cons, grad_cons
+        nConstraints = 2
+    elif problem_type == ProblemType.STRUCTURAL_YIELD:
+        def mma_obj(x):
+            obj, grad_obj, cons, grad_cons = optimizationFunction_structuralyield(
+                x, fe_solver_structural, to_params, materialEncoder,
+                num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
+                gamma=gammaStruct['value'],
+                debug=debug,
+                apply_filter_to_materials=apply_filter_to_materials,
+            )
+            nonlocal iterationCount
+            iterationCount += 1
+            if (iterationCount < nIterationsWithoutPenalization):
+                gammaStruct['value'] = 0
+            elif (iterationCount == nIterationsWithoutPenalization):
+                gammaStruct['value'] = gamma_init
+                print(f"Gamma updated to: {gammaStruct['value']}")
+
+            gammaStruct['value'] = min(gammaStruct['value'] * gamma_factor, gamma_max)
+            
             return obj, grad_obj, cons, grad_cons
         nConstraints = 2
     else:
@@ -229,51 +259,22 @@ def run_topopt(
                 gamma=gamma['value'],
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
-                use_penalization=use_penalization
             )
-            if use_penalization:
-                gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
-                print(f"Gamma updated to: {gamma['value']}")
+            nonlocal iterationCount
+            iterationCount += 1
+            if (iterationCount < nIterationsWithoutPenalization):
+                gammaStruct['value'] = 0
+            elif (iterationCount == nIterationsWithoutPenalization):
+                gammaStruct['value'] = gamma_init
+
+            gammaStruct['value'] = min(gammaStruct['value'] * gamma_factor, gamma_max)
             return obj, grad_obj, cons, grad_cons
         nConstraints = 1
 
     # Initial guess
-    latent_init = 0.0*np.ones((2 * num_patches, 1))
-    if random_latent_init: 
-        latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
-        
-        # Generate N latent points within the convex hull of z_real_np
-        # N =  num_patches  # Number of latent points to generate
-
-        # # Get convex hull vertices
-        # hull = ConvexHull(z_real_np)
-        # hull_points = z_real_np[hull.vertices]
-
-        # def random_point_in_hull(hull_points, dim=2):
-        #     # Use random convex combination of hull vertices
-        #     coeffs = np.random.dirichlet(np.ones(len(hull_points)))
-        #     return np.dot(coeffs, hull_points)
-
-        # latent_init = np.zeros((N, 1))
-        # latent_points = []
-        # for _ in range(N):
-        #     pt = random_point_in_hull(hull_points)
-        #     latent_points.append(pt)
-        # latent_points = 0.25*np.array(latent_points) # Shrink towards center
-        # latent_points = latent_init.copy()
-        # latent_points = latent_points.reshape(num_patches, 2)
-        # fig, ax = plt.subplots(figsize=(8, 8))
-        # ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
-        # ax.scatter(latent_points[:, 0], latent_points[:, 1], c='blue', marker='o', s=40, label='Initial Latent Points', alpha=0.5)
-        # ax.set_xlabel('$z_1$')
-        # ax.set_ylabel('$z_2$')
-        # ax.set_title('Optimized Materials vs Real Materials in Latent Space')
-        # ax.legend()
-        # ax.set_aspect('equal', 'box')
-        # plt.grid(True)
-        # plt.show()
-        
-        
+    latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1)) #0.1*np.ones((2 * num_patches, 1))
+    latent_pts = latent_init.reshape(-1, 2)
+    plotLatentSpace(zReal, latent_pts)
        
     if (apply_filter_to_materials): 
         latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
@@ -295,13 +296,17 @@ def run_topopt(
     elif problem_type == ProblemType.BENCHMARK_COST:
         print("Running MMA optimization with benchmark cost LSR...")
         nConstraints = 2
+    elif problem_type == ProblemType.STRUCTURAL_YIELD:
+        print("Running MMA optimization with structural yield LSR...")
+        nConstraints = 2
     else:
         raise ValueError("Unknown problem type.")
     print("timeLimit",timeLimit)
+    maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
     [xOptimal, f0val, df0dx, gval, dgdx, nFEAs] = runMMA(
         nVariables, nConstraints, mma_obj, mma_init.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
-        move_limit=0.2, kktTol=1e-6, fTolerance=rel_conv_tol, gTolerance=rel_conv_tol, verbose=True
+        move_limit=0.2, kktTol=1e-6, fTolerance=rel_conv_tol, gTolerance=rel_conv_tol, verbose=False
     )
     # --- Store final mass after optimization ---
     if 'history' in shared_vars and 'mass' in shared_vars['history'] and len(shared_vars['history']['mass']) > 0:
@@ -327,18 +332,7 @@ def run_topopt(
     with torch.no_grad():
         z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
     z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
-    fig, ax = plt.subplots(figsize=(8, 8))
-    # Plot real material points with labels
-    ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=200, label='real materials', alpha=1.0)
-
-    ax.scatter(z_opt[:, 0], z_opt[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-    ax.set_xlabel('$z_1$')
-    ax.set_ylabel('$z_2$')
-    ax.set_title('Optimized Materials vs Real Materials in Latent Space')
-    ax.legend()
-    ax.set_aspect('equal', 'box')
-    plt.grid(True)
-    plt.show()
+    plotLatentSpace(z_real_np, z_opt.reshape(-1, 2))
 
     # --- Plot compliance and volume fraction history ---
     history = shared_vars.get('history', {})
@@ -408,22 +402,18 @@ def run_topopt(
     print(f"Results saved to {results_filename}")
 
 if __name__ == "__main__":
-    # Example: Run BridgeMMTOCost problem with BENCHMARK_COST type
     run_topopt(
         to_problem=METALSTOExamples.BridgeMMTOCost,
         thermal_problem=None,
         problem_type=ProblemType.BENCHMARK_COST,
-        nPatchesDesired= 0,
-        random_latent_init=True,
         debug=False,
-        maxMMAIterations= 100,
-        use_pretrained_vae=False,
-        plot_patches_flag=False,
-        use_penalization=True,
+        nIterationsWithoutPenalization= 50,
+        nIterationsWithPenalization = 50,
+        use_pretrained_vae=True,
         rel_conv_tol=1e-7,
-        nDOFDesired=10000,
+        nDOFDesired=50000,
         apply_filter_to_materials=True,
-        results_filename="BliskSectionWithSymmetry_YesPenalization0pt035kg_150iter_20000DOF.pkl"
+        results_filename="Temp.pkl"
     )
     """
     Runs topology optimization with VAE-based material design.

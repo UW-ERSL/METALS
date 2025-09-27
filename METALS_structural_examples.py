@@ -10,6 +10,7 @@ class METALSStructuralExamples(enum.Enum):
 	BliskWithBladeMass = enum.auto()
 	BliskSectionWithSymmetry = enum.auto()
 	BridgeMMTO = enum.auto()
+	LBracket = enum.auto()
 def getMETALSStructuralProblem(problem: METALSStructuralExamples,nDOFDesired: int = 20000, **kwargs):
   """Returns a structural problem based on the given problem name.
 
@@ -33,6 +34,8 @@ def getMETALSStructuralProblem(problem: METALSStructuralExamples,nDOFDesired: in
     return createBliskSectionProblemWithSymmetry(nDOFDesired=nDOFDesired,**kwargs)
   elif problem == METALSStructuralExamples.BridgeMMTO:
     return createBridgeMMTOProblem(nDOFDesired=nDOFDesired,**kwargs)
+  elif problem == METALSStructuralExamples.LBracket:
+    return createLBracketProblem(nDOFDesired=nDOFDesired,**kwargs)
   else:
     raise ValueError("Invalid structural example name.")
 
@@ -96,7 +99,64 @@ youngs_modulus=1,poissons_ratio=0.3,totalLoad = 10000):
    
   elem_body_force = None
   return mesh, mat_prop, bc, elem_body_force
+def createLBracketProblem(nDOFDesired: int = 10000, topload = 1000,midload = 0):
+  """Creates a structural problem setup for an L-bracket topology optimization.
+  This function sets up a finite element mesh and boundary conditions for an L-bracket
+  structural problem from an STL file. The mesh is created with approximately the desired
+  number of degrees of freedom. The problem includes fixed boundary conditions on the top
+  surface and a distributed load on a portion of the right surface.
+  Args:
+    nDOFDesired (int, optional): Desired number of degrees of freedom for the mesh. 
+                  Defaults to 10000.
+  Returns:
+    tuple: A tuple containing:
+      - mesh (Mesher): Mesh object with the L-bracket discretization
+      - mat_prop (StructuralMaterial): Material properties object with structural parameters
+      - bc (BC): Boundary conditions object with forces and constraints
+  Notes:
+    - The mesh is created from an STL file located at '../Models/LBracket/LBracket.STL'
+    - Fixed boundary conditions are applied at y = yMax
+    - Load is applied in the -y direction on nodes where y > 0.039 and x > 0.09
+    - Total applied load is 1000 units distributed equally among loaded nodes
+    - Material properties are set to E = 2.1e5 and ν = 0.3
+  """
+  # Read the STL model, create a mesh of desired size, and a structural problem is posed on it.
+  stl_file = os.path.abspath(os.path.join(script_dir, '..', 'PyTO', 'Models', 'LBracket', 'LBracket.STL'))
+  nElemsDesired = nDOFDesired/3    # estimate
+  mesh = hex_mesher.HexMesher()
+  
+  mesh.createMeshFromSTLFile(stl_file, nElemsDesired=nElemsDesired)
+  mesh.createEdofMatStructural()
 
+  fixed_nodes = mesh.getNodesOnBoundingBoxPlane(1,False)  # y = yMax plane
+  fixed_dofs = np.array([3 * fixed_nodes,
+              3 * fixed_nodes + 1,
+              3 * fixed_nodes + 2]).flatten().astype(int)
+  dirichlet_values = 0*np.ones_like(fixed_dofs, dtype = float)
+  mesh.node_indices[fixed_nodes, 3] = 1 # for plotting
+
+  force = np.zeros(3*mesh.num_nodes)
+  node_pts = mesh.node_xyz
+  if(abs(topload) > 0):
+    topload_nodes = np.intersect1d(mesh.getNodesOnBoundingBoxPlane(0,False) , np.where((node_pts[:, 1] >= 0.36))[0]) # hard coded    
+    topload_dofs = 3 * topload_nodes + 1  
+    mesh.node_indices[topload_nodes, 3] = 2 # for plotting
+    force[topload_dofs] = -topload/len(topload_nodes)
+
+  if(abs(midload) > 0):
+    midload_nodes = np.intersect1d(mesh.getNodesOnBoundingBoxPlane(0,False), np.where((node_pts[:, 1] >= 0.18) & (node_pts[:, 1] <= 0.22))[0]) # hard coded    
+    midload_dofs = 3 * midload_nodes + 1  
+    mesh.node_indices[midload_nodes, 3] = 2 # for plotting
+    
+    force[midload_dofs] = -midload/len(midload_nodes)
+
+  bc = bound_cond.BC(force = force,fixed_dofs = fixed_dofs,dirichlet_values = dirichlet_values) 
+
+  # Define material properties
+  mat_prop = mat_lib.create_material_with_defaults("CustomMaterial", youngs_modulus=1.0, poissons_ratio=0.3, mass_density=1.0, yield_strength=1.0)
+  elem_body_force = None
+
+  return mesh, mat_prop, bc, elem_body_force
   # ----------------------------------------
 # ----------------------------------------
 
