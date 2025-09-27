@@ -16,18 +16,20 @@ from scipy.spatial import ConvexHull
 
 import materialEncoder
 
-def plotLatentSpace(zReal, zDesign=None):
+def plotLatentSpace(zReal, dataIdentifier, zDesign=None):
     """Plot the latent space with real and designed materials.
 
     Args:
         zReal: Numpy array of shape (num_real_materials, latentDim) for real materials.
         zDesign: Optional numpy array of shape (num_design_materials, latentDim) for designed materials.
     """
-    fig, ax = plt.subplots(figsize=(8, 8))
+    fig, ax = plt.subplots(figsize=(5, 5))
     if zDesign is not None:
         ax.scatter(zDesign[:, 0], zDesign[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
     # Plot real material points with labels
     ax.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200, label='real materials', alpha=1.0)
+    for i, label in enumerate(dataIdentifier['name']):
+        ax.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
     ax.set_xlabel('$z_1$')
     ax.set_ylabel('$z_2$')
     ax.set_title('Latent Space')
@@ -100,8 +102,9 @@ def run_topopt(
     trainingData = material_data.trainingData
 
     dataInfo = material_data.dataInfo
-
+    
     dataIdentifier = material_data.dataIdentifier
+  
     numFeatures = trainingData.shape[1]
 
     vaeSettings = {
@@ -129,7 +132,7 @@ def run_topopt(
     with torch.no_grad():
         materialEncoder.training_latents = materialEncoder.vaeNet.encoder(trainingData).cpu()
     zReal = materialEncoder.vaeNet.encoder.z.detach().numpy()
-    
+    plotLatentSpace(zReal,dataIdentifier=materialEncoder.dataIdentifier)
     materialEncoder.constraints = {}
 
     # --- Problem setup ---
@@ -284,7 +287,7 @@ def run_topopt(
     latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1)) 
     #latent_init = np.ones((2 * num_patches, 1))
     
-    #plotLatentSpace(zReal, latent_init.reshape(-1, 2))
+    #plotLatentSpace(zReal, dataIdentifier=materialEncoder.dataIdentifier,latent_init.reshape(-1, 2))
        
     if (apply_filter_to_materials): 
         latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
@@ -325,7 +328,7 @@ def run_topopt(
     with torch.no_grad():
         z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
     z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
-    plotLatentSpace(z_real_np, z_opt.reshape(-1, 2))
+    plotLatentSpace(z_real_np, dataIdentifier=materialEncoder.dataIdentifier, zDesign=z_opt.reshape(-1, 2))
 
     # --- Plot compliance and volume fraction history ---
     # history = shared_vars.get('history', {})
@@ -380,8 +383,8 @@ if __name__ == "__main__":
         problem_type=ProblemType.BENCHMARK_COST,
         debug=False,
         nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization = 50,
-        use_pretrained_vae=True,
+        nIterationsWithPenalization = 100,
+        use_pretrained_vae=False,
         rel_conv_tol=1e-7,
         nDOFDesired=10000,
         apply_filter_to_materials=True,

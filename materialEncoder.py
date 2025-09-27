@@ -157,8 +157,7 @@ class MaterialEncoder:
     cost = unlognorm(decoded[:, self.dataInfo['Cost']['idx']],
                      self.dataInfo['Cost']['scaleMax'],
                      self.dataInfo['Cost']['scaleMin'])
-    youngModulus = youngModulus*1e9 # convert from Pa
-    physicalDensity = physicalDensity*(0.001/(1e-2)**3) # convert from g/cm^3 to kg/m^3
+   
     return youngModulus, physicalDensity, cost
   
   def getMaterialProperties_structuralyield(self, decoded):

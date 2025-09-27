@@ -37,8 +37,8 @@ class ReadMaterialData:
     
     def preprocessData_structuralcost(self):
         df = pd.read_excel(self.excel_file)
-        # Read MassDensity (6th col, index 5), ElasticModulus (11th col, index 10), Cost (13th col, index 12)
-        rawData = df.iloc[:, [5, 10, 12]].to_numpy()
+ 
+        rawData = df.iloc[:, [1, 2, 3]].to_numpy()
         feature_names = ['MassDensity', 'ElasticModulus', 'Cost']
         trainInfo = np.log10(rawData)
         dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
@@ -50,8 +50,6 @@ class ReadMaterialData:
             dataInfo[name] = {'idx': i, 'scaleMin': dataScaleMin[i], 'scaleMax': dataScaleMax[i]}
         dataIdentifier = {
             'name': df[df.columns[0]],
-            'className': df[df.columns[1]],
-            'classID': df[df.columns[2]]
         }
         return trainingData, dataInfo, dataIdentifier, trainInfo
 
