@@ -720,7 +720,7 @@ def optimizationFunction_structuralyield(
         shared_vars['history'] = {'compliance': [], 'volfrac': [], 'mass': [], 'max safety factor': []}
     shared_vars['history']['mass'].append(float(totalMass.item()))
     totalMass.backward(retain_graph=True)
-    grad_obj = xTensor.grad.detach().numpy()
+    grad_obj = xTensor.grad.detach().numpy()/M0
     vf = torch.mean(xDesign).item()
 
     # --- Compliance Constraint ---
@@ -747,18 +747,18 @@ def optimizationFunction_structuralyield(
     youngsModulus_c.backward(dC_dEDesign_tensor)
     dC_dzDesign = xConstraint_tensor.grad[num_elems:].detach().numpy()
     grad_compliance_cons = np.concatenate((dC_dxDesign, -dC_dzDesign.flatten()))
-    grad_compliance_cons = grad_compliance_cons / to_params.Constraints[0][2]
+    grad_compliance_cons = grad_compliance_cons / to_params.Constraints[1][2]
 
     # --- Safety Factor Constraint (p-norm of relaxed von Mises / yield strength) ---
     # Get p-norm and its gradient wrt only density variables (not latent) using compute_pnorm_safety_factor_and_sensitivity function
     fe_solver.postprocess()  # Ensure stress is computed
-    print(f"Mass: {shared_vars['current_mass']:.2f}; J: {compliance:.2f}; Max Stress (Pa): {np.max(fe_solver.stressComponents):.2e}")
- 
+    
     inv_sf_pnorm, grad_inv_sf_density = compute_pnorm_safety_factor_and_sensitivity(
         sol, xDesign.detach().numpy(), fe_solver, KE, MaterialModel.SIMP, 
         p=to_params.PNormExponent
     )
-   
+    print(f"Mass: {shared_vars['current_mass']:.2f}; J: {compliance:.2f}; Max Stress (Pa): {np.max(fe_solver.stressComponents):.2e};  SF (p-norm): {1/inv_sf_pnorm:.4f}")
+ 
     safety_factor = to_params.Constraints[0][2]
     safety_constraint = inv_sf_pnorm - (1.0 / safety_factor)
     #print(f"Inverse Safety factor (p-norm): {inv_sf_pnorm:.4f}, Constraint (SF - 1/SF_target): {safety_constraint:.4f}")

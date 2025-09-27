@@ -284,7 +284,7 @@ def run_topopt(
     latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1)) 
     #latent_init = np.ones((2 * num_patches, 1))
     
-    plotLatentSpace(zReal, latent_init.reshape(-1, 2))
+    #plotLatentSpace(zReal, latent_init.reshape(-1, 2))
        
     if (apply_filter_to_materials): 
         latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
@@ -381,9 +381,9 @@ if __name__ == "__main__":
         debug=False,
         nIterationsWithoutPenalization= 50,
         nIterationsWithPenalization = 50,
-        use_pretrained_vae=False,
+        use_pretrained_vae=True,
         rel_conv_tol=1e-7,
-        nDOFDesired=5000,
+        nDOFDesired=10000,
         apply_filter_to_materials=True,
         results_filename="Temp.pkl"
     )

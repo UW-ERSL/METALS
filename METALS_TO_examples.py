@@ -64,7 +64,7 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2.0), (TO_QOI.COMPLIANCE, None, 2000)] 
+        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,1.0), (TO_QOI.COMPLIANCE, None, 1000)] 
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     
