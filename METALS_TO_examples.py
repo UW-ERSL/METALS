@@ -58,13 +58,13 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
     elif to_problem == METALSTOExamples.LBracketTopLoadStressSafetyFactor:
         structural_problem = METALSStructuralExamples.LBracket
-        kwargs['topload'] = 1.5e4
+        kwargs['topload'] = 1.5e5
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2.0), (TO_QOI.COMPLIANCE, None, 400)] 
+        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2.0), (TO_QOI.COMPLIANCE, None, 2000)] 
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     

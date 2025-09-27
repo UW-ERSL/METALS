@@ -9,22 +9,21 @@ class ReadMaterialData:
         file_lower = excel_file.lower()
         if "temp" in file_lower:
             self.mode = "tempdependent"
-            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo, self.EMax = self.preprocessData_tempdependent()
+            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo = self.preprocessData_tempdependent()
         elif "lbracket" in file_lower:
             self.mode = "structuralyield"
-            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo, self.EMax = self.preprocessData_structuralyield()
+            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo = self.preprocessData_structuralyield()
         elif "cost" in file_lower:
             self.mode = "structuralcost"
-            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo, self.EMax = self.preprocessData_structuralcost()
+            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo = self.preprocessData_structuralcost()
         else:
             self.mode = "structural"
-            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo, self.EMax = self.preprocessData_structural()
+            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo= self.preprocessData_structural()
     def preprocessData_structuralyield(self):
         df = pd.read_excel(self.excel_file)
         rawData = df.iloc[:, [1, 2, 3]].to_numpy()
         feature_names = ['MassDensity', 'ElasticModulus', 'YieldStrength']
-        YoungsModulus = rawData[:, 1]
-        EMax = np.max(YoungsModulus)
+       
         trainInfo = np.log10(rawData)
         dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
         dataScaleMin = torch.tensor(np.min(trainInfo, axis=0))
@@ -34,15 +33,13 @@ class ReadMaterialData:
         for i, name in enumerate(feature_names):
             dataInfo[name] = {'idx': i, 'scaleMin': dataScaleMin[i], 'scaleMax': dataScaleMax[i]}
         dataIdentifier = {'name': df[df.columns[0]]}
-        return trainingData, dataInfo, dataIdentifier, trainInfo, EMax
+        return trainingData, dataInfo, dataIdentifier, trainInfo
     
     def preprocessData_structuralcost(self):
         df = pd.read_excel(self.excel_file)
         # Read MassDensity (6th col, index 5), ElasticModulus (11th col, index 10), Cost (13th col, index 12)
         rawData = df.iloc[:, [5, 10, 12]].to_numpy()
         feature_names = ['MassDensity', 'ElasticModulus', 'Cost']
-        YoungsModulus = rawData[:, 1]
-        EMax = np.max(YoungsModulus)
         trainInfo = np.log10(rawData)
         dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
         dataScaleMin = torch.tensor(np.min(trainInfo, axis=0))
@@ -56,14 +53,12 @@ class ReadMaterialData:
             'className': df[df.columns[1]],
             'classID': df[df.columns[2]]
         }
-        return trainingData, dataInfo, dataIdentifier, trainInfo, EMax
+        return trainingData, dataInfo, dataIdentifier, trainInfo
 
     def preprocessData_structural(self):
         df = pd.read_excel(self.excel_file)
         rawData = df.iloc[:, [5, 10]].to_numpy()
         feature_names = ['MassDensity', 'ElasticModulus']
-        YoungsModulus = rawData[:, 1]
-        EMax = np.max(YoungsModulus)
         trainInfo = np.log10(rawData)
         dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
         dataScaleMin = torch.tensor(np.min(trainInfo, axis=0))
@@ -77,7 +72,7 @@ class ReadMaterialData:
             'className': df[df.columns[1]],
             'classID': df[df.columns[2]]
         }
-        return trainingData, dataInfo, dataIdentifier, trainInfo, EMax
+        return trainingData, dataInfo, dataIdentifier, trainInfo
 
     def preprocessData_tempdependent(self):
         df = pd.read_excel(self.excel_file)
@@ -128,5 +123,5 @@ class ReadMaterialData:
             'classID': df[df.columns[2]]
         }
         trainInfo = normalizedData
-        EMax = None
-        return trainingData, dataInfo, dataIdentifier, trainInfo, EMax
+    
+        return trainingData, dataInfo, dataIdentifier, trainInfo

@@ -35,6 +35,7 @@ def plotLatentSpace(zReal, zDesign=None):
     ax.set_aspect('equal', 'box')
     plt.grid(True)
     plt.show()
+
 class ProblemType(Enum):
     PURE_STRUCTURAL = auto()
     TEMP_DEPENDENT = auto()
@@ -52,8 +53,8 @@ def run_topopt(
     nIterationsWithPenalization=50,
     timeLimit=7200,
     klFactor= 5e-6,
-    learningRate=2e-3,
-    numEpochs= 10000,
+    learningRate=2e-4,
+    numEpochs= 20000,
     vae_hiddenDim=500,
     latentDim=2,
     saveNet=None,
@@ -97,6 +98,7 @@ def run_topopt(
 
     material_data = ReadMaterialData(material_excel_file)
     trainingData = material_data.trainingData
+
     dataInfo = material_data.dataInfo
 
     dataIdentifier = material_data.dataIdentifier
@@ -115,6 +117,8 @@ def run_topopt(
     if use_pretrained_vae and vae_file_exists:
         print(f"Loading pre-trained autoencoder from file: {saveNet}")
         materialEncoder.loadAutoencoderFromFile(saveNet)
+        with torch.no_grad():
+            z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
     else:
         print(f"Training autoencoder from scratch and saving to: {saveNet}")
         materialEncoder.trainAutoencoder(numEpochs, klFactor, saveNet, learningRate)
@@ -126,7 +130,6 @@ def run_topopt(
         materialEncoder.training_latents = materialEncoder.vaeNet.encoder(trainingData).cpu()
     zReal = materialEncoder.vaeNet.encoder.z.detach().numpy()
     
-
     materialEncoder.constraints = {}
 
     # --- Problem setup ---
@@ -192,6 +195,8 @@ def run_topopt(
     # --- MMA Objective Functions ---
     if problem_type == ProblemType.TEMP_DEPENDENT:
         def mma_obj(x):
+            nonlocal iterationCount
+            print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_tempdependent(
                 x, fe_solver_structural, fe_solver_thermal, to_params, materialEncoder,
                 patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars,
@@ -199,7 +204,6 @@ def run_topopt(
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
             )
-            nonlocal iterationCount
             iterationCount += 1
             if (iterationCount < nIterationsWithoutPenalization):
                 gammaStruct['value'] = 0
@@ -212,6 +216,8 @@ def run_topopt(
         nConstraints = 1
     elif problem_type == ProblemType.BENCHMARK_COST:
         def mma_obj(x):
+            nonlocal iterationCount
+            print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_structuralcost(
                 x, fe_solver_structural, to_params, materialEncoder,
                 num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
@@ -219,7 +225,6 @@ def run_topopt(
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
             )
-            nonlocal iterationCount
             iterationCount += 1
             if (iterationCount < nIterationsWithoutPenalization):
                 gammaStruct['value'] = 0
@@ -232,6 +237,8 @@ def run_topopt(
         nConstraints = 2
     elif problem_type == ProblemType.STRUCTURAL_YIELD:
         def mma_obj(x):
+            nonlocal iterationCount
+            print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_structuralyield(
                 x, fe_solver_structural, to_params, materialEncoder,
                 num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
@@ -239,7 +246,7 @@ def run_topopt(
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
             )
-            nonlocal iterationCount
+            
             iterationCount += 1
             if (iterationCount < nIterationsWithoutPenalization):
                 gammaStruct['value'] = 0
@@ -253,6 +260,8 @@ def run_topopt(
         nConstraints = 2
     else:
         def mma_obj(x):
+            nonlocal iterationCount
+            print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_structural(
                 x, fe_solver_structural, to_params, materialEncoder,
                 patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
@@ -260,7 +269,6 @@ def run_topopt(
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
             )
-            nonlocal iterationCount
             iterationCount += 1
             if (iterationCount < nIterationsWithoutPenalization):
                 gammaStruct['value'] = 0
@@ -272,9 +280,11 @@ def run_topopt(
         nConstraints = 1
 
     # Initial guess
-    latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1)) #0.1*np.ones((2 * num_patches, 1))
-    latent_pts = latent_init.reshape(-1, 2)
-    plotLatentSpace(zReal, latent_pts)
+ 
+    latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1)) 
+    #latent_init = np.ones((2 * num_patches, 1))
+    
+    plotLatentSpace(zReal, latent_init.reshape(-1, 2))
        
     if (apply_filter_to_materials): 
         latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
@@ -283,25 +293,8 @@ def run_topopt(
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
     nVariables = num_design_var
-    # --- Run MMA ---
-    if problem_type == ProblemType.TEMP_DEPENDENT:
-        print("Running MMA optimization with temperature-dependent LSR...")
-        nConstraints = 1
-    elif problem_type == ProblemType.PURE_STRUCTURAL:
-        print("Running MMA optimization with pure structural LSR...")
-        nConstraints = 1
-    elif problem_type == ProblemType.BENCHMARK:
-        print("Running MMA optimization with benchmark LSR...")
-        nConstraints = 1
-    elif problem_type == ProblemType.BENCHMARK_COST:
-        print("Running MMA optimization with benchmark cost LSR...")
-        nConstraints = 2
-    elif problem_type == ProblemType.STRUCTURAL_YIELD:
-        print("Running MMA optimization with structural yield LSR...")
-        nConstraints = 2
-    else:
-        raise ValueError("Unknown problem type.")
-    print("timeLimit",timeLimit)
+   
+    ## Run MMA Optimization ---
     maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
     [xOptimal, f0val, df0dx, gval, dgdx, nFEAs] = runMMA(
         nVariables, nConstraints, mma_obj, mma_init.reshape(-1, 1), lowerBound,
@@ -335,71 +328,50 @@ def run_topopt(
     plotLatentSpace(z_real_np, z_opt.reshape(-1, 2))
 
     # --- Plot compliance and volume fraction history ---
-    history = shared_vars.get('history', {})
-    if 'compliance' in history and 'volfrac' in history:
-        fig, ax1 = plt.subplots()
-        ax1.plot(history['compliance'], 'b-', label='Compliance')
-        ax1.set_xlabel('Iteration')
-        ax1.set_ylabel('Compliance', color='b')
-        ax1.tick_params(axis='y', labelcolor='b')
-        ax2 = ax1.twinx()
-        ax2.plot(history['volfrac'], 'r--', label='Volume Fraction')
-        ax2.set_ylabel('Volume Fraction', color='r')
-        ax2.tick_params(axis='y', labelcolor='r')
-        plt.title('Compliance and Volume Fraction vs Iteration')
-        fig.tight_layout()
-        plt.show()
-    else:
-        print("No compliance/volume fraction history found in shared_vars['history'].")
+    # history = shared_vars.get('history', {})
+    # if 'compliance' in history and 'volfrac' in history:
+    #     fig, ax1 = plt.subplots()
+    #     ax1.plot(history['compliance'], 'b-', label='Compliance')
+    #     ax1.set_xlabel('Iteration')
+    #     ax1.set_ylabel('Compliance', color='b')
+    #     ax1.tick_params(axis='y', labelcolor='b')
+    #     ax2 = ax1.twinx()
+    #     ax2.plot(history['volfrac'], 'r--', label='Volume Fraction')
+    #     ax2.set_ylabel('Volume Fraction', color='r')
+    #     ax2.tick_params(axis='y', labelcolor='r')
+    #     plt.title('Compliance and Volume Fraction vs Iteration')
+    #     fig.tight_layout()
+    #     plt.show()
+    # else:
+    #     print("No compliance/volume fraction history found in shared_vars['history'].")
 
-    # --- Print compliance and mass summary ---
-    initial_compliance = shared_vars.get('J0', None)
-    final_compliance = history['compliance'][-1] if 'compliance' in history else None
-    final_mass = shared_vars.get('final_mass', None)
-    target_mass = to_params.Constraints[0][2]
-    if 'mass' in history:
-        shared_vars['final_mass'] = history['mass'][-1]
-    else:
-        shared_vars['final_mass'] = shared_vars.get('current_mass', None)
-
-    print("\n--- Optimization Summary ---")
-    if initial_compliance is not None:
-        print(f"Initial compliance: {initial_compliance:.4f}")
-    if final_compliance is not None:
-        print(f"Final compliance: {final_compliance:.4f}")
-        if initial_compliance is not None:
-            percent_change = 100 * (final_compliance - initial_compliance) / initial_compliance
-            print(f"Percent change in compliance: {percent_change:+.2f}%")
-    if final_mass is not None:
-        print(f"Final mass: {final_mass:.4f}")
-    print("Target mass: ", target_mass)
-    print("--- End of Summary ---\n")
-    # Save results
-    results_to_save = {
-        'xDesign': xDesign,
-        'EDesign': EDesign,
-        'zDesign': zDesign,
-        'history': history,
-        'thermalConductivity': shared_vars.get('thermalConductivity', None),
-        'massDensity': shared_vars.get('massDensity', None),
-        'z_real': z_real_np,
-        'initial_compliance': initial_compliance,
-        'final_compliance': final_compliance,
-        'final_mass': final_mass,
-        'target_mass': target_mass,
-        'to_problem': to_problem,
-        'thermal_problem': thermal_problem,
-        'nDOFDesired': nDOFDesired,
-        'nPatchesDesired': nPatchesDesired,
-        'latentDim': latentDim,
-        'vae_hiddenDim': vae_hiddenDim,
-        'apply_filter_to_materials': apply_filter_to_materials,
-        'problem_type': problem_type,
-        'results_filename': results_filename,
-    }
-    with open(results_filename, 'wb') as f:
-        pickle.dump(results_to_save, f)
-    print(f"Results saved to {results_filename}")
+    
+    # # Save results
+    # results_to_save = {
+    #     'xDesign': xDesign,
+    #     'EDesign': EDesign,
+    #     'zDesign': zDesign,
+    #     'history': history,
+    #     'thermalConductivity': shared_vars.get('thermalConductivity', None),
+    #     'massDensity': shared_vars.get('massDensity', None),
+    #     'z_real': z_real_np,
+    #     'initial_compliance': initial_compliance,
+    #     'final_compliance': final_compliance,
+    #     'final_mass': final_mass,
+    #     'target_mass': target_mass,
+    #     'to_problem': to_problem,
+    #     'thermal_problem': thermal_problem,
+    #     'nDOFDesired': nDOFDesired,
+    #     'nPatchesDesired': nPatchesDesired,
+    #     'latentDim': latentDim,
+    #     'vae_hiddenDim': vae_hiddenDim,
+    #     'apply_filter_to_materials': apply_filter_to_materials,
+    #     'problem_type': problem_type,
+    #     'results_filename': results_filename,
+    # }
+    # with open(results_filename, 'wb') as f:
+    #     pickle.dump(results_to_save, f)
+    # print(f"Results saved to {results_filename}")
 
 if __name__ == "__main__":
     run_topopt(
@@ -409,9 +381,9 @@ if __name__ == "__main__":
         debug=False,
         nIterationsWithoutPenalization= 50,
         nIterationsWithPenalization = 50,
-        use_pretrained_vae=True,
+        use_pretrained_vae=False,
         rel_conv_tol=1e-7,
-        nDOFDesired=50000,
+        nDOFDesired=5000,
         apply_filter_to_materials=True,
         results_filename="Temp.pkl"
     )

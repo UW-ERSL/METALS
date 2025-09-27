@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import matplotlib.cm as cm
 from LSRImports import *
+import hex_element_stiffness
 import math
 def plot_patches(mesh, nPatchesDesired=8, title_prefix="Patchwork Coloring"):
     patchwork_colors = patchwork(mesh, nPatchesDesired=nPatchesDesired)
@@ -107,34 +108,17 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
         yield_strengths = np.array([fe_solver.mat_prop[i].yield_strength for i in elem_ids])
         E = np.array([fe_solver.mat_prop[i].youngs_modulus for i in elem_ids])
         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in elem_ids])
+        D_list = []
+        for Ei, nui in zip(E, nu):
+            D = hex_element_stiffness.isotropic_constitutive_matrix ( Ei, nui)
+            D_list.append(D)
+        D_stack = np.stack(D_list)
     else:
         yield_strengths = np.full(nelems, fe_solver.mat_prop.yield_strength)
         E = fe_solver.mat_prop.youngs_modulus
         nu = fe_solver.mat_prop.poissons_ratio
+        D =  hex_element_stiffness.isotropic_constitutive_matrix ( E, nu)
 
-    # Constitutive matrix D (single material or per-element)
-    if isinstance(E, np.ndarray):
-        D_list = []
-        for Ei, nui in zip(E, nu):
-            D = Ei / ((1 + nui) * (1 - 2 * nui)) * np.array([
-                [1 - nui, nui, nui, 0, 0, 0],
-                [nui, 1 - nui, nui, 0, 0, 0],
-                [nui, nui, 1 - nui, 0, 0, 0],
-                [0, 0, 0, (1 - 2 * nui) / 2, 0, 0],
-                [0, 0, 0, 0, (1 - 2 * nui) / 2, 0],
-                [0, 0, 0, 0, 0, (1 - 2 * nui) / 2]
-            ])
-            D_list.append(D)
-        D_stack = np.stack(D_list)
-    else:
-        D = E / ((1 + nu) * (1 - 2 * nu)) * np.array([
-            [1 - nu, nu, nu, 0, 0, 0],
-            [nu, 1 - nu, nu, 0, 0, 0],
-            [nu, nu, 1 - nu, 0, 0, 0],
-            [0, 0, 0, (1 - 2 * nu) / 2, 0, 0],
-            [0, 0, 0, 0, (1 - 2 * nu) / 2, 0],
-            [0, 0, 0, 0, 0, (1 - 2 * nu) / 2]
-        ])
 
     gradN = (1 / 8) * np.array([
         [-1, 1, 1, -1, -1, 1, 1, -1],
@@ -161,7 +145,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
         F = D @ B
 
     g_elem = np.zeros((nelems, 24))
-    sf_elems = np.zeros(nelems)
+    inv_sf_elems = np.zeros(nelems)
     T1 = np.zeros(nelems)
     T2 = np.zeros(nelems)
 
@@ -173,8 +157,8 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
             0.5 * ((sigma11 - sigma22) ** 2 + (sigma22 - sigma33) ** 2 + (sigma33 - sigma11) ** 2)
             + 3 * (sigma12 ** 2 + sigma13 ** 2 + sigma23 ** 2)
         )
-        sf = vm / yield_strengths[e]
-        T1[e] = p * q * (x[e] ** (p * q - 1)) * sf
+        inv_sf = vm / yield_strengths[e]
+        T1[e] = p * q * (x[e] ** (p * q - 1)) * inv_sf
 
         # Stress for T2 (with relaxation)
         stress_elem_relaxed = (x[e] ** q) * fe_solver.stressComponents[e]
@@ -183,7 +167,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
             0.5 * ((sigma11 - sigma22) ** 2 + (sigma22 - sigma33) ** 2 + (sigma33 - sigma11) ** 2)
             + 3 * (sigma12 ** 2 + sigma13 ** 2 + sigma23 ** 2)
         )
-        sf_elems[e] = vm_relaxed / yield_strengths[e]
+        inv_sf_elems[e] = vm_relaxed / yield_strengths[e]
 
         if isinstance(E, np.ndarray):
             F = F_stack[e]
@@ -196,17 +180,17 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
             + 6 * sigma13 * F[4]
             + 6 * sigma23 * F[5]
         ) / np.sqrt(2)
-        g_elem[e] = p * (sf_elems[e] ** (p - 2)) * g_e / yield_strengths[e]
+        g_elem[e] = p * (inv_sf_elems[e] ** (p - 2)) * g_e / yield_strengths[e]
 
-    sf_pnorm = np.sum(sf_elems ** p) ** (1 / p)
-    T1 *= (1 / p) * (np.sum(sf_elems ** p) ** (1 / p - 1))
+    inv_sf_pnorm = np.sum(inv_sf_elems ** p) ** (1 / p)
+    T1 *= (1 / p) * (np.sum(inv_sf_elems ** p) ** (1 / p - 1))
 
     # Assemble adjoint RHS
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):
         edof = mesh.edofMat[e]
         g[edof] += g_elem[e]
-    g *= -(1 / p) * (np.sum(sf_elems ** p) ** (1 / p - 1))
+    g *= -(1 / p) * (np.sum(inv_sf_elems ** p) ** (1 / p - 1))
 
     adjointSol = linear_solvers.solve(
         fe_solver.stiff_mtrx,
@@ -226,9 +210,10 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
     ).sum(1)
 
     T2 = get_structural_material_model_sensitivity(x, material_model) * ce
-    sf_pnorm_sensitivity = T1 + T2
+    inv_sf_pnorm_sensitivity = T1 + T2
 
-    return sf_pnorm, sf_pnorm_sensitivity
+    return inv_sf_pnorm, inv_sf_pnorm_sensitivity
+
 def d_relaxed_von_mises_dE(stress, x, q=1):
     """
     Compute derivative of relaxed von Mises stress with respect to Young's modulus E for a single element.
@@ -683,6 +668,7 @@ def optimizationFunction_structuralyield(
     materialEncoder, shared_vars, gamma=100, debug=False, 
     apply_filter_to_materials=True, use_penalization=True):
 
+   
     # --- Mass Objective ---
     if 'M0' not in shared_vars or shared_vars['M0'] is None:
         shared_vars['M0'] = None
@@ -696,11 +682,15 @@ def optimizationFunction_structuralyield(
     xDesign = xTensor[0:num_elems]
     zD = xTensor[num_elems:]
     zDesign = zD.view(2, -1).T
+    
     decoded = materialEncoder.vaeNet.decoder(zDesign)
     youngsModulus, massDensity, yieldStrength = materialEncoder.getMaterialProperties_structuralyield(decoded)
-    print(f"Young's Modulus range: {youngsModulus.min().item():.2e} to {youngsModulus.max().item():.2e}"
-          f", Yield Strength range: {yieldStrength.min().item():.2e} to {yieldStrength.max().item():.2e}")
-
+  
+    # print(f"zDesign min/max: {zDesign.min().item():.2f} / {zDesign.max().item():.2f}")
+    # print(f"Young's modulus range: {youngsModulus.min().item():.2e} to {youngsModulus.max().item():.2e}")
+    # print(f"Mass density range: {massDensity.min().item():.2e} to {massDensity.max().item():.2e}")
+    # print(f"Yield strength range: {yieldStrength.min().item():.2e} to {yieldStrength.max().item():.2e}")
+    
     poissons_ratio = 0.3
     fe_solver.mat_prop = [
         mat_lib.create_material_with_defaults(
@@ -740,23 +730,15 @@ def optimizationFunction_structuralyield(
     zDesign_c = zD_c.view(2, -1).T
     decoded_c = materialEncoder.vaeNet.decoder(zDesign_c)
     youngsModulus_c, _, _ = materialEncoder.getMaterialProperties_structuralyield(decoded_c)
-    fe_solver.mat_prop = [
-        mat_lib.create_material_with_defaults(
-            name=f"Material_{i+1}",
-            youngs_modulus=youngsModulus_c[i].item(),
-            yield_strength=yieldStrength[i].item(),
-            mass_density=massDensity[i].item(),
-            poissons_ratio=poissons_ratio
-        )
-        for i in range(num_elems)
-    ]
-    fe_solver.set_structural_material(fe_solver.mat_prop)
-    sol_c = fe_solver.solve(xDesign_c.detach().numpy(), MaterialModel.SIMP)
-    compliance = np.einsum('i,i->', fe_solver.total_force, sol_c)
+    shared_vars['EDesign'] = youngsModulus_c.detach().cpu().numpy().copy()
+    shared_vars['zDesign'] = zDesign_c.clone()
+   
+    
+    compliance = np.einsum('i,i->', fe_solver.total_force, sol)
     compliance_constraint = compliance / to_params.Constraints[1][2] - 1.0
-    print(f"Compliance: {compliance:.2e}, Constraint (C/C0 - 1): {compliance_constraint:.4f}")
+    
     # Compute gradient of compliance constraint
-    ce = (np.dot(sol_c[fe_solver.mesh.edofMat].reshape(num_elems, 24), KE) * sol_c[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+    ce = (np.dot(sol[fe_solver.mesh.edofMat].reshape(num_elems, 24), KE) * sol[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
     penal = 3.0
     dC_dxDesign = (-penal * xDesign_c.detach().numpy() ** (penal - 1)) * youngsModulus_c.detach().numpy() * ce
     dC_dEDesign = (xDesign_c.detach().numpy() ** penal) * ce
@@ -770,17 +752,17 @@ def optimizationFunction_structuralyield(
     # --- Safety Factor Constraint (p-norm of relaxed von Mises / yield strength) ---
     # Get p-norm and its gradient wrt only density variables (not latent) using compute_pnorm_safety_factor_and_sensitivity function
     fe_solver.postprocess()  # Ensure stress is computed
-    print("Max von Mises stress (Pa):",fe_solver.vonMisesStress.max())
-    
-    sf_pnorm, grad_sf_density = compute_pnorm_safety_factor_and_sensitivity(
+    print(f"Mass: {shared_vars['current_mass']:.2f}; J: {compliance:.2f}; Max Stress (Pa): {np.max(fe_solver.stressComponents):.2e}")
+ 
+    inv_sf_pnorm, grad_inv_sf_density = compute_pnorm_safety_factor_and_sensitivity(
         sol, xDesign.detach().numpy(), fe_solver, KE, MaterialModel.SIMP, 
         p=to_params.PNormExponent
     )
    
     safety_factor = to_params.Constraints[0][2]
-    safety_constraint = sf_pnorm - (1.0 / safety_factor)
-    print(f"Safety factor (p-norm): {sf_pnorm:.4f}, Constraint (SF - 1/SF_target): {safety_constraint:.4f}")
-    input("Press Enter to continue...")
+    safety_constraint = inv_sf_pnorm - (1.0 / safety_factor)
+    #print(f"Inverse Safety factor (p-norm): {inv_sf_pnorm:.4f}, Constraint (SF - 1/SF_target): {safety_constraint:.4f}")
+   
     # 2. Compute latent variable part of gradient (chain rule)
     p = to_params.PNormExponent
     num_latent = zDesign.numel()
@@ -788,8 +770,7 @@ def optimizationFunction_structuralyield(
     for e in range(num_elems):
         # Divide by decoded youngs modulus for that element
         d_sigma_vm_dE[e] = d_relaxed_von_mises_dE(
-            fe_solver.stressComponents[e], xDesign[e].item(), q=1
-        ) / youngsModulus[e].item()
+            fe_solver.stressComponents[e], xDesign[e].item(), q=1) / youngsModulus[e].item()
     # Get per-element von Mises and yield strength
     sigma_vm = np.zeros(num_elems)
     for e in range(num_elems):
@@ -801,11 +782,11 @@ def optimizationFunction_structuralyield(
         ) * (xDesign[e].item() ** 1)
     Y = np.array([mat.yield_strength for mat in fe_solver.mat_prop])
     S = sigma_vm
-    sf_elem = S / Y
+    inv_sf_elem = S / Y
     # Track max safety factor for summary
     if 'history' in shared_vars:
-        shared_vars['history'].setdefault('max safety factor', []).append(np.max(sf_elem))
-    sum_p = np.sum(sf_elem ** p)
+        shared_vars['history'].setdefault('max safety factor', []).append(np.max(inv_sf_elem))
+    sum_p = np.sum(inv_sf_elem ** p)
     outer = (sum_p) ** (1.0 / p - 1)
     grad_z = np.zeros(num_latent)
     # Backward for dE/dz and dY/dz
@@ -820,13 +801,13 @@ def optimizationFunction_structuralyield(
         d_sigma_dz = d_sigma_vm_dE[e] * dE_dz[e]
         dYdz = dY_dz[e]
         bracket = (d_sigma_dz * Y[e] - dYdz * S[e]) / (Y[e] ** 2) 
-        grad_z[0:num_elems] += p * (sf_elem[e] ** (p - 1)) * bracket[0]
-        grad_z[num_elems:] += p * (sf_elem[e] ** (p - 1)) * bracket[1]
+        grad_z[0:num_elems] += p * (inv_sf_elem[e] ** (p - 1)) * bracket[0]
+        grad_z[num_elems:] += p * (inv_sf_elem[e] ** (p - 1)) * bracket[1]
     grad_z = (1.0 / p) * outer * grad_z
 
     # 3. Assemble full gradient for constraint
     grad_safety = np.zeros_like(x)
-    grad_safety[:num_elems] = grad_sf_density
+    grad_safety[:num_elems] = grad_inv_sf_density
     grad_safety[num_elems:] = grad_z
 
     # --- Filtering ---
@@ -861,6 +842,10 @@ def optimizationFunction_structuralyield(
     penalty.backward(retain_graph=True)
     dpen = xTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_patches, latentDim)
     grad_obj[num_elems:, 0] += dpen.flatten()
+
+    obj_norm = obj_norm.detach().numpy() 
+    print("Constraints: ",cons.flatten())
+    #input("Press Enter to continue...")
     return obj_norm, grad_obj, cons, grad_cons
 
 def plot_loading_and_bc(mesh, bc, title="Loading and Boundary Conditions"):
