@@ -58,6 +58,8 @@ def run_topopt(
     latentDim=2,
     saveNet=None,
     use_pretrained_vae=False,
+    plot_patches_flag=False,
+    use_penalization=True,
     rel_conv_tol=1e-7,
     nDOFDesired=5000,
     apply_filter_to_materials=True,
@@ -125,9 +127,15 @@ def run_topopt(
     with torch.no_grad():
         materialEncoder.training_latents = materialEncoder.vaeNet.encoder(trainingData).cpu()
     zReal = materialEncoder.vaeNet.encoder.z.detach().numpy()
-    
 
-    materialEncoder.constraints = {}
+    # Ellipse constraint setup (only if using ellipse LSR)
+    if not use_penalization:
+        enclosing_ellipse = welzl(np.array(zReal, dtype=float))
+        center,a,b,t = enclosing_ellipse
+        constraints = {'distance': {'isOn':False, 'center':center, 'a':a, 'b':b, 'theta':t, 'delta':0.0, 'beta':20}}
+        materialEncoder.constraints = constraints
+    else:
+        materialEncoder.constraints = {}
 
     # --- Problem setup ---
     mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params = getMETALSTOProblem(
@@ -201,14 +209,10 @@ def run_topopt(
             )
             nonlocal iterationCount
             iterationCount += 1
-            if (iterationCount < nIterationsWithoutPenalization):
-                gammaStruct['value'] = 0
-            elif (iterationCount == nIterationsWithoutPenalization):
-                gammaStruct['value'] = gamma_init
-                print(f"Gamma updated to: {gammaStruct['value']}")
-
-            gammaStruct['value'] = min(gammaStruct['value'] * gamma_factor, gamma_max)
-            
+            if (iterationCount% 10 ==0) and use_penalization:
+                gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
+                print(f"Gamma updated to: {gamma['value']}")
+            return obj, grad_obj, cons, grad_cons
         nConstraints = 1
     elif problem_type == ProblemType.BENCHMARK_COST:
         def mma_obj(x):
@@ -241,14 +245,13 @@ def run_topopt(
             )
             nonlocal iterationCount
             iterationCount += 1
-            if (iterationCount < nIterationsWithoutPenalization):
-                gammaStruct['value'] = 0
-            elif (iterationCount == nIterationsWithoutPenalization):
-                gammaStruct['value'] = gamma_init
-                print(f"Gamma updated to: {gammaStruct['value']}")
-
-            gammaStruct['value'] = min(gammaStruct['value'] * gamma_factor, gamma_max)
-            
+            if (iterationCount < 50):
+                gamma['value'] = 0
+            elif (iterationCount == 50):
+                gamma['value'] = 1e-3
+            if use_penalization:
+                gamma['value'] = min(gamma['value'] * gamma_factor, gamma_max)
+                print(f"Gamma updated to: {gamma['value']}")
             return obj, grad_obj, cons, grad_cons
         nConstraints = 2
     else:
@@ -272,9 +275,42 @@ def run_topopt(
         nConstraints = 1
 
     # Initial guess
-    latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1)) #0.1*np.ones((2 * num_patches, 1))
-    latent_pts = latent_init.reshape(-1, 2)
-    plotLatentSpace(zReal, latent_pts)
+    latent_init = 0.0*np.ones((2 * num_patches, 1))
+    if random_latent_init: 
+        latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
+        
+        # Generate N latent points within the convex hull of z_real_np
+        # N =  num_patches  # Number of latent points to generate
+
+        # # Get convex hull vertices
+        # hull = ConvexHull(z_real_np)
+        # hull_points = z_real_np[hull.vertices]
+
+        # def random_point_in_hull(hull_points, dim=2):
+        #     # Use random convex combination of hull vertices
+        #     coeffs = np.random.dirichlet(np.ones(len(hull_points)))
+        #     return np.dot(coeffs, hull_points)
+
+        # latent_init = np.zeros((N, 1))
+        # latent_points = []
+        # for _ in range(N):
+        #     pt = random_point_in_hull(hull_points)
+        #     latent_points.append(pt)
+        # latent_points = 0.25*np.array(latent_points) # Shrink towards center
+        # latent_points = latent_init.copy()
+        # latent_points = latent_points.reshape(num_patches, 2)
+        # fig, ax = plt.subplots(figsize=(8, 8))
+        # ax.scatter(z_real_np[:, 0], z_real_np[:, 1], c='black', marker='*', s=80, label='Real Materials', alpha=1.0)
+        # ax.scatter(latent_points[:, 0], latent_points[:, 1], c='blue', marker='o', s=40, label='Initial Latent Points', alpha=0.5)
+        # ax.set_xlabel('$z_1$')
+        # ax.set_ylabel('$z_2$')
+        # ax.set_title('Optimized Materials vs Real Materials in Latent Space')
+        # ax.legend()
+        # ax.set_aspect('equal', 'box')
+        # plt.grid(True)
+        # plt.show()
+        
+        
        
     if (apply_filter_to_materials): 
         latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
@@ -407,9 +443,10 @@ if __name__ == "__main__":
         thermal_problem=None,
         problem_type=ProblemType.BENCHMARK_COST,
         debug=False,
-        nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization = 50,
-        use_pretrained_vae=True,
+        maxMMAIterations= 100,
+        use_pretrained_vae=False,
+        plot_patches_flag=False,
+        use_penalization=True,
         rel_conv_tol=1e-7,
         nDOFDesired=50000,
         apply_filter_to_materials=True,
