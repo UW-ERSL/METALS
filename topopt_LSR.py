@@ -18,7 +18,7 @@ from scipy.spatial import ConvexHull
 import numpy as np
 
 
-def plotLSRContour(zReal,matEncoder,id = 0):
+def plotLSRContour(zReal,matEncoder,dataIdentifier,id = 0,title = "Contour in Latent Space"):
     # Sample the latent space from -3 to 3 in 2D
     n_points = 100
     z1 = np.linspace(-3, 3, n_points)
@@ -43,10 +43,12 @@ def plotLSRContour(zReal,matEncoder,id = 0):
     contour = plt.contourf(Z1, Z2, QOI, levels=30, cmap='viridis')
     plt.colorbar(contour, label="id")
     plt.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+    for i, label in enumerate(dataIdentifier['name']):
+        plt.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
     plt.xlabel('$z_1$')
     plt.ylabel('$z_2$')
-    plt.title("Contour of id in Latent Space")
-    plt.legend()
+    plt.title(title)
+    plt.legend(fontsize=14)
     plt.show()
    
 
@@ -99,13 +101,14 @@ def run_topopt(
     nDOFDesired=5000,
     apply_filter_to_materials=True,
     material_excel_file=None,
+    gamma_init = 1e-3,
+    gamma_max = 1000,
+    gamma_factor = 2,
     results_filename="topopt_results.pkl"
 ):
     # --- Set gamma and normalization based on penalization flag ---
    
-    gamma_init = 1e-3
-    gamma_max = 1000
-    gamma_factor = 2 
+   
 
     # --- Problem-type-dependent settings ---
     if problem_type == ProblemType.PURE_STRUCTURAL:
@@ -168,7 +171,7 @@ def run_topopt(
     zReal = matEncoder.vaeNet.encoder.z.detach().numpy()
     #plotLatentSpace(zReal,dataIdentifier=matEncoder.dataIdentifier)
 
-    #plotLSRContour(zReal,matEncoder,id = 2)
+    #plotLSRContour(zReal,matEncoder,dataIdentifier=matEncoder.dataIdentifier,id = 2,title = "Young's Modulus Contour in Latent Space")
     matEncoder.constraints = {}
 
     # --- Problem setup ---
@@ -328,7 +331,11 @@ def run_topopt(
     if (apply_filter_to_materials): 
         latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
         latent_init[num_patches:2*num_patches,0] = (H * latent_init[num_patches:2*num_patches,0]) / Hs
-    mma_init = np.concatenate((0.5 * np.ones((num_elems, 1)), latent_init), axis=0)
+    if (to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor):
+        x0 = 1 * np.ones((num_elems, 1))
+    else:
+        x0 = 0.5 * np.ones((num_elems, 1))
+    mma_init = np.concatenate((x0, latent_init), axis=0)
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
     nVariables = num_design_var
@@ -354,7 +361,13 @@ def run_topopt(
     zDesign = shared_vars['zDesign']
     EDesign = shared_vars['EDesign']
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
+    fe_solver_structural.solve()
+    fe_solver_structural.postprocess()
     fe_solver_structural.plot_elem_field(EDesign, title='YoungModulus', colormap='viridis')
+    fe_solver_structural.plot_vonMisesStress()
+    if 'safety_factor' in shared_vars:
+        fe_solver_structural.plot_elem_field(shared_vars['safety_factor'], title=' Stress SF', colormap='viridis')
+
     # Plot thermal conductivity field
     if hasattr(fe_solver_structural, "plot_elem_field") and 'thermalConductivity' in shared_vars:
         fe_solver_structural.plot_elem_field(
@@ -370,17 +383,44 @@ def run_topopt(
     plotLatentSpace(z_real_np, dataIdentifier=matEncoder.dataIdentifier, zDesign=z_opt.reshape(-1, 2))
 
 if __name__ == "__main__":
+
+    to_problem=METALSTOExamples.LBracketMidLoadStressSafetyFactor
+
+    if (to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor):
+        problem_type=ProblemType.STRUCTURAL_YIELD
+        klFactor= 2e-6
+        learningRate = 2e-4
+        numEpochs = 20000
+        nDOFDesired=10000,
+    elif (to_problem == METALSTOExamples.BridgeMMTOCost):
+        problem_type=ProblemType.BENCHMARK_COST
+        klFactor= 5e-6
+        learningRate = 2e-4
+        numEpochs = 20000
+        nDOFDesired=10000,
+    elif (to_problem == METALSTOExamples.BliskSectionWithSymmetry):
+        problem_type=ProblemType.PURE_STRUCTURAL
+        klFactor= 5e-5
+        learningRate = 2e-4
+        numEpochs = 20000
+        nDOFDesired=100000,
     run_topopt(
-        to_problem=METALSTOExamples.BridgeMMTOCost,
+        to_problem=to_problem,
         thermal_problem=None,
-        problem_type=ProblemType.BENCHMARK_COST,
+        problem_type=problem_type,
         debug=False,
         nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization = 50,
+        nIterationsWithPenalization = 0,
+        klFactor= klFactor,
+        learningRate = learningRate,
+        numEpochs = numEpochs,
         use_pretrained_vae=False,
         rel_conv_tol=1e-7,
-        nDOFDesired=10000,
+        nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True,
+        gamma_init=1e-3,
+        gamma_max=1000,
+        gamma_factor=2,
         results_filename="Temp.pkl"
     )
     """

@@ -698,7 +698,6 @@ def optimizationFunction_structuralyield(
     # Set and use M0 for normalization
     if shared_vars['M0'] is None:
         shared_vars['M0'] = float(totalMass.item())
-        print(f"M0: {shared_vars['M0']}")
     M0 = shared_vars['M0']
     obj_norm = totalMass / M0
 
@@ -739,13 +738,15 @@ def optimizationFunction_structuralyield(
     # --- Safety Factor Constraint (p-norm of relaxed von Mises / yield strength) ---
     # Get p-norm and its gradient wrt only density variables (not latent) using compute_pnorm_safety_factor_and_sensitivity function
     fe_solver.postprocess()  # Ensure stress is computed
+    vm_max = np.max(fe_solver.vonMisesStress)
     
     inv_sf_pnorm, grad_inv_sf_density = compute_pnorm_safety_factor_and_sensitivity(
         sol, xDesign.detach().numpy(), fe_solver, KE, MaterialModel.SIMP, 
         p=to_params.PNormExponent
     )
-    print(f"Gamma: {gamma:.2e}; Mass: {shared_vars['current_mass']:.2f}; J: {compliance:.2f};  SF (p-norm): {1/inv_sf_pnorm:.4f}")
- 
+    print(f"Gamma: {gamma:.2e}; Mass: {shared_vars['current_mass']:.2e}; J: {compliance:.2e}; VM-max: {vm_max:.2e}; SF (p-norm): {1/inv_sf_pnorm:.4f}")
+    shared_vars['safety_factor'] = fe_solver.vonMisesStress/np.array([mat.yield_strength for mat in fe_solver.mat_prop])
+    # Safety factor constraint value
     safety_factor = to_params.Constraints[0][2]
     safety_constraint = inv_sf_pnorm - (1.0 / safety_factor)
     #print(f"Inverse Safety factor (p-norm): {inv_sf_pnorm:.4f}, Constraint (SF - 1/SF_target): {safety_constraint:.4f}")
@@ -793,7 +794,7 @@ def optimizationFunction_structuralyield(
     # 3. Assemble full gradient for constraint
     grad_safety = np.zeros_like(x)
     grad_safety[:num_elems] = grad_inv_sf_density
-    grad_safety[num_elems:] =  grad_z
+    grad_safety[num_elems:] = grad_z
 
     # --- Filtering ---
     grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
@@ -831,7 +832,6 @@ def optimizationFunction_structuralyield(
         # dpen = xTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_patches, latentDim)
         # grad_obj[num_elems:, 0] += dpen.flatten()
     obj_norm = obj_norm.detach().numpy() 
-    
     #input("Press Enter to continue...")
     return obj_norm, grad_obj, cons, grad_cons
 

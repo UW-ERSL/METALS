@@ -8,7 +8,7 @@ class METALSTOExamples(enum.Enum):
     BliskSectionWithSymmetry = enum.auto()
     BridgeMMTO = enum.auto()
     BridgeMMTOCost = enum.auto()
-    LBracketTopLoadStressSafetyFactor = enum.auto()
+    LBracketMidLoadStressSafetyFactor = enum.auto()
 def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
 
@@ -57,15 +57,15 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         # Constraint order: [(MASS, None, mass_limit), (COST, None, cost_limit)]
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
-    elif to_problem == METALSTOExamples.LBracketTopLoadStressSafetyFactor:
+    elif to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor:
         structural_problem = METALSStructuralExamples.LBracket
-        kwargs['topload'] = 5.5e5
-        kwargs['midload'] = 0
+        kwargs['topload'] = 0
+        kwargs['midload'] = 5e-4
         to_params.Comment  = "Stress Safety Factor"
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,1.5), (TO_QOI.COMPLIANCE, None, 500)] 
+        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2), (TO_QOI.COMPLIANCE, None, 9e-4)] 
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     
