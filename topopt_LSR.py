@@ -14,7 +14,41 @@ from ReadMaterialData import ReadMaterialData
 from enum import Enum, auto
 from scipy.spatial import ConvexHull
 
-import materialEncoder
+
+import numpy as np
+
+
+def plotLSRContour(zReal,matEncoder,id = 0):
+    # Sample the latent space from -3 to 3 in 2D
+    n_points = 100
+    z1 = np.linspace(-3, 3, n_points)
+    z2 = np.linspace(-3, 3, n_points)
+    Z1, Z2 = np.meshgrid(z1, z2)
+    Z_grid = np.stack([Z1.ravel(), Z2.ravel()], axis=1)
+
+    # Decode each latent point and get Young's modulus
+    QOI = []
+    with torch.no_grad():
+        for z in Z_grid:
+            z_tensor = torch.tensor(z, dtype=torch.float32).unsqueeze(0)
+            decoded = matEncoder.vaeNet.decoder(z_tensor)
+            decodedValues = matEncoder.getMaterialProperties_structuralyield(decoded)
+            QOI.append(decodedValues[id].item())
+     
+
+    QOI = np.array(QOI).reshape(Z1.shape)
+
+    # Plot the contour
+    plt.figure(figsize=(6, 5))
+    contour = plt.contourf(Z1, Z2, QOI, levels=30, cmap='viridis')
+    plt.colorbar(contour, label="id")
+    plt.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+    plt.xlabel('$z_1$')
+    plt.ylabel('$z_2$')
+    plt.title("Contour of id in Latent Space")
+    plt.legend()
+    plt.show()
+   
 
 def plotLatentSpace(zReal, dataIdentifier, zDesign=None):
     """Plot the latent space with real and designed materials.
@@ -53,14 +87,14 @@ def run_topopt(
     debug=False,
     nIterationsWithoutPenalization=50,
     nIterationsWithPenalization=50,
-    timeLimit=7200,
+    timeLimit =7200,
     klFactor= 5e-6,
-    learningRate=2e-4,
-    numEpochs= 20000,
+    learningRate = 2e-4,
+    numEpochs = 20000,
     vae_hiddenDim=500,
     latentDim=2,
     saveNet=None,
-    use_pretrained_vae=False,
+    use_pretrained_vae=True,
     rel_conv_tol=1e-7,
     nDOFDesired=5000,
     apply_filter_to_materials=True,
@@ -71,7 +105,7 @@ def run_topopt(
    
     gamma_init = 1e-3
     gamma_max = 1000
-    gamma_factor = 2 # also change in optimizationFunction
+    gamma_factor = 2 
 
     # --- Problem-type-dependent settings ---
     if problem_type == ProblemType.PURE_STRUCTURAL:
@@ -84,7 +118,7 @@ def run_topopt(
         default_excel = './data/BenchmarkDatabase.xlsx'
         default_vae = './data/vaeNet_ref_benchmark.nt'
     elif problem_type == ProblemType.BENCHMARK_COST:
-        default_excel = './data/BenchmarkDatabaseCost.xlsx'
+        default_excel =  './data/BenchmarkDatabaseCost.xlsx' #'./data/TeledyneDatabase_Cost.xlsx'
         default_vae = './data/vaeNet_ref_benchmark_cost.nt'
     elif problem_type == ProblemType.STRUCTURAL_YIELD:
         default_excel = './data/LBracketDatabase.xlsx'
@@ -111,7 +145,7 @@ def run_topopt(
         'encoder': {'inputDim': numFeatures, 'hiddenDim': vae_hiddenDim, 'latentDim': latentDim},
         'decoder': {'latentDim': latentDim, 'hiddenDim': vae_hiddenDim, 'outputDim': numFeatures}
     }
-    materialEncoder = MaterialEncoder(trainingData, dataInfo, dataIdentifier, vaeSettings)
+    matEncoder = MaterialEncoder(trainingData, dataInfo, dataIdentifier, vaeSettings)
 
     # --- Check if VAE file exists and is non-empty ---
     vae_file_exists = os.path.exists(saveNet) and os.path.getsize(saveNet) > 0
@@ -119,21 +153,23 @@ def run_topopt(
     # Train or load VAE
     if use_pretrained_vae and vae_file_exists:
         print(f"Loading pre-trained autoencoder from file: {saveNet}")
-        materialEncoder.loadAutoencoderFromFile(saveNet)
+        matEncoder.loadAutoencoderFromFile(saveNet)
         with torch.no_grad():
-            z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
+            z_real_np = matEncoder.vaeNet.encoder(trainingData).cpu().numpy()
     else:
         print(f"Training autoencoder from scratch and saving to: {saveNet}")
-        materialEncoder.trainAutoencoder(numEpochs, klFactor, saveNet, learningRate)
+        matEncoder.trainAutoencoder(numEpochs, klFactor, saveNet, learningRate)
         with torch.no_grad():
-            z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
+            z_real_np = matEncoder.vaeNet.encoder(trainingData).cpu().numpy()
         
     # After loading or training the VAE
     with torch.no_grad():
-        materialEncoder.training_latents = materialEncoder.vaeNet.encoder(trainingData).cpu()
-    zReal = materialEncoder.vaeNet.encoder.z.detach().numpy()
-    plotLatentSpace(zReal,dataIdentifier=materialEncoder.dataIdentifier)
-    materialEncoder.constraints = {}
+        matEncoder.training_latents = matEncoder.vaeNet.encoder(trainingData).cpu()
+    zReal = matEncoder.vaeNet.encoder.z.detach().numpy()
+    #plotLatentSpace(zReal,dataIdentifier=matEncoder.dataIdentifier)
+
+    #plotLSRContour(zReal,matEncoder,id = 2)
+    matEncoder.constraints = {}
 
     # --- Problem setup ---
     mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params = getMETALSTOProblem(
@@ -201,7 +237,7 @@ def run_topopt(
             nonlocal iterationCount
             print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_tempdependent(
-                x, fe_solver_structural, fe_solver_thermal, to_params, materialEncoder,
+                x, fe_solver_structural, fe_solver_thermal, to_params, matEncoder,
                 patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars,
                 gamma=gammaStruct['value'],
                 debug=debug,
@@ -215,15 +251,15 @@ def run_topopt(
                 print(f"Gamma updated to: {gammaStruct['value']}")
 
             gammaStruct['value'] = min(gammaStruct['value'] * gamma_factor, gamma_max)
-            
+            return obj, grad_obj, cons, grad_cons
         nConstraints = 1
     elif problem_type == ProblemType.BENCHMARK_COST:
         def mma_obj(x):
             nonlocal iterationCount
             print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_structuralcost(
-                x, fe_solver_structural, to_params, materialEncoder,
-                num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
+                x, fe_solver_structural, to_params,
+                num_elems, num_design_var, H, Hs, KE, matEncoder, shared_vars,
                 gamma=gammaStruct['value'],
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
@@ -243,8 +279,8 @@ def run_topopt(
             nonlocal iterationCount
             print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_structuralyield(
-                x, fe_solver_structural, to_params, materialEncoder,
-                num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
+                x, fe_solver_structural, to_params,
+                num_elems, num_design_var, H, Hs, KE, matEncoder, shared_vars,
                 gamma=gammaStruct['value'],
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
@@ -266,8 +302,8 @@ def run_topopt(
             nonlocal iterationCount
             print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_structural(
-                x, fe_solver_structural, to_params, materialEncoder,
-                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars,
+                x, fe_solver_structural, to_params,
+                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, matEncoder, shared_vars,
                 gamma=gamma['value'],
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
@@ -283,11 +319,11 @@ def run_topopt(
         nConstraints = 1
 
     # Initial guess
- 
-    latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1)) 
-    #latent_init = np.ones((2 * num_patches, 1))
-    
-    #plotLatentSpace(zReal, dataIdentifier=materialEncoder.dataIdentifier,latent_init.reshape(-1, 2))
+
+    latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
+    #latent_init = 0.1 * np.ones((2 * num_patches, 1))
+
+    #plotLatentSpace(zReal, dataIdentifier=matEncoder.dataIdentifier,latent_init.reshape(-1, 2))
        
     if (apply_filter_to_materials): 
         latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
@@ -298,12 +334,15 @@ def run_topopt(
     nVariables = num_design_var
    
     ## Run MMA Optimization ---
+    tStart = time.time()
     maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
     [xOptimal, f0val, df0dx, gval, dgdx, nFEAs] = runMMA(
         nVariables, nConstraints, mma_obj, mma_init.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
         move_limit=0.2, kktTol=1e-6, fTolerance=rel_conv_tol, gTolerance=rel_conv_tol, verbose=False
     )
+    tEnd = time.time()
+    print(f"Total optimization time: {tEnd - tStart:.2f} seconds")
     # --- Store final mass after optimization ---
     if 'history' in shared_vars and 'mass' in shared_vars['history'] and len(shared_vars['history']['mass']) > 0:
         shared_vars['final_mass'] = shared_vars['history']['mass'][-1]
@@ -326,55 +365,9 @@ def run_topopt(
 
     # Plot latent space
     with torch.no_grad():
-        z_real_np = materialEncoder.vaeNet.encoder(trainingData).cpu().numpy()
+        z_real_np = matEncoder.vaeNet.encoder(trainingData).cpu().numpy()
     z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
-    plotLatentSpace(z_real_np, dataIdentifier=materialEncoder.dataIdentifier, zDesign=z_opt.reshape(-1, 2))
-
-    # --- Plot compliance and volume fraction history ---
-    # history = shared_vars.get('history', {})
-    # if 'compliance' in history and 'volfrac' in history:
-    #     fig, ax1 = plt.subplots()
-    #     ax1.plot(history['compliance'], 'b-', label='Compliance')
-    #     ax1.set_xlabel('Iteration')
-    #     ax1.set_ylabel('Compliance', color='b')
-    #     ax1.tick_params(axis='y', labelcolor='b')
-    #     ax2 = ax1.twinx()
-    #     ax2.plot(history['volfrac'], 'r--', label='Volume Fraction')
-    #     ax2.set_ylabel('Volume Fraction', color='r')
-    #     ax2.tick_params(axis='y', labelcolor='r')
-    #     plt.title('Compliance and Volume Fraction vs Iteration')
-    #     fig.tight_layout()
-    #     plt.show()
-    # else:
-    #     print("No compliance/volume fraction history found in shared_vars['history'].")
-
-    
-    # # Save results
-    # results_to_save = {
-    #     'xDesign': xDesign,
-    #     'EDesign': EDesign,
-    #     'zDesign': zDesign,
-    #     'history': history,
-    #     'thermalConductivity': shared_vars.get('thermalConductivity', None),
-    #     'massDensity': shared_vars.get('massDensity', None),
-    #     'z_real': z_real_np,
-    #     'initial_compliance': initial_compliance,
-    #     'final_compliance': final_compliance,
-    #     'final_mass': final_mass,
-    #     'target_mass': target_mass,
-    #     'to_problem': to_problem,
-    #     'thermal_problem': thermal_problem,
-    #     'nDOFDesired': nDOFDesired,
-    #     'nPatchesDesired': nPatchesDesired,
-    #     'latentDim': latentDim,
-    #     'vae_hiddenDim': vae_hiddenDim,
-    #     'apply_filter_to_materials': apply_filter_to_materials,
-    #     'problem_type': problem_type,
-    #     'results_filename': results_filename,
-    # }
-    # with open(results_filename, 'wb') as f:
-    #     pickle.dump(results_to_save, f)
-    # print(f"Results saved to {results_filename}")
+    plotLatentSpace(z_real_np, dataIdentifier=matEncoder.dataIdentifier, zDesign=z_opt.reshape(-1, 2))
 
 if __name__ == "__main__":
     run_topopt(
@@ -383,7 +376,7 @@ if __name__ == "__main__":
         problem_type=ProblemType.BENCHMARK_COST,
         debug=False,
         nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization = 100,
+        nIterationsWithPenalization = 50,
         use_pretrained_vae=False,
         rel_conv_tol=1e-7,
         nDOFDesired=10000,

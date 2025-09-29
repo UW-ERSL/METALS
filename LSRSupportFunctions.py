@@ -48,7 +48,7 @@ def patchwork(mesh, nPatchesDesired=8):
     if (nPatchesDesired is None or 
         nPatchesDesired < 1 or 
         nPatchesDesired >= mesh.num_elems):
-        print(f"nPatchesDesired ({nPatchesDesired}) is None, < 1, or >= num_elems ({mesh.num_elems}). Each element will be its own patch (no patching).")
+        #print(f"nPatchesDesired ({nPatchesDesired}) is None, < 1, or >= num_elems ({mesh.num_elems}). Each element will be its own patch (no patching).")
         return np.arange(mesh.num_elems, dtype=np.int32)
     xyz = mesh.elem_centers
     xMin = np.min(xyz[:,0])
@@ -90,7 +90,7 @@ def patchwork(mesh, nPatchesDesired=8):
     print(elemPatchNumber)
     return elemPatchNumber
 
-def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, KE, material_model, p=6):
+def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, KE, material_model, p):
     """
     Compute p-norm of (von Mises stress / yield strength) and its sensitivity for multi-material case.
     """
@@ -100,14 +100,9 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
 
     # Handle multi-material: get yield strength for each element
     if isinstance(fe_solver.mat_prop, list):
-        # Use elemComponentId if it exists, otherwise default to zeros
-        if hasattr(mesh, "elemComponentId"):
-            elem_ids = mesh.elemComponentId
-        else:
-            elem_ids = np.zeros(mesh.num_elems, dtype=int)
-        yield_strengths = np.array([fe_solver.mat_prop[i].yield_strength for i in elem_ids])
-        E = np.array([fe_solver.mat_prop[i].youngs_modulus for i in elem_ids])
-        nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in elem_ids])
+        yield_strengths = np.array([fe_solver.mat_prop[i].yield_strength for i in range(nelems)])
+        E = np.array([fe_solver.mat_prop[i].youngs_modulus for i in range(nelems)])
+        nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
         D_list = []
         for Ei, nui in zip(E, nu):
             D = hex_element_stiffness.isotropic_constitutive_matrix ( Ei, nui)
@@ -118,7 +113,6 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
         E = fe_solver.mat_prop.youngs_modulus
         nu = fe_solver.mat_prop.poissons_ratio
         D =  hex_element_stiffness.isotropic_constitutive_matrix ( E, nu)
-
 
     gradN = (1 / 8) * np.array([
         [-1, 1, 1, -1, -1, 1, 1, -1],
@@ -153,34 +147,28 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
         # Stress for T1 (no relaxation)
         stress_elem = fe_solver.stressComponents[e]
         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
-        vm = np.sqrt(
-            0.5 * ((sigma11 - sigma22) ** 2 + (sigma22 - sigma33) ** 2 + (sigma33 - sigma11) ** 2)
-            + 3 * (sigma12 ** 2 + sigma13 ** 2 + sigma23 ** 2)
-        )
+        vm = np.sqrt(0.5 * ((sigma11 - sigma22) ** 2 + (sigma22 - sigma33) ** 2 + (sigma33 - sigma11) ** 2)
+            + 3 * (sigma12 ** 2 + sigma13 ** 2 + sigma23 ** 2)) 
         inv_sf = vm / yield_strengths[e]
         T1[e] = p * q * (x[e] ** (p * q - 1)) * inv_sf
 
         # Stress for T2 (with relaxation)
         stress_elem_relaxed = (x[e] ** q) * fe_solver.stressComponents[e]
         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem_relaxed
-        vm_relaxed = np.sqrt(
-            0.5 * ((sigma11 - sigma22) ** 2 + (sigma22 - sigma33) ** 2 + (sigma33 - sigma11) ** 2)
-            + 3 * (sigma12 ** 2 + sigma13 ** 2 + sigma23 ** 2)
-        )
+        vm_relaxed = np.sqrt( 0.5 * ((sigma11 - sigma22) ** 2 + (sigma22 - sigma33) ** 2 + (sigma33 - sigma11) ** 2)
+            + 3 * (sigma12 ** 2 + sigma13 ** 2 + sigma23 ** 2))
         inv_sf_elems[e] = vm_relaxed / yield_strengths[e]
 
         if isinstance(E, np.ndarray):
             F = F_stack[e]
         # Sensitivity of von Mises stress w.r.t. displacement
-        g_e = (
-            (sigma11 - sigma22) * (F[0] - F[1])
+        g_e = ((sigma11 - sigma22) * (F[0] - F[1])
             + (sigma11 - sigma33) * (F[0] - F[2])
             + (sigma22 - sigma33) * (F[1] - F[2])
             + 6 * sigma12 * F[3]
             + 6 * sigma13 * F[4]
-            + 6 * sigma23 * F[5]
-        ) / np.sqrt(2)
-        g_elem[e] = p * (inv_sf_elems[e] ** (p - 2)) * g_e / yield_strengths[e]
+            + 6 * sigma23 * F[5]) / np.sqrt(2)
+        g_elem[e] = p * (inv_sf_elems[e] ** (p - 2)) * g_e 
 
     inv_sf_pnorm = np.sum(inv_sf_elems ** p) ** (1 / p)
     T1 *= (1 / p) * (np.sum(inv_sf_elems ** p) ** (1 / p - 1))
@@ -204,14 +192,13 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, K
     dofMat = fe_solver.mesh.edofMat
     num_elems = fe_solver.mesh.num_elems
     nRows = KE.shape[0]
-    ce = (
-        np.dot(adjointSol[dofMat].reshape(num_elems, nRows), KE)
-        * sol[dofMat].reshape(num_elems, nRows)
-    ).sum(1)
+    ce = ( np.dot(adjointSol[dofMat].reshape(num_elems, nRows), KE)
+        * sol[dofMat].reshape(num_elems, nRows)).sum(1)
 
-    T2 = get_structural_material_model_sensitivity(x, material_model) * ce
-    inv_sf_pnorm_sensitivity = T1 + T2
+    T2 = get_structural_material_model_sensitivity(x, material_model) * ce / yield_strengths #KS: Should divide by yield_strengths?
+    inv_sf_pnorm_sensitivity = T1  + T2
 
+    
     return inv_sf_pnorm, inv_sf_pnorm_sensitivity
 
 def d_relaxed_von_mises_dE(stress, x, q=1):
@@ -394,23 +381,23 @@ def optimizationFunction_structural(
 
 # --- Temp-Dependent Optimization Function ---
 def optimizationFunction_tempdependent(
-    x, fe_solver_structural, fe_solver_thermal, to_params, vae_info, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True, use_penalization=True
+    x, fe_solver_structural, fe_solver_thermal, to_params, materialEncoder, patchwork_colors, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True, use_penalization=True
 ):
     if 'J0' not in shared_vars or shared_vars['J0'] is None:
         shared_vars['J0'] = None
     if use_penalization:
         x = np.asarray(x).flatten()
-        x = vae_info.unnormalize_last_n(arr=x, n=2*num_patches)
+        x = materialEncoder.unnormalize_last_n(arr=x, n=2*num_patches)
     else:
         x = np.asarray(x).flatten()
-        x = vae_info.map_to_ellipse_torch_patch(x, num_material_vars=2*num_patches)
+        x = materialEncoder.map_to_ellipse_torch_patch(x, num_material_vars=2*num_patches)
     xTensor = torch.tensor(x).float()
     xTensor.requires_grad = True
     xDesign = x[0:num_elems]
     zD = xTensor[num_elems:]
     zDesign = zD.view(2, -1).T
-    decoded = vae_info.vaeNet.decoder(zDesign)
-    Ea, Eb, Ec, Ed, _, thermalConductivity = vae_info.getMaterialProperties_tempdependent(decoded)
+    decoded = materialEncoder.vaeNet.decoder(zDesign)
+    Ea, Eb, Ec, Ed, _, thermalConductivity = materialEncoder.getMaterialProperties_tempdependent(decoded)
     # Assign patch properties to elements (preserve grad)
     patchwork_colors_torch = torch.tensor(patchwork_colors, dtype=torch.long, device=Ea.device)
     Ea_elem = Ea[patchwork_colors_torch]
@@ -471,8 +458,8 @@ def optimizationFunction_tempdependent(
     pseudoDensity = xConstraint_tensor[0:num_elems]
     zcTensor = xConstraint_tensor[num_elems:]
     zc = zcTensor.view(2, -1).T
-    decoded = vae_info.vaeNet.decoder(zc)
-    Ea_c, Eb_c, Ec_c, Ed_c, massDensity_c, _ = vae_info.getMaterialProperties_tempdependent(decoded)
+    decoded = materialEncoder.vaeNet.decoder(zc)
+    Ea_c, Eb_c, Ec_c, Ed_c, massDensity_c, _ = materialEncoder.getMaterialProperties_tempdependent(decoded)
     md_elem = massDensity_c[patchwork_colors_torch].detach().cpu().numpy()
     md = torch.tensor(md_elem, dtype=pseudoDensity.dtype, device=pseudoDensity.device)
     elem_volume = fe_solver_structural.mesh.elem_size[0] * fe_solver_structural.mesh.elem_size[1] * fe_solver_structural.mesh.elem_size[2]
@@ -517,7 +504,7 @@ def optimizationFunction_tempdependent(
     cons = np.array([cons]).reshape((1, 1))
     grad_cons = grad_cons.reshape((1, num_design_var))
    # --- Latent space penalization ---
-    Z_data = vae_info.training_latents.to(zDesign.device)  # shape (N_train, latentDim)
+    Z_data = materialEncoder.training_latents.to(zDesign.device)  # shape (N_train, latentDim)
     p_softmin = -1
     # gamma = 1
 
@@ -552,16 +539,16 @@ def optimizationFunction_tempdependent(
 
 # --- Structural Cost Optimization Function ---
 def optimizationFunction_structuralcost(
-    x, fe_solver, to_params, vae_info, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True, use_penalization=True
+    x, fe_solver, to_params, num_elems, num_design_var, H, Hs, KE, materialEncoder, shared_vars, gamma=100, debug=False, apply_filter_to_materials=True, use_penalization=True
 ):
     if 'J0' not in shared_vars or shared_vars['J0'] is None:
         shared_vars['J0'] = None
     if use_penalization:
         x = np.asarray(x).flatten()
-        x = vae_info.unnormalize_last_n(arr=x, n=2*num_elems)
+        x = materialEncoder.unnormalize_last_n(arr=x, n=2*num_elems)
     else:
         x = np.asarray(x).flatten()
-        x = vae_info.map_to_ellipse_torch(x, num_material_vars=2*num_elems)
+        x = materialEncoder.map_to_ellipse_torch(x, num_material_vars=2*num_elems)
     xTensor = torch.tensor(x).float()
     xTensor.requires_grad = True
     xDesign = x[0:num_elems]
@@ -648,7 +635,7 @@ def optimizationFunction_structuralcost(
     cons = np.array([cons_mass, cons_cost]).reshape((2, 1))
     grad_cons = np.vstack([grad_cons_mass.reshape((1, num_design_var)), grad_cons_cost.reshape((1, num_design_var))])
     # --- Latent space penalization ---
-    Z_data = vae_info.training_latents.to(zDesign.device)  # shape (N_train, latentDim)
+    Z_data = materialEncoder.training_latents.to(zDesign.device)  # shape (N_train, latentDim)
     p_softmin = -6
     d_ij = torch.cdist(zDesign, Z_data, p=2) + 1e-6  # shape (num_patches, N_train)
     soft_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
@@ -664,7 +651,7 @@ def optimizationFunction_structuralcost(
 
 # --- Structural Yield Optimization Function ---
 def optimizationFunction_structuralyield(
-    x, fe_solver, to_params, vae_info, num_elems, num_design_var, H, Hs, KE, 
+    x, fe_solver, to_params, num_elems, num_design_var, H, Hs, KE, 
     materialEncoder, shared_vars, gamma=100, debug=False, 
     apply_filter_to_materials=True, use_penalization=True):
 
@@ -674,10 +661,10 @@ def optimizationFunction_structuralyield(
         shared_vars['M0'] = None
     if use_penalization:
         x = np.asarray(x).flatten()
-        x = vae_info.unnormalize_last_n(arr=x, n=2*num_elems)
+        x = materialEncoder.unnormalize_last_n(arr=x, n=2*num_elems)
     else:
         x = np.asarray(x).flatten()
-        x = vae_info.map_to_ellipse_torch(x, num_material_vars=2*num_elems)
+        x = materialEncoder.map_to_ellipse_torch(x, num_material_vars=2*num_elems)
     xTensor = torch.tensor(x, dtype=torch.float32, requires_grad=True)
     xDesign = xTensor[0:num_elems]
     zD = xTensor[num_elems:]
@@ -757,7 +744,7 @@ def optimizationFunction_structuralyield(
         sol, xDesign.detach().numpy(), fe_solver, KE, MaterialModel.SIMP, 
         p=to_params.PNormExponent
     )
-    print(f"Mass: {shared_vars['current_mass']:.2f}; J: {compliance:.2f}; Max Stress (Pa): {np.max(fe_solver.stressComponents):.2e};  SF (p-norm): {1/inv_sf_pnorm:.4f}")
+    print(f"Gamma: {gamma:.2e}; Mass: {shared_vars['current_mass']:.2f}; J: {compliance:.2f};  SF (p-norm): {1/inv_sf_pnorm:.4f}")
  
     safety_factor = to_params.Constraints[0][2]
     safety_constraint = inv_sf_pnorm - (1.0 / safety_factor)
@@ -776,10 +763,8 @@ def optimizationFunction_structuralyield(
     for e in range(num_elems):
         stress = fe_solver.stressComponents[e]
         sxx, syy, szz, syz, sxz, sxy = stress
-        sigma_vm[e] = np.sqrt(
-            0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2) +
-            3 * (syz ** 2 + sxz ** 2 + sxy ** 2)
-        ) * (xDesign[e].item() ** 1)
+        sigma_vm[e] = np.sqrt(0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2) +
+            3 * (syz ** 2 + sxz ** 2 + sxy ** 2)) * (xDesign[e].item() ** 1)
     Y = np.array([mat.yield_strength for mat in fe_solver.mat_prop])
     S = sigma_vm
     inv_sf_elem = S / Y
@@ -808,7 +793,7 @@ def optimizationFunction_structuralyield(
     # 3. Assemble full gradient for constraint
     grad_safety = np.zeros_like(x)
     grad_safety[:num_elems] = grad_inv_sf_density
-    grad_safety[num_elems:] = grad_z
+    grad_safety[num_elems:] =  grad_z
 
     # --- Filtering ---
     grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
@@ -829,22 +814,24 @@ def optimizationFunction_structuralyield(
     grad_obj = np.array([grad_obj]).reshape((num_design_var, 1))
     cons = np.array([compliance_constraint, safety_constraint]).reshape((2, 1))
     grad_cons = np.vstack([grad_compliance_cons.reshape((1, num_design_var)), grad_safety.reshape((1, num_design_var))])
-    # --- Latent space penalization ---
-    Z_data = vae_info.training_latents.to(zDesign.device)  # shape (N_train, latentDim)
-    p_softmin = -6
-    d_ij = torch.cdist(zDesign, Z_data, p=2) + 1e-6  # shape (num_patches, N_train)
-    soft_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0 / p_softmin)
-    penalty = gamma * torch.sum(soft_i) / num_elems
-    # Add penalty to objective
-    obj = obj_norm + penalty.item()
-    # Backprop for penalty gradient
-    xTensor.grad = None
-    penalty.backward(retain_graph=True)
-    dpen = xTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_patches, latentDim)
-    grad_obj[num_elems:, 0] += dpen.flatten()
+  
+    
+    if (gamma > 0):  # --- Latent space penalization ---
+        Z_data = materialEncoder.training_latents.to(zDesign.device)  # shape (N_train, latentDim)
+        p_softmin = -6
+        d_ij = torch.cdist(zDesign, Z_data, p=2) + 1e-6  # shape (num_patches, N_train)
+        soft_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0 / p_softmin)
+        penalty = gamma * torch.sum(soft_i) / num_elems
 
+        # Add penalty to objective
+        obj_norm = obj_norm + penalty.item()
+        # Backprop for penalty gradient KS: Can I suppress?
+        # xTensor.grad = None
+        # penalty.backward(retain_graph=True)
+        # dpen = xTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_patches, latentDim)
+        # grad_obj[num_elems:, 0] += dpen.flatten()
     obj_norm = obj_norm.detach().numpy() 
-    print("Constraints: ",cons.flatten())
+    
     #input("Press Enter to continue...")
     return obj_norm, grad_obj, cons, grad_cons
 
