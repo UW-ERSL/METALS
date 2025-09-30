@@ -2,7 +2,7 @@ import numpy as np
 import os
 import enum
 script_dir = os.path.dirname(os.path.abspath(__file__))
-from LSRImports import *
+from PyTOImports import *
 import scipy.sparse as spy_sprs
 from scipy.sparse import lil_matrix
 class METALSStructuralExamples(enum.Enum):

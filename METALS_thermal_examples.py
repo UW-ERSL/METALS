@@ -2,7 +2,7 @@ import numpy as np
 import os
 import enum
 script_dir = os.path.dirname(os.path.abspath(__file__))
-from LSRImports import *
+from PyTOImports import *
 
 class METALSThermalExamples(enum.Enum):
     EdgeCantilever = enum.auto()

@@ -1,21 +1,17 @@
-from sympy import gamma
-from LSRSupportFunctions import *
+
 from METALS_TO_examples import METALSTOExamples, getMETALSTOProblem
 from METALS_thermal_examples import METALSThermalExamples, getMETALSThermalProblem
-import hex_structural_fea
-import hex_thermal_fea
 import torch
 import matplotlib.pyplot as plt
 import os
-import pickle
 from materialEncoder import MaterialEncoder
-from LSRImports import *
 from ReadMaterialData import ReadMaterialData
 from enum import Enum, auto
-from scipy.spatial import ConvexHull
-
-
+import time
 import numpy as np
+from LSRSupportFunctions import *
+from PyTOImports import  *
+
 
 
 def plotLSRContour(zReal,matEncoder,dataIdentifier,id = 0,title = "Contour in Latent Space"):
@@ -32,7 +28,7 @@ def plotLSRContour(zReal,matEncoder,dataIdentifier,id = 0,title = "Contour in La
         for z in Z_grid:
             z_tensor = torch.tensor(z, dtype=torch.float32).unsqueeze(0)
             decoded = matEncoder.vaeNet.decoder(z_tensor)
-            decodedValues = matEncoder.getMaterialProperties_structuralyield(decoded)
+            decodedValues = matEncoder.getMaterialProperties_structuralcost(decoded)
             QOI.append(decodedValues[id].item())
      
 
@@ -171,16 +167,16 @@ def run_topopt(
     zReal = matEncoder.vaeNet.encoder.z.detach().numpy()
     #plotLatentSpace(zReal,dataIdentifier=matEncoder.dataIdentifier)
 
-    #plotLSRContour(zReal,matEncoder,dataIdentifier=matEncoder.dataIdentifier,id = 2,title = "Young's Modulus Contour in Latent Space")
+    #plotLSRContour(zReal,matEncoder,dataIdentifier=matEncoder.dataIdentifier,id = 2,title = "Cost Contour in Latent Space")
     matEncoder.constraints = {}
 
     # --- Problem setup ---
     mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params = getMETALSTOProblem(
         to_problem, nDOFDesired=nDOFDesired)
 
-    solver = lin_solv.Solvers.PARDISO
+    solver = linear_solvers.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
-    if solver == lin_solv.Solvers.DPCG:
+    if solver == linear_solvers.Solvers.DPCG:
         nGroups = min(dsolver.maxGroups, max(dsolver.minGroups, round(3 * mesh_structural.num_nodes / dsolver.dofPerGroup)))
         dsolver.create_deflation_groups(mesh_structural, nGroups)
         dsolver.create_deflation_matrix(mesh_structural)
@@ -221,7 +217,7 @@ def run_topopt(
         fe_solver_thermal = None
 
     # --- Patch ID ---
-    patch_id = patchwork(mesh_structural, nPatchesDesired=nPatchesDesired)
+    patch_id = range(mesh_structural.num_elems) 
     num_patches = len(np.unique(patch_id))
     num_elems = mesh_structural.num_elems
     num_design_var = num_elems + num_patches * 2
@@ -307,7 +303,7 @@ def run_topopt(
             obj, grad_obj, cons, grad_cons = optimizationFunction_structural(
                 x, fe_solver_structural, to_params,
                 patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, matEncoder, shared_vars,
-                gamma=gamma['value'],
+                gamma=gammaStruct['value'],
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
             )
@@ -391,30 +387,34 @@ if __name__ == "__main__":
         klFactor= 2e-6
         learningRate = 2e-4
         numEpochs = 20000
-        nDOFDesired=10000,
+        nDOFDesired=10000
     elif (to_problem == METALSTOExamples.BridgeMMTOCost):
         problem_type=ProblemType.BENCHMARK_COST
         klFactor= 5e-6
         learningRate = 2e-4
         numEpochs = 20000
-        nDOFDesired=10000,
+        nDOFDesired=10000
     elif (to_problem == METALSTOExamples.BliskSectionWithSymmetry):
         problem_type=ProblemType.PURE_STRUCTURAL
         klFactor= 5e-5
         learningRate = 2e-4
         numEpochs = 20000
-        nDOFDesired=100000,
+        nDOFDesired=100000
+
+    """
+    Main code
+    """
     run_topopt(
         to_problem=to_problem,
         thermal_problem=None,
         problem_type=problem_type,
         debug=False,
-        nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization = 0,
+        nIterationsWithoutPenalization= 20,
+        nIterationsWithPenalization = 20,
         klFactor= klFactor,
         learningRate = learningRate,
         numEpochs = numEpochs,
-        use_pretrained_vae=False,
+        use_pretrained_vae=True,
         rel_conv_tol=1e-7,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True,
@@ -423,35 +423,3 @@ if __name__ == "__main__":
         gamma_factor=2,
         results_filename="Temp.pkl"
     )
-    """
-    Runs topology optimization with VAE-based material design.
-
-     - Results are saved to `results_filename` and plots are shown.
-    - You can view and compare results by running the postprocess_topopt_lsr.py file.
-
-    | Parameter                  | Type      | Default                  | Description                                                                 |
-    |----------------------------|-----------|--------------------------|-----------------------------------------------------------------------------|
-    | to_problem                 | object    | (required)               | Topology optimization problem definition object                             |
-    | thermal_problem            | object    | None                     | Thermal problem definition object (optional, for temp-dependent problems)   |
-    | problem_type               | enum      | PURE_STRUCTURAL          | Problem type: PURE_STRUCTURAL, TEMP_DEPENDENT, BENCHMARK (may add more)                    |
-    | nPatchesDesired            | int       | 8                        | Number of patches for patchwork coloring                                    |
-    | random_latent_init         | bool      | True                     | Randomly initialize latent variables                                        |
-    | debug                      | bool      | False                    | Enable debug mode                                                           |
-    | maxMMAIterations           | int       | 200                      | Maximum number of MMA iterations                                            |
-    | timeLimit                  | int/float | 7200                     | Time limit for MMA optimization (seconds)                                   |
-    | klFactor                   | float     | 5e-5                     | KL divergence factor for VAE training                                       |
-    | learningRate               | float     | 2e-3                     | Learning rate for VAE training                                              |
-    | numEpochs                  | int       | 40000                    | Number of epochs for VAE training                                           |
-    | vae_hiddenDim              | int       | 250                      | Hidden layer dimension for VAE                                              |
-    | latentDim                  | int       | 2                        | Latent space dimension for VAE                                              |
-    | saveNet                    | str       | None                     | Path to save/load VAE network                                               |
-    | use_pretrained_vae         | bool      | False                    | Use a pre-trained VAE if available                                          |
-    | plot_patches_flag          | bool      | False                    | Plot patchwork coloring                                                     |
-    | use_penalization           | bool      | True                     | Use penalization for LSR constraint                                         |
-    | rel_conv_tol               | float     | 1e-3                     | Relative convergence tolerance for MMA                                      |
-    | nDOFDesired                | int       | 5000                     | Desired number of degrees of freedom in mesh                                |
-    | apply_filter_to_materials  | bool      | True                     | Apply filter to material properties                                         |
-    | material_excel_file        | str       | None                     | Path to material property Excel file                                        |
-    | results_filename           | str       | "topopt_results.pkl"     | Output filename for saving results                                          |
-
-    """

@@ -1,6 +1,6 @@
 import enum
 from METALS_structural_examples import *
-from LSRImports import *
+from PyTOImports import  *
 
 class METALSTOExamples(enum.Enum):
     EdgeCantilever = enum.auto()  # Another variant of edge cantilever
@@ -9,6 +9,8 @@ class METALSTOExamples(enum.Enum):
     BridgeMMTO = enum.auto()
     BridgeMMTOCost = enum.auto()
     LBracketMidLoadStressSafetyFactor = enum.auto()
+
+
 def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
 
@@ -59,8 +61,8 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
     elif to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor:
         structural_problem = METALSStructuralExamples.LBracket
-        kwargs['topload'] = 0
-        kwargs['midload'] = 5e-4
+        kwargs['topload'] = 5e-4
+        kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True

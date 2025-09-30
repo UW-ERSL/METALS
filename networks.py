@@ -1,7 +1,17 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utilFuncs import set_seed
+import numpy as np
+import random
+
+def set_seed(manualSeed):
+  torch.backends.cudnn.deterministic = True
+  torch.backends.cudnn.benchmark = False
+  torch.manual_seed(manualSeed)
+  torch.cuda.manual_seed(manualSeed)
+  torch.cuda.manual_seed_all(manualSeed)
+  np.random.seed(manualSeed)
+  random.seed(manualSeed)
 
 #%%
 class Encoder(nn.Module):

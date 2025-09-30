@@ -3,9 +3,11 @@ import torch
 import matplotlib.pyplot as plt
 import matplotlib
 import matplotlib.cm as cm
-from LSRImports import *
-import hex_element_stiffness
 import math
+import sys, os
+# Import all PyTO modules   
+from PyTOImports import  *
+
 def plot_patches(mesh, nPatchesDesired=8, title_prefix="Patchwork Coloring"):
     patchwork_colors = patchwork(mesh, nPatchesDesired=nPatchesDesired)
     elem_centers = mesh.elem_centers
