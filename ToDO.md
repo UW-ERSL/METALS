@@ -1,6 +1,6 @@
 - Remove all references to patches
 - Remove all references to ellipse
-- Generalize mat_lib
+- Template Excel file and reader
 - Avoid duplication in materialEncoder
 - A single optimization function?
 - Consolidate plotting in respective modules
