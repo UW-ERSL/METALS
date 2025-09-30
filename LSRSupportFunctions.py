@@ -4,93 +4,9 @@ import matplotlib.pyplot as plt
 import matplotlib
 import matplotlib.cm as cm
 import math
-import sys, os
+
 # Import all PyTO modules   
 from PyTOImports import  *
-
-def plot_patches(mesh, nPatchesDesired=8, title_prefix="Patchwork Coloring"):
-    patchwork_colors = patchwork(mesh, nPatchesDesired=nPatchesDesired)
-    elem_centers = mesh.elem_centers
-    num_patches = len(np.unique(patchwork_colors))
-    fig = plt.figure(figsize=(8, 6))
-    ax = fig.add_subplot(111, projection='3d')
-    if num_patches > 50:
-        np.random.seed(42)
-        colors = []
-        for i in range(num_patches):
-            hue = (i * 137.508) % 360
-            sat = 0.6 + 0.4 * (i % 3) / 2
-            val = 0.7 + 0.3 * ((i // 3) % 3) / 2
-            rgb = matplotlib.colors.hsv_to_rgb([hue/360, sat, val])
-            colors.append(rgb)
-        colors = np.array(colors)
-        from matplotlib.colors import ListedColormap
-        cmap = ListedColormap(colors)
-    else:
-        cmap = cm.get_cmap('nipy_spectral', num_patches)
-    sc = ax.scatter(
-        elem_centers[:, 0], elem_centers[:, 1], elem_centers[:, 2],
-        c=patchwork_colors, cmap=cmap, s=40
-    )
-    plt.title(f"{title_prefix} ({num_patches} patches)", fontsize=18)
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    plt.colorbar(sc, label="Patch ID")
-    ax.set_box_aspect([
-        np.ptp(elem_centers[:, 0]),
-        np.ptp(elem_centers[:, 1]),
-        np.ptp(elem_centers[:, 2])
-    ])
-    plt.tight_layout()
-    plt.show()
-    return patchwork_colors
-
-def patchwork(mesh, nPatchesDesired=8):
-    if (nPatchesDesired is None or 
-        nPatchesDesired < 1 or 
-        nPatchesDesired >= mesh.num_elems):
-        #print(f"nPatchesDesired ({nPatchesDesired}) is None, < 1, or >= num_elems ({mesh.num_elems}). Each element will be its own patch (no patching).")
-        return np.arange(mesh.num_elems, dtype=np.int32)
-    xyz = mesh.elem_centers
-    xMin = np.min(xyz[:,0])
-    yMin = np.min(xyz[:,1])
-    zMin = np.min(xyz[:,2])
-    xLength = np.max(xyz[:,0]) - xMin
-    yLength = np.max(xyz[:,1]) - yMin
-    zLength = np.max(xyz[:,2]) - zMin
-
-    if (zLength < 1e-12):
-        print("2D problem detected (zLength is negligible). Using 2D patching.")
-        zLength = 1.0
-        temp = xLength * yLength 
-    else:
-        temp = xLength * yLength * zLength
-    alpha = (nPatchesDesired / temp) ** (1.0 / 3)
-    print(f"Calculated alpha={alpha} for nPatchesDesired={nPatchesDesired}.")
-    nX = max(round(alpha*xLength), 1)
-    nY = max(round(alpha*yLength), 1)
-    nZ = max(round(alpha*zLength), 1)
-    print(f"Dividing domain into nX={nX}, nY={nY}, nZ={nZ} patches.")
-    nPatchesTentative = nX * nY * nZ
-    sizeX = xLength / nX
-    sizeY = yLength / nY
-    sizeZ = zLength / nZ
-    rel_pos = xyz - np.array([xMin, yMin, zMin])
-    indices = np.floor(rel_pos / np.array([sizeX, sizeY, sizeZ])).astype(np.int32)
-    indices = np.minimum(indices, np.array([nX - 1, nY - 1, nZ - 1]))
-    elemPatchNumber = (indices[:, 0] + nX * indices[:, 1] + nX * nY * indices[:, 2]).astype(np.int32)
-    # Count number of elements in each patch
-    unique, counts = np.unique(elemPatchNumber, return_counts=True)
-    num_elems_per_patch = np.zeros(np.max(elemPatchNumber) + 1, dtype=int)
-    num_elems_per_patch[unique] = counts
-  
-    # Remove empty patches and renumber so patch numbers are contiguous
-    unique_patches, inverse_indices = np.unique(elemPatchNumber, return_inverse=True)
-    elemPatchNumber = inverse_indices.astype(np.int32)
-
-    print(elemPatchNumber)
-    return elemPatchNumber
 
 def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, KE, material_model, p):
     """

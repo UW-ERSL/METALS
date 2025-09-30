@@ -1,0 +1,7 @@
+- Remove all references to patches
+- Remove all references to ellipse
+- Generalize mat_lib
+- Avoid duplication in materialEncoder
+- A single optimization function?
+- Consolidate plotting in respective modules
+- 

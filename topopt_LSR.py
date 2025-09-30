@@ -81,7 +81,6 @@ def run_topopt(
     to_problem,
     thermal_problem=None,
     problem_type=ProblemType.PURE_STRUCTURAL,
-    nPatchesDesired=0,
     debug=False,
     nIterationsWithoutPenalization=50,
     nIterationsWithPenalization=50,
@@ -100,7 +99,6 @@ def run_topopt(
     gamma_init = 1e-3,
     gamma_max = 1000,
     gamma_factor = 2,
-    results_filename="topopt_results.pkl"
 ):
     # --- Set gamma and normalization based on penalization flag ---
    
@@ -409,17 +407,16 @@ if __name__ == "__main__":
         thermal_problem=None,
         problem_type=problem_type,
         debug=False,
-        nIterationsWithoutPenalization= 20,
-        nIterationsWithPenalization = 20,
+        nIterationsWithoutPenalization= 50,
+        nIterationsWithPenalization = 0,
         klFactor= klFactor,
         learningRate = learningRate,
         numEpochs = numEpochs,
-        use_pretrained_vae=True,
+        use_pretrained_vae=False,
         rel_conv_tol=1e-7,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True,
         gamma_init=1e-3,
         gamma_max=1000,
         gamma_factor=2,
-        results_filename="Temp.pkl"
     )

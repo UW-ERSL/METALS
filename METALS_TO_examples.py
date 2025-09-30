@@ -51,6 +51,7 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000)]
+        
     elif to_problem == METALSTOExamples.BridgeMMTOCost:
         structural_problem = METALSStructuralExamples.BridgeMMTO
         to_params.Comment  = "Benchmark 2.5D with Cost Constraint"
