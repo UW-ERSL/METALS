@@ -1,5 +1,3 @@
-- Remove all references to patches
-- Remove all references to ellipse
 - Template Excel file and reader
 - Avoid duplication in materialEncoder
 - A single optimization function?

@@ -214,11 +214,9 @@ def run_topopt(
     else:
         fe_solver_thermal = None
 
-    # --- Patch ID ---
-    patch_id = range(mesh_structural.num_elems) 
-    num_patches = len(np.unique(patch_id))
+
     num_elems = mesh_structural.num_elems
-    num_design_var = num_elems + num_patches * 2
+    num_design_var = num_elems + num_elems * 2
 
     # --- MMA Optimization ---
     print("Creating filter...")
@@ -235,7 +233,7 @@ def run_topopt(
             print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_tempdependent(
                 x, fe_solver_structural, fe_solver_thermal, to_params, matEncoder,
-                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, shared_vars,
+                 num_elems, num_design_var, H, Hs, KE, shared_vars,
                 gamma=gammaStruct['value'],
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
@@ -300,7 +298,7 @@ def run_topopt(
             print("-------------- ", iterationCount, " -----------------")
             obj, grad_obj, cons, grad_cons = optimizationFunction_structural(
                 x, fe_solver_structural, to_params,
-                patch_id, num_patches, num_elems, num_design_var, H, Hs, KE, matEncoder, shared_vars,
+                num_elems, num_design_var, H, Hs, KE, matEncoder, shared_vars,
                 gamma=gammaStruct['value'],
                 debug=debug,
                 apply_filter_to_materials=apply_filter_to_materials,
@@ -317,14 +315,14 @@ def run_topopt(
 
     # Initial guess
 
-    latent_init = np.random.uniform(0, 1, size=(2 * num_patches, 1))
-    #latent_init = 0.1 * np.ones((2 * num_patches, 1))
+    latent_init = np.random.uniform(0, 1, size=(2 * num_elems, 1))
+    #latent_init = 0.1 * np.ones((2 * num_elems, 1))
 
     #plotLatentSpace(zReal, dataIdentifier=matEncoder.dataIdentifier,latent_init.reshape(-1, 2))
        
     if (apply_filter_to_materials): 
-        latent_init[0:num_patches,0] = (H * latent_init[0:num_patches,0]) / Hs
-        latent_init[num_patches:2*num_patches,0] = (H * latent_init[num_patches:2*num_patches,0]) / Hs
+        latent_init[0:num_elems,0] = (H * latent_init[0:num_elems,0]) / Hs
+        latent_init[num_elems:2*num_elems,0] = (H * latent_init[num_elems:2*num_elems,0]) / Hs
     if (to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor):
         x0 = 1 * np.ones((num_elems, 1))
     else:
@@ -378,7 +376,7 @@ def run_topopt(
 
 if __name__ == "__main__":
 
-    to_problem=METALSTOExamples.LBracketMidLoadStressSafetyFactor
+    to_problem=METALSTOExamples.BridgeMMTOCost
 
     if (to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor):
         problem_type=ProblemType.STRUCTURAL_YIELD
@@ -412,7 +410,7 @@ if __name__ == "__main__":
         klFactor= klFactor,
         learningRate = learningRate,
         numEpochs = numEpochs,
-        use_pretrained_vae=False,
+        use_pretrained_vae=True,
         rel_conv_tol=1e-7,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True,
