@@ -2,12 +2,18 @@ import enum
 from METALS_structural_examples import *
 from PyTOImports import  *
 
+class VAEParams:
+    klFactor = 5e-6
+    learningRate = 2e-4
+    numEpochs = 20000
+    vae_hiddenDim = 500
+    latentDim = 2
+
 class METALSTOExamples(enum.Enum):
     EdgeCantilever = enum.auto()  # Another variant of edge cantilever
     BliskWithBladeMass = enum.auto()
     BliskSectionWithSymmetry = enum.auto()
-    BridgeMMTO = enum.auto()
-    BridgeMMTOCost = enum.auto()
+    Bridge = enum.auto()
     LBracketMidLoadStressSafetyFactor = enum.auto()
 
 
@@ -23,43 +29,41 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
     """
     
     to_params = TOParams()
+    vae_params = VAEParams()
     if to_problem == METALSTOExamples.EdgeCantilever:
         structural_problem = METALSStructuralExamples.EdgeCantilever
         to_params.Comment = "Classic TO Problem"
         to_params.YSymmetry = True
         to_params.nDOFDesired = nDOFDesired
         to_params.Constraints = [(TO_QOI.MASS, None, 15)]  # kg
-    elif to_problem == METALSTOExamples.BliskWithBladeMass:
-        structural_problem = METALSStructuralExamples.BliskWithBladeMass
-        to_params.Comment  = "Large DOF"
-        to_params.KeepFixedElems = True
-        to_params.RemoveHangingElems = True
-        to_params.nDOFDesired = nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 0.01)]  # kg
     elif to_problem == METALSTOExamples.BliskSectionWithSymmetry:
         structural_problem = METALSStructuralExamples.BliskSectionWithSymmetry
         to_params.Comment  = "Large DOF"
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = False
         to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
-        #to_params.Constraints = [(TO_QOI.MASS, None, 0.035)]  # kg
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None,  0.035), (TO_QOI.COST, None, 0.5)]
-    elif to_problem == METALSTOExamples.BridgeMMTO:
-        structural_problem = METALSStructuralExamples.BridgeMMTO
-        to_params.Comment  = "Benchmark 2.5D"
-        to_params.XSymmetry = True 
-        to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000)]
-        
-    elif to_problem == METALSTOExamples.BridgeMMTOCost:
-        structural_problem = METALSStructuralExamples.BridgeMMTO
+        to_params.MaterialsExcelFile = './data/TeledyneMaterials.xlsx'
+        vae_params.klFactor=5e-5
+        vae_params.learningRate=2e-4
+        vae_params.numEpochs=100000
+        vae_params.vae_hiddenDim=500
+        vae_params.latentDim=2
+    elif to_problem == METALSTOExamples.Bridge:
+        structural_problem = METALSStructuralExamples.Bridge
         to_params.Comment  = "Benchmark 2.5D with Cost Constraint"
         to_params.XSymmetry = True 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        # Constraint order: [(MASS, None, mass_limit), (COST, None, cost_limit)]
+        to_params.MaterialsExcelFile = './data/BridgeMaterials.xlsx'
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
+        vae_params.klFactor=5e-6
+        vae_params.learningRate=2e-4
+        vae_params.numEpochs=20000
+        vae_params.vae_hiddenDim=500
+        vae_params.latentDim=2
     elif to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor:
         structural_problem = METALSStructuralExamples.LBracket
         kwargs['topload'] = 5e-4
@@ -98,4 +102,4 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         outerRadius2 = 0.1
         bladeElements = mesh.get_elems_within_annular_region(centerPt,axis,outerRadius1,outerRadius2)
         to_params.ElemsToKeep = np.union1d(to_params.ElemsToKeep, bladeElements)
-    return mesh, mat_prop, bc, elem_body_force, to_params
+    return mesh, mat_prop, bc, elem_body_force, to_params, vae_params

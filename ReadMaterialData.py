@@ -2,124 +2,49 @@ import torch
 import numpy as np
 import pandas as pd
 
-
 class ReadMaterialData:
     def __init__(self, excel_file):
         self.excel_file = excel_file
-        file_lower = excel_file.lower()
-        if "temp" in file_lower:
-            self.mode = "tempdependent"
-            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo = self.preprocessData_tempdependent()
-        elif "lbracket" in file_lower:
-            self.mode = "structuralyield"
-            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo = self.preprocessData_structuralyield()
-        elif "cost" in file_lower:
-            self.mode = "structuralcost"
-            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo = self.preprocessData_structuralcost()
-        else:
-            self.mode = "structural"
-            self.trainingData, self.dataInfo, self.dataIdentifier, self.trainInfo= self.preprocessData_structural()
-    def preprocessData_structuralyield(self):
-        df = pd.read_excel(self.excel_file)
-        rawData = df.iloc[:, [1, 2, 3]].to_numpy()
-        feature_names = ['MassDensity', 'ElasticModulus', 'YieldStrength']
-       
-        trainInfo = np.log10(rawData)
-        dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
-        dataScaleMin = torch.tensor(np.min(trainInfo, axis=0))
-        normalizedData = (torch.tensor(trainInfo) - dataScaleMin) / (dataScaleMax - dataScaleMin)
-        trainingData = normalizedData.clone().float()
-        dataInfo = {}
-        for i, name in enumerate(feature_names):
-            dataInfo[name] = {'idx': i, 'scaleMin': dataScaleMin[i], 'scaleMax': dataScaleMax[i]}
-        dataIdentifier = {'name': df[df.columns[0]]}
-        return trainingData, dataInfo, dataIdentifier, trainInfo
-    
-    def preprocessData_structuralcost(self):
-        df = pd.read_excel(self.excel_file)
- 
-        rawData = df.iloc[:, [1, 2, 3]].to_numpy()
-        feature_names = ['MassDensity', 'ElasticModulus', 'Cost']
-        trainInfo = np.log10(rawData)
-        dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
-        dataScaleMin = torch.tensor(np.min(trainInfo, axis=0))
-        normalizedData = (torch.tensor(trainInfo) - dataScaleMin) / (dataScaleMax - dataScaleMin)
-        trainingData = normalizedData.clone().float()
-        dataInfo = {}
-        for i, name in enumerate(feature_names):
-            dataInfo[name] = {'idx': i, 'scaleMin': dataScaleMin[i], 'scaleMax': dataScaleMax[i]}
-        dataIdentifier = {
-            'name': df[df.columns[0]],
-        }
-        return trainingData, dataInfo, dataIdentifier, trainInfo
+        self.scaledMaterialData, self.materialAttributes, self.materialNames, self.trainInfo = self.preprocessData()
 
-    def preprocessData_structural(self):
-        df = pd.read_excel(self.excel_file)
-        rawData = df.iloc[:, [5, 10]].to_numpy()
-        feature_names = ['MassDensity', 'ElasticModulus']
-        trainInfo = np.log10(rawData)
-        dataScaleMax = torch.tensor(np.max(trainInfo, axis=0))
-        dataScaleMin = torch.tensor(np.min(trainInfo, axis=0))
-        normalizedData = (torch.tensor(trainInfo) - dataScaleMin) / (dataScaleMax - dataScaleMin)
-        trainingData = normalizedData.clone().float()
-        dataInfo = {}
-        for i, name in enumerate(feature_names):
-            dataInfo[name] = {'idx': i, 'scaleMin': dataScaleMin[i], 'scaleMax': dataScaleMax[i]}
-        dataIdentifier = {
-            'name': df[df.columns[0]],
-            'className': df[df.columns[1]],
-            'classID': df[df.columns[2]]
-        }
-        return trainingData, dataInfo, dataIdentifier, trainInfo
+    def preprocessData(self):
+        df = pd.read_excel(self.excel_file, header=None)
+        # First column: material names, but first cell is "Attribute", second is "Material/Units"
+        # Second column onwards: attribute names (first cell), units (second cell), values (third row onwards)
 
-    def preprocessData_tempdependent(self):
-        df = pd.read_excel(self.excel_file)
-        # MassDensity (6th col, index 5), Ea (13th, 12), Eb (14th, 13), Ec (15th, 14), Ed (16th, 15)
-        rawData = df.iloc[:, [5, 12, 13, 14, 15, 16]].to_numpy()
-        feature_names = ['MassDensity', 'Ea', 'Eb', 'Ec', 'Ed','ThermalConductivity']
+        # Extract attribute names and units from second column onwards
+        attribute_names = df.iloc[0, 1:].tolist()
+        units = df.iloc[1, 1:].tolist()
+        # Extract material names from first column, starting from third row
+        material_names = df.iloc[2:, 0].tolist()
+        # Extract attribute values from second column onwards, starting from third row
+        values = df.iloc[2:, 1:].to_numpy(dtype=float)
 
-        # Only log-transform MassDensity (col 0), min-max normalize the rest
-        mass_density = rawData[:, 0]
-        mass_density = np.where(mass_density <= 0, 1e-8, mass_density)
-        log_mass_density = np.log10(mass_density)
-        md_min, md_max = log_mass_density.min(), log_mass_density.max()
-        norm_mass_density = (log_mass_density - md_min) / (md_max - md_min)
+        # Custom log transform: log10(x + min + 10)
+        min_vals = np.min(values, axis=0)
+        log_values = np.log10(values + min_vals + 10)
 
-        poly_coeffs = rawData[:, 1:5]
-        poly_min = poly_coeffs.min(axis=0)
-        poly_max = poly_coeffs.max(axis=0)
-        norm_poly_coeffs = np.zeros_like(poly_coeffs)
-        for i in range(4):
-            if poly_max[i] == poly_min[i]:
-                norm_poly_coeffs[:, i] = poly_coeffs[:, i]
-                print(f"{feature_names[i+1]} not normalized (constant value).")
-            else:
-                norm_poly_coeffs[:, i] = (poly_coeffs[:, i] - poly_min[i]) / (poly_max[i] - poly_min[i])
-        # Thermal conductivity normalization
-        thermal_cond = rawData[:, 5]
-        tc_min, tc_max = thermal_cond.min(), thermal_cond.max()
-        if tc_max == tc_min:
-            norm_thermal_cond = thermal_cond
-            print("Thermal conductivity not normalized (constant value).")
-        else:
-            norm_thermal_cond = (thermal_cond - tc_min) / (tc_max - tc_min)
+        # Min-max normalization
+        dataScaleMin = log_values.min(axis=0)
+        dataScaleMax = log_values.max(axis=0)
+        normalizedData = (log_values - dataScaleMin) / (dataScaleMax - dataScaleMin + 1e-12)
+        scaledMaterialData = torch.tensor(normalizedData).float()
 
-        normalizedData = np.column_stack([norm_mass_density, norm_poly_coeffs, norm_thermal_cond])
-        trainingData = torch.tensor(normalizedData).float()
+        # Build materialAttributes dictionary
+        materialAttributes = {}
+        for i, name in enumerate(attribute_names):
+            materialAttributes[name] = {
+                'idx': i,
+                'unit': units[i],
+                'scaleMin': dataScaleMin[i],
+                'scaleMax': dataScaleMax[i],
+                'minAdded': min_vals[i]
+            }
 
-        dataInfo = {
-            'MassDensity': {'idx': 0, 'scaleMin': md_min, 'scaleMax': md_max, 'is_log': True},
-            'Ea': {'idx': 1, 'scaleMin': poly_min[0], 'scaleMax': poly_max[0], 'is_log': False},
-            'Eb': {'idx': 2, 'scaleMin': poly_min[1], 'scaleMax': poly_max[1], 'is_log': False},
-            'Ec': {'idx': 3, 'scaleMin': poly_min[2], 'scaleMax': poly_max[2], 'is_log': False},
-            'Ed': {'idx': 4, 'scaleMin': poly_min[3], 'scaleMax': poly_max[3], 'is_log': False},
-            'ThermalConductivity': {'idx': 5, 'scaleMin': tc_min, 'scaleMax': tc_max, 'is_log': False}
-        }
-        dataIdentifier = {
-            'name': df[df.columns[0]],
-            'className': df[df.columns[1]],
-            'classID': df[df.columns[2]]
-        }
-        trainInfo = normalizedData
-    
-        return trainingData, dataInfo, dataIdentifier, trainInfo
+        # Identifier: first column is material name, second/third columns can be className/classID if present
+        materialNames = {}
+        materialNames['name'] = material_names
+      
+        trainInfo = log_values
+
+        return scaledMaterialData, materialAttributes, materialNames, trainInfo

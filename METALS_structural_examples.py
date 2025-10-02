@@ -9,7 +9,7 @@ class METALSStructuralExamples(enum.Enum):
 	EdgeCantilever = enum.auto()  
 	BliskWithBladeMass = enum.auto()
 	BliskSectionWithSymmetry = enum.auto()
-	BridgeMMTO = enum.auto()
+	Bridge = enum.auto()
 	LBracket = enum.auto()
 def getMETALSStructuralProblem(problem: METALSStructuralExamples,nDOFDesired: int = 20000, **kwargs):
   """Returns a structural problem based on the given problem name.
@@ -32,8 +32,8 @@ def getMETALSStructuralProblem(problem: METALSStructuralExamples,nDOFDesired: in
     return createBliskSectionWithBlade(nDOFDesired=nDOFDesired,**kwargs)
   elif problem == METALSStructuralExamples.BliskSectionWithSymmetry:
     return createBliskSectionProblemWithSymmetry(nDOFDesired=nDOFDesired,**kwargs)
-  elif problem == METALSStructuralExamples.BridgeMMTO:
-    return createBridgeMMTOProblem(nDOFDesired=nDOFDesired,**kwargs)
+  elif problem == METALSStructuralExamples.Bridge:
+    return createBridgeProblem(nDOFDesired=nDOFDesired,**kwargs)
   elif problem == METALSStructuralExamples.LBracket:
     return createLBracketProblem(nDOFDesired=nDOFDesired,**kwargs)
   else:
@@ -157,82 +157,6 @@ def createLBracketProblem(nDOFDesired: int = 10000, topload = 1000,midload = 0):
   elem_body_force = None
 
   return mesh, mat_prop, bc, elem_body_force
-  # ----------------------------------------
-# ----------------------------------------
-
-# def createBliskSectionWithBlade(nDOFDesired: int = 50000, youngs_modulus = 1, 
-#                                poissons_ratio = 0.28, material_density = 1,rpm = 10000,radialForce =200000): #radial force zero
- 
-#   # Read the STL model, create a mesh of desired size, and a structural problem is posed on it.
-#   stl_file = os.path.join(script_dir, './Models/BliskModel/BliskSectionWithBlade2.STL')
-
-
-#   nElemsDesired = nDOFDesired/3    # estimate
-#   mesh = hex_mesher.HexMesher()
-
-#   mesh.createMeshFromSTLFile(stl_file, nElemsDesired=nElemsDesired)
-#   mesh.createEdofMatStructural()
-
-#   # fix inner radius
-#   centerPt = [0,0,0]
-#   axis = [0,0,1]
-#   innerRadius = 0.05
-#   fixed_nodes = mesh.get_nodes_within_annular_region(centerPt,axis,innerRadius-mesh.elem_size[0]*0.707,
-#                                                      innerRadius+mesh.elem_size[0]*0.707)  
-#   fixed_dofs = np.array([3 * fixed_nodes,
-#               3 * fixed_nodes + 1,
-#               3 * fixed_nodes + 2]).flatten().astype(int)
-#   dirichlet_values = 0*np.ones_like(fixed_dofs, dtype = float)
-#   mesh.node_indices[fixed_nodes, 3] = 1 # for plotting
-
-#   total_mesh_volume = np.prod(mesh.elem_size) * mesh.num_elems # * 0.0283168 # ft3 to m3
-#   print("total mesh volume in m3",total_mesh_volume)
-
-#   total_mass = material_density * total_mesh_volume
-#   print("total mass in kg",total_mass)
-
-
-#   elem_body_force = np.zeros(3*mesh.num_elems)
-#   omega = 2*np.pi*rpm/60
-#   for e in range(mesh.num_elems):
-#     center = mesh.elem_centers[e]
-#     # Add centrifugal force to each element in xy plane
-#     elem_body_force[3*e:3*e+2] = (material_density*np.prod(mesh.elem_size)) * omega**2 *  center[:2]
-
-#   print("total body force ",np.linalg.norm(elem_body_force))
-#   outerRadius = 0.22
-#   load_nodes = mesh.get_nodes_within_annular_region(centerPt,axis,outerRadius-mesh.elem_size[0]*0.707,
-#                                                     outerRadius+mesh.elem_size[0]*0.707)    
-  
-#   mesh.node_indices[load_nodes, 3] = 2 # for plotting
-#   boundaryForce = np.zeros(3*mesh.num_nodes) 
-#   # Apply radial force on each node on the circumference 
-  
-#   for node in load_nodes:
-#     node_pos = mesh.node_xyz[node,:2] # get x,y coordinates
-#     r = np.sqrt(np.sum(node_pos**2)) # distance from center
-#     if r > 0:
-#       # Unit vector in radial direction
-#       radial_dir = node_pos/r
-#       # Add x and y dofs with force components
-#       boundaryForce[3*node] = radialForce/len(load_nodes) * radial_dir[0]  
-#       boundaryForce[3*node + 1] = radialForce/len(load_nodes) * radial_dir[1]
-  
-#   bc = bound_cond.BC(force = boundaryForce,fixed_dofs = fixed_dofs,dirichlet_values = dirichlet_values) 
-
-#   # mat_prop = mat_lib.StructuralMaterial(youngs_modulus=youngs_modulus,
-#   #                     poissons_ratio=poissons_ratio)
-#   mat_prop=mat_lib.create_material_with_defaults(name=f"Test material Blisk", youngs_modulus=youngs_modulus,
-#                       poissons_ratio=poissons_ratio)
-   
-#   # elem_body_force = None
-#   # print("Total body force ",elem_body_force)
-#   # print("Num of elems ",mesh.num_elems)
-#   # print("shape of elem_body_force ",elem_body_force.shape)
-
-#   return mesh, mat_prop, bc, elem_body_force
-
-#   # ----------------------------------------
 
 def createBliskSectionWithBlade(nDOFDesired: int = 10000, youngs_modulus = 1, 
                                poissons_ratio = 0.28, material_density = 1,rpm = 10000,radialForce =2000): #radial force zero
@@ -515,7 +439,7 @@ def createBliskSectionProblemWithSymmetry(nDOFDesired: int = 50000, rpm = 0, rad
   return mesh, mat_prop, bc, elem_body_force
 
   # ----------------------------------------
-def createBridgeMMTOProblem(nDOFDesired: None):
+def createBridgeProblem(nDOFDesired: None):
     # Define grid size and element size
     nelx, nely, nelz = 100, 50, 1
     Lx, Ly, Lz = 100.0, 50.0, 1.0  # Example physical dimensions (adjust as needed)
@@ -568,6 +492,7 @@ def createBridgeMMTOProblem(nDOFDesired: None):
     mesh.node_indices[load_nodes_3, 3] = 2  # for plotting
 
     # Define material properties
+    # Note that we are creating a template material with unit Young's modulus so that it can be scaled later.
     mat_prop = mat_lib.create_material_with_defaults("CustomMaterial", youngs_modulus=1.0, poissons_ratio=0.3, mass_density=1.0)
 
     # Create boundary conditions

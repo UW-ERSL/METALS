@@ -4,20 +4,20 @@ import matplotlib.pyplot as plt
 from scipy.spatial import ConvexHull
 from matplotlib.patches import Polygon, Ellipse
 import numpy as np
-def unlognorm(x, scaleMax, scaleMin):
-    return 10**(x*(scaleMax-scaleMin) + scaleMin)
+def unlognorm(x, scaleMax, scaleMin, minAdded):
+    # Reverse the normalization and log transform
+    return 10**(x * (scaleMax - scaleMin) + scaleMin) - minAdded - 10
 class MaterialEncoder:
 
-  def __init__(self, trainingData, dataInfo, dataIdentifier, vaeSettings,constraints=None):
-    self.trainingData, self.dataInfo = trainingData, dataInfo
-    self.dataIdentifier = dataIdentifier
+  def __init__(self, scaledMaterialData, materialAttributes, materialNames, vaeSettings):
+    self.nMaterials = scaledMaterialData.shape[0]
+    self.nAttributes = scaledMaterialData.shape[1]
+    self.scaledMaterialData = scaledMaterialData
+    self.materialAttributes =  materialAttributes
+    self.materialNames = materialNames
     self.vaeSettings = vaeSettings
     self.vaeNet = VariationalAutoencoder(vaeSettings)
-    if constraints is not None:
-      self.constraints = constraints
-    else:
-      self.constraints = {'distance': {'isOn': False, 'center': np.array([ 0.39397555, -0.5732285 ]), 'a': 2.1778150329939, 'b': 1.4285939288782639, 'theta': 2.9699808951264286, 'delta': 0.0, 'beta': 20}}
-  
+
   def loadAutoencoderFromFile(self, fileName):
     self.vaeNet.load_state_dict(torch.load(fileName))
     self.vaeNet.eval()
@@ -28,9 +28,9 @@ class MaterialEncoder:
     self.vaeNet.encoder.isTraining = True
     for epoch in range(numEpochs):
       opt.zero_grad()
-      predData = self.vaeNet(self.trainingData)
+      predData = self.vaeNet(self.scaledMaterialData)
       klLoss = klFactor*self.vaeNet.encoder.kl
-      reconLoss =  ((self.trainingData - predData)**2).sum()
+      reconLoss =  ((self.scaledMaterialData - predData)**2).sum()
       loss = reconLoss + klLoss 
       loss.backward()
       convgHistory['reconLoss'].append(reconLoss)
@@ -45,137 +45,62 @@ class MaterialEncoder:
     torch.save(self.vaeNet.state_dict(), savedNet)
     return convgHistory
   
-  def plotLatent(self, ltnt1, ltnt2, plotHull, annotateHead, saveFileName):
-    clrs = ['purple', 'green', 'orange', 'pink', 'yellow', 'black', 'violet', 'cyan', 'red', 'blue']
-    colorcol = self.dataIdentifier['classID']
-    ptLabel = self.dataIdentifier['name']
-    autoencoder = self.vaeNet
-    z = autoencoder.encoder.z.to('cpu').detach().numpy()
-    fig, ax = plt.subplots()
-
-    for i in range(np.max(colorcol)+1): 
-      zMat = np.vstack((z[colorcol == i,ltnt1], z[colorcol == i,ltnt2])).T
-      ax.scatter(zMat[:, 0], zMat[:, 1], c = 'black', s = 4)#clrs[i]
-      if(i == np.max(colorcol)): #removed for last class TEST
-        break # END TEST
-      if(plotHull):
-        hull = ConvexHull(zMat)
-        cent = np.mean(zMat, 0)
-        pts = []
-        for pt in zMat[hull.simplices]:
-            pts.append(pt[0].tolist())
-            pts.append(pt[1].tolist())
-  
-        pts.sort(key=lambda p: np.arctan2(p[1] - cent[1],
-                                        p[0] - cent[0]))
-        pts = pts[0::2]  # Deleting duplicates
-        pts.insert(len(pts), pts[0])
-        poly = Polygon(1.1*(np.array(pts)- cent) + cent,
-                       facecolor= 'black', alpha=0.1, edgecolor = 'black')
-        poly.set_capstyle('round')
-        plt.gca().add_patch(poly)
-        ax.annotate(self.dataIdentifier['className'][i], (cent[0], cent[1]), size = 16)
-    for i, txt in enumerate(ptLabel):
-      if(annotateHead == False or ( annotateHead == True and  i<26)):
-        ax.annotate(txt, (z[i,ltnt1], z[i,ltnt2]), size = 12)
-
-  #   plt.axis('off')
-    # ticks = [-1.5, -1., -0.5, 0., 0.5, 1., 1.5]
-    # ticklabels = ['-1.5', '-1', '-0.5', '0','0.5', '1', '1.5']
-    # plt.xticks(ticks, ticklabels, fontsize=18)
-    # plt.yticks(ticks, ticklabels, fontsize=18)
-    plt.xlabel('z{:d}'.format(ltnt1), size = 18)
-    plt.ylabel('z{:d}'.format(ltnt2), size = 18)
-    # Hide the right and top spines
-    ax.spines['right'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    plt.savefig(saveFileName)
-    
-    return fig, ax
-  
-  def getMaterialProperties(self, decoded):
-    youngModulus = unlognorm(decoded[:,self.dataInfo['ElasticModulus']['idx']], \
-                              self.dataInfo['ElasticModulus']['scaleMax'],\
-                              self.dataInfo['ElasticModulus']['scaleMin'])
-    physicalDensity = unlognorm(decoded[:,self.dataInfo['MassDensity']['idx']],
-                        self.dataInfo['MassDensity']['scaleMax'],
-                        self.dataInfo['MassDensity']['scaleMin'])
-    youngModulus = youngModulus*1e9 # convert from Pa
-    physicalDensity = physicalDensity*(0.001/(1e-2)**3) # convert from g/cm^3 to kg/m^3
-    
-    return youngModulus, physicalDensity
-    
-  def getMaterialProperties_tempdependent(self, decoded):
-    # MassDensity
-    massDensity = unlognorm(
-        decoded[:, self.dataInfo['MassDensity']['idx']],
-        self.dataInfo['MassDensity']['scaleMax'],
-        self.dataInfo['MassDensity']['scaleMin']
-    )
-    # Ea, Eb, Ec, Ed
-    Ea = decoded[:, self.dataInfo['Ea']['idx']]
-    Eb = decoded[:, self.dataInfo['Eb']['idx']]
-    Ec = decoded[:, self.dataInfo['Ec']['idx']]
-    Ed = decoded[:, self.dataInfo['Ed']['idx']]
-    # Only denormalize if scaleMax != scaleMin
-    for name, arr in zip(['Ea', 'Eb', 'Ec', 'Ed'], [Ea, Eb, Ec, Ed]):
-        info = self.dataInfo[name]
-        if info['scaleMax'] != info['scaleMin']:
-            arr = arr * (info['scaleMax'] - info['scaleMin']) + info['scaleMin']
-        # If not, arr is already correct
-        if name == 'Ea':
-            Ea = arr
-        elif name == 'Eb':
-            Eb = arr
-        elif name == 'Ec':
-            Ec = arr
-        elif name == 'Ed':
-            Ed = arr
-
-    # Thermal Conductivity
-    tc_info = self.dataInfo['ThermalConductivity']
-    thermalConductivity = decoded[:, tc_info['idx']]
-    if tc_info['scaleMax'] != tc_info['scaleMin']:
-        thermalConductivity = thermalConductivity * (tc_info['scaleMax'] - tc_info['scaleMin']) + tc_info['scaleMin']
-    # If not, use as is
-
-    Ea = Ea * 1e9
-    Eb = Eb * 1e9
-    Ec = Ec * 1e9
-    Ed = Ed * 1e9
-    massDensity = massDensity * (0.001 / (1e-2)**3)  # g/cm^3 to kg/m^3
-    # Thermal conductivity is already in W/mK in your sheet
-    return Ea, Eb, Ec, Ed, massDensity, thermalConductivity
-  
-  def getMaterialProperties_structuralcost(self, decoded):
-    youngModulus = unlognorm(decoded[:, self.dataInfo['ElasticModulus']['idx']],
-                              self.dataInfo['ElasticModulus']['scaleMax'],
-                              self.dataInfo['ElasticModulus']['scaleMin'])
-    physicalDensity = unlognorm(decoded[:, self.dataInfo['MassDensity']['idx']],
-                        self.dataInfo['MassDensity']['scaleMax'],
-                        self.dataInfo['MassDensity']['scaleMin'])
-    cost = unlognorm(decoded[:, self.dataInfo['Cost']['idx']],
-                     self.dataInfo['Cost']['scaleMax'],
-                     self.dataInfo['Cost']['scaleMin'])
+  def plotLSR(self, zReal, zDesign = None):
    
-    return youngModulus, physicalDensity, cost
-  
-  def getMaterialProperties_structuralyield(self, decoded):
-    youngModulus = unlognorm(decoded[:, self.dataInfo['ElasticModulus']['idx']],
-                              self.dataInfo['ElasticModulus']['scaleMax'],
-                              self.dataInfo['ElasticModulus']['scaleMin'])
-    physicalDensity = unlognorm(decoded[:, self.dataInfo['MassDensity']['idx']],
-                        self.dataInfo['MassDensity']['scaleMax'],
-                        self.dataInfo['MassDensity']['scaleMin'])
-    yield_strength = unlognorm(decoded[:, self.dataInfo['YieldStrength']['idx']],
-                     self.dataInfo['YieldStrength']['scaleMax'],
-                     self.dataInfo['YieldStrength']['scaleMin'])
-    youngModulus = youngModulus
-    physicalDensity = physicalDensity
-    yield_strength = yield_strength
-    return youngModulus, physicalDensity, yield_strength
-  
+    if zDesign is not None:
+        plt.scatter(zDesign[:, 0], zDesign[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+    plt.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+    for i, label in enumerate(self.materialNames['name']):
+        plt.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
+    plt.xlabel('$z_1$')
+    plt.ylabel('$z_2$')
+    plt.legend(fontsize=14)
+    plt.show()
 
+  def plotLSRContours(self, attributeId = 0, title=""):
+    zReal = self.vaeNet.encoder.z.detach().numpy()
+    n_points = 100
+    z1 = np.linspace(-3, 3, n_points)
+    z2 = np.linspace(-3, 3, n_points)
+    Z1, Z2 = np.meshgrid(z1, z2)
+    Z_grid = np.stack([Z1.ravel(), Z2.ravel()], axis=1)
+    QOI = []
+    with torch.no_grad():
+        for z in Z_grid:
+            z_tensor = torch.tensor(z, dtype=torch.float32).unsqueeze(0)
+            decoded = self.vaeNet.decoder(z_tensor)
+            decodedValues = self.getMaterialProperties(decoded)
+            QOI.append(decodedValues[list(decodedValues.keys())[attributeId]].item())
+    QOI = np.array(QOI).reshape(Z1.shape)
+    plt.figure(figsize=(9.5, 8))
+    contour = plt.contourf(Z1, Z2, QOI, levels=30, cmap='viridis')
+    units = self.materialAttributes[list(self.materialAttributes.keys())[attributeId]]['unit']
+    plt.colorbar(contour, label=list(self.materialAttributes.keys())[attributeId] + " (" + units + ")")
+    plt.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200,  alpha=1.0)
+    for i, label in enumerate(self.materialNames['name']):
+        plt.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
+    plt.xlabel('$z_1$')
+    plt.ylabel('$z_2$')
+    plt.title(title)
+    plt.legend(fontsize=14)
+    plt.show()
+
+  def getMaterialProperties(self, decoded):
+    """
+    Returns a dictionary of all denormalized and unlogged material properties.
+    Keys are attribute names from materialAttributes.
+    """
+    properties = {}
+    for name, info in self.materialAttributes.items():
+        idx = info['idx']
+        scaleMax = info['scaleMax']
+        scaleMin = info['scaleMin']
+        minAdded = info['minAdded']
+        properties[name] = unlognorm(decoded[:, idx], scaleMax, scaleMin, minAdded)
+    return properties
+    
+  
+  # KS: Should we keep this?
   def normalize_last_n(self, arr, n, min_val=-3, max_val=3):
     # Copy the original array to avoid modifying it in-place
     arr_copy = np.copy(arr)
@@ -183,6 +108,7 @@ class MaterialEncoder:
     arr_copy[int(n)*-1:] = (arr_copy[int(n)*-1:] - min_val) / (max_val - min_val)
     return arr_copy
 
+  # KS: Should we keep this?
   # Unnormalizing function
   def unnormalize_last_n(self, arr, n, min_val=-3, max_val=3):
     # Copy the normalized array
@@ -191,15 +117,19 @@ class MaterialEncoder:
     arr_copy[int(n)*-1:] = arr_copy[int(n)*-1:] * (max_val - min_val) + min_val
     return arr_copy
   
-  def functional_value(self,points_tensor):
-    def unlognorm(x, scaleMax, scaleMin):
-      return 10**(x*(scaleMax-scaleMin) + scaleMin)
+def functional_value(self, points_tensor):
+    """
+    Returns a dictionary of all denormalized and unlogged material properties,
+    each reshaped to (100, 100).
+    """
     decoded = self.vaeNet.decoder(points_tensor)
-    youngModulus = unlognorm(decoded[:,self.dataInfo['ElasticModulus']['idx']], 
-                  self.dataInfo['ElasticModulus']['scaleMax'],
-                  self.dataInfo['ElasticModulus']['scaleMin'])
-    physicalDensity = unlognorm(decoded[:,self.dataInfo['MassDensity']['idx']],
-              self.dataInfo['MassDensity']['scaleMax'],
-              self.dataInfo['MassDensity']['scaleMin'])
-    return youngModulus.detach().numpy().reshape((100,100)), physicalDensity.detach().numpy().reshape((100,100))
+    properties = {}
+    for name, info in self.materialAttributes.items():
+        idx = info['idx']
+        scaleMax = info['scaleMax']
+        scaleMin = info['scaleMin']
+        minAdded = info['minAdded']
+        prop = 10**(decoded[:, idx] * (scaleMax - scaleMin) + scaleMin) - minAdded - 10
+        properties[name] = prop.detach().numpy().reshape((100, 100))
+    return properties
 
