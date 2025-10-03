@@ -62,7 +62,7 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         vae_params.learningRate=2e-5
         vae_params.numEpochs=20000
         vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2
+        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
     elif to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor:
         structural_problem = METALSStructuralExamples.LBracket
         kwargs['topload'] = 5e-4

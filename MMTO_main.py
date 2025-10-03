@@ -1,19 +1,13 @@
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
-import os
 import time
 from MMTO_examples import METALSTOExamples, getMETALSTOProblem
 from materialEncoder import MaterialEncoder
-from ReadMaterialData import ReadMaterialData
 from MMTO_obj_cons_sensitivities import (
     compute_mmto_objective_and_gradient,
     compute_mmto_constraint_and_gradient,
 )
 from PyTOImports import *
-import materialEncoder
-
-
 
 
 
@@ -44,23 +38,10 @@ def run_topopt(
     if to_params.MaterialsExcelFile  is None:
         print("Please provide a valid MaterialsExcelFile in to_params.")
         return
-    material_data = ReadMaterialData(to_params.MaterialsExcelFile)
+    matEncoder = MaterialEncoder(vae_params)
+    matEncoder.readExcel(to_params.MaterialsExcelFile)
 
-
-    # Push the material data to VAE
-    scaledMaterialData = material_data.scaledMaterialData
-    materialAttributes = material_data.materialAttributes
-    materialNames = material_data.materialNames
-
-
-    numAttributes = scaledMaterialData.shape[1]
-    vaeSettings = {
-        'encoder': {'inputDim': numAttributes, 'hiddenDim': vae_params.vae_hiddenDim, 'latentDim': vae_params.latentDim},
-        'decoder': {'latentDim': vae_params.latentDim, 'hiddenDim': vae_params.vae_hiddenDim, 'outputDim': numAttributes}
-    }
-    
-    matEncoder = MaterialEncoder(scaledMaterialData, materialAttributes, materialNames, vaeSettings)
-
+    numAttributes = matEncoder.nAttributes
 
     # Train the autoencoder or save/load from file
     if saveNet is None:
@@ -72,18 +53,18 @@ def run_topopt(
         print(f"Loading pre-trained autoencoder from file: {saveNet}")
         matEncoder.loadAutoencoderFromFile(saveNet)
         with torch.no_grad():
-            z_real_np = matEncoder.vaeNet.encoder(scaledMaterialData).cpu().numpy()
+            z_real_np = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu().numpy()
     else:
         print(f"Training autoencoder from scratch and saving to: {saveNet}")
         matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate)
         with torch.no_grad():
-            z_real_np = matEncoder.vaeNet.encoder(scaledMaterialData).cpu().numpy()
+            z_real_np = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu().numpy()
         matEncoder.printEncodingErrors()
         for attributeId in range(numAttributes):# Optionally plot the latent space
             matEncoder.plotLSRContours(attributeId=attributeId)
         
     with torch.no_grad():
-        matEncoder.training_latents = matEncoder.vaeNet.encoder(scaledMaterialData).cpu()
+        matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
     zReal = matEncoder.vaeNet.encoder.z
     
@@ -261,7 +242,7 @@ def run_topopt(
     fe_solver_structural.plot_vonMisesStress()
     
     with torch.no_grad():
-        z_real_np = matEncoder.vaeNet.encoder(scaledMaterialData).cpu().numpy()
+        z_real_np = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu().numpy()
     z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
     matEncoder.plotLSR(z_real_np, zDesign=z_opt.reshape(-1, 2))
 
