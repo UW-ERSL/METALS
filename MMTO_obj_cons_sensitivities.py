@@ -188,6 +188,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KE, ma
     zetaTensor = torch.tensor(zeta).float()
     zetaTensor.requires_grad = True
     zDesign= zTensor.view(2, -1).T
+
     c = np.zeros((nConstraints, 1))
     num_design_var = zeta.size
     dc = np.zeros((nConstraints, num_design_var))

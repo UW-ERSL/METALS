@@ -78,16 +78,14 @@ def run_topopt(
         matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate)
         with torch.no_grad():
             z_real_np = matEncoder.vaeNet.encoder(scaledMaterialData).cpu().numpy()
+        matEncoder.printEncodingErrors()
+        for attributeId in range(numAttributes):# Optionally plot the latent space
+            matEncoder.plotLSRContours(attributeId=attributeId)
+        
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(scaledMaterialData).cpu()
 
     zReal = matEncoder.vaeNet.encoder.z
-    
-    # Optionally plot the latent space
-    if (False):
-        for attributeId in range(numAttributes):
-            matEncoder.plotLSRContours(attributeId=attributeId)
-
     
     # Set up the FEA solver
     solver = linear_solvers.Solvers.PARDISO
@@ -124,7 +122,7 @@ def run_topopt(
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
         xDesign = zetaTensor[0:num_elems]
         zD = zetaTensor[num_elems:]
-        zDesign = zD.view(-1,num_elems).T
+        zDesign = zD.view(2, -1).T
 
         decoded = matEncoder.vaeNet.decoder(zDesign)
         material_properties = matEncoder.getMaterialProperties(decoded)
@@ -218,6 +216,7 @@ def run_topopt(
     x0 = (H * x0) / Hs
 
     z0 = np.random.uniform(-1,1, size=(2 * num_elems,))  
+
     if apply_filter_to_materials:
         z0[0:num_elems] = (H * z0[0:num_elems]) 
         z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) 
@@ -226,10 +225,10 @@ def run_topopt(
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
     # Set bounds for material latent variables
-    lowerBound[num_elems:2*num_elems] = -2
-    upperBound[num_elems:2*num_elems] = 2
-    lowerBound[2*num_elems:3*num_elems] = -2
-    upperBound[2*num_elems:3*num_elems] = 2
+    lowerBound[num_elems:2*num_elems] = -3
+    upperBound[num_elems:2*num_elems] = 3
+    lowerBound[2*num_elems:3*num_elems] = -3
+    upperBound[2*num_elems:3*num_elems] = 3
     nVariables = num_design_var
     tStart = time.time()
     maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
@@ -274,8 +273,8 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization = 50,
-        nIterationsWithPenalization = 50,
-        use_pretrained_vae=True,
+        nIterationsWithPenalization = 0,
+        use_pretrained_vae=False,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True
     )

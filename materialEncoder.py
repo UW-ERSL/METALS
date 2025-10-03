@@ -101,4 +101,47 @@ class MaterialEncoder:
         properties[name] = unlognorm(decoded[:, idx], scaleMax, scaleMin, minAdded)
     return properties
     
+  def printEncodingErrors(self):
+      """
+      Prints a table of maximum percent error for each decoded real material attribute
+      compared to the actual Excel sheet values.
+      """
+      # Get real latent points for all materials
+      with torch.no_grad():
+          z_real = self.vaeNet.encoder(self.scaledMaterialData)
+          decoded = self.vaeNet.decoder(z_real)
+          decoded_properties = self.getMaterialProperties(decoded)
+
+      # Get true values from Excel (unlogged, unnormalized)
+      true_values = self.scaledMaterialData
+      attribute_names = list(self.materialAttributes.keys())
+      true_properties = {}
+      for name in attribute_names:
+          info = self.materialAttributes[name]
+          idx = info['idx']
+          scaleMax = info['scaleMax']
+          scaleMin = info['scaleMin']
+          minAdded = info['minAdded']
+          # Reverse normalization and log transform
+          true_properties[name] = unlognorm(true_values[:, idx], scaleMax, scaleMin, minAdded)
+
+      
+      print("{:<25} {:>15}".format("Attribute", "Max % Error"))
+      print("-" * 40)
+      for name in attribute_names:
+          decoded_vals = decoded_properties[name]
+          if hasattr(decoded_vals, "detach"):
+              decoded_vals = decoded_vals.detach().cpu().numpy().flatten()
+          else:
+              decoded_vals = np.array(decoded_vals).flatten()
+          true_vals = true_properties[name]
+          if isinstance(true_vals, torch.Tensor):
+              true_vals = true_vals.detach().cpu().numpy().flatten()
+          else:
+              true_vals = np.array(true_vals).flatten()
+          percent_err = 100 * np.abs(decoded_vals - true_vals) / (np.abs(true_vals) + 1e-12)
+          max_percent_err = np.max(percent_err)
+          print("{:<25} {:>15.6f}".format(name, max_percent_err))
+    
+
 
