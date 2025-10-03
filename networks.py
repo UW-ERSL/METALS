@@ -89,28 +89,28 @@ class MaterialNetwork(nn.Module):
 class TopologyNetwork(nn.Module):
   def __init__(self, nnSettings):
     self.inputDim = nnSettings['inputDim']; # x and y coordn of the point
-    self.outputDim = nnSettings['outputDim'];
-    super().__init__();
-    self.layers = nn.ModuleList();
-    set_seed(1234);
-    current_dim = self.inputDim;
+    self.outputDim = nnSettings['outputDim']
+    super().__init__()
+    self.layers = nn.ModuleList()
+    set_seed(1234)
+    current_dim = self.inputDim
     for lyr in range(nnSettings['numLayers']): # define the layers
-      l = nn.Linear(current_dim, nnSettings['numNeuronsPerLyr']);
-      nn.init.xavier_normal_(l.weight);
-      nn.init.zeros_(l.bias);
-      self.layers.append(l);
-      current_dim = nnSettings['numNeuronsPerLyr'];
-    self.layers.append(nn.Linear(current_dim, self.outputDim));
-    self.bnLayer = nn.ModuleList();
+      l = nn.Linear(current_dim, nnSettings['numNeuronsPerLyr'])
+      nn.init.xavier_normal_(l.weight)
+      nn.init.zeros_(l.bias)
+      self.layers.append(l)
+      current_dim = nnSettings['numNeuronsPerLyr']
+    self.layers.append(nn.Linear(current_dim, self.outputDim))
+    self.bnLayer = nn.ModuleList()
     for lyr in range(nnSettings['numLayers']): # batch norm
-      self.bnLayer.append(nn.BatchNorm1d(nnSettings['numNeuronsPerLyr']));
+      self.bnLayer.append(nn.BatchNorm1d(nnSettings['numNeuronsPerLyr']))
 
   def forward(self, x):
-    m = nn.LeakyReLU();
-    ctr = 0;
+    m = nn.LeakyReLU()
+    ctr = 0
     for layer in self.layers[:-1]: # forward prop
-      x = m(self.bnLayer[ctr](layer(x)));
-      ctr += 1;
+      x = m(self.bnLayer[ctr](layer(x)))
+      ctr += 1
     opLayer = self.layers[-1](x)
     rho = 0.001 + torch.softmax(opLayer, dim = 1)
     return rho

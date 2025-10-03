@@ -21,12 +21,13 @@ class ReadMaterialData:
         values = df.iloc[2:, 1:].to_numpy(dtype=float)
 
         # Custom log transform: log10(x + min + 10)
+        
         min_vals = np.min(values, axis=0)
-        log_values = np.log10(values + min_vals + 10)
-
+        log_values = np.log10(values - min_vals + 10)
         # Min-max normalization
         dataScaleMin = log_values.min(axis=0)
         dataScaleMax = log_values.max(axis=0)
+
         normalizedData = (log_values - dataScaleMin) / (dataScaleMax - dataScaleMin + 1e-12)
         scaledMaterialData = torch.tensor(normalizedData).float()
 

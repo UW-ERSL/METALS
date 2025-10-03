@@ -11,6 +11,8 @@ class METALSStructuralExamples(enum.Enum):
 	BliskSectionWithSymmetry = enum.auto()
 	Bridge = enum.auto()
 	LBracket = enum.auto()
+
+  
 def getMETALSStructuralProblem(problem: METALSStructuralExamples,nDOFDesired: int = 20000, **kwargs):
   """Returns a structural problem based on the given problem name.
 
@@ -454,6 +456,7 @@ def createBridgeProblem(nDOFDesired: None):
     # Fix left bottom edge (all 3 DOFs fixed)
     left_bottom_nodes = np.where((np.abs(node_pts[:, 0] - np.min(node_pts[:, 0])) < mesh.elem_size[0]/2) &
                                  (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+   
     left_bottom_dofs = np.array([3 * left_bottom_nodes,
                                  3 * left_bottom_nodes + 1,
                                  3 * left_bottom_nodes + 2]).flatten().astype(int)
@@ -461,6 +464,7 @@ def createBridgeProblem(nDOFDesired: None):
     # Fix right bottom edge (only y and z fixed, x free)
     right_bottom_nodes = np.where((np.abs(node_pts[:, 0] - np.max(node_pts[:, 0])) < mesh.elem_size[0]/2) &
                                   (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+
     right_bottom_dofs = np.array([3 * right_bottom_nodes + 1,  # y DOF
                                   3 * right_bottom_nodes + 2]).flatten().astype(int)
 
@@ -476,6 +480,7 @@ def createBridgeProblem(nDOFDesired: None):
     # Load at 1/3rd the length of the bridge
     load_nodes_1 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + bridge_length / 3)) < mesh.elem_size[0] / 2) &
                             (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+    
     force[3 * load_nodes_1 + 1] = -1 / len(load_nodes_1)  # y direction
     mesh.node_indices[load_nodes_1, 3] = 2  # for plotting
 
@@ -483,6 +488,7 @@ def createBridgeProblem(nDOFDesired: None):
     load_nodes_2 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + bridge_length / 2)) < mesh.elem_size[0] / 2) &
                             (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
     force[3 * load_nodes_2 + 1] = -2 / len(load_nodes_2)  # y direction
+    
     mesh.node_indices[load_nodes_2, 3] = 2  # for plotting
 
     # Load at 2/3rd the length of the bridge

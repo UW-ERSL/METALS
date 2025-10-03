@@ -1,5 +1,1 @@
-- Template Excel file and reader
-- Avoid duplication in materialEncoder
-- A single optimization function?
-- Consolidate plotting in respective modules
-- 
+- Debug Bridge problem

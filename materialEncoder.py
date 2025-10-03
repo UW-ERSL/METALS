@@ -6,7 +6,9 @@ from matplotlib.patches import Polygon, Ellipse
 import numpy as np
 def unlognorm(x, scaleMax, scaleMin, minAdded):
     # Reverse the normalization and log transform
-    return 10**(x * (scaleMax - scaleMin) + scaleMin) - minAdded - 10
+    return 10**(x * (scaleMax - scaleMin) + scaleMin) + minAdded - 10
+
+
 class MaterialEncoder:
 
   def __init__(self, scaledMaterialData, materialAttributes, materialNames, vaeSettings):

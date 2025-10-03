@@ -30,7 +30,7 @@ def run_topopt(
     nDOFDesired=5000,
     gamma_init = 1e-3,
     gamma_max = 1000,
-    gamma_factor = 2,
+    gamma_factor = 1.5,
     apply_filter_to_materials=True):
     
     history = {
@@ -82,6 +82,7 @@ def run_topopt(
         matEncoder.training_latents = matEncoder.vaeNet.encoder(scaledMaterialData).cpu()
 
     zReal = matEncoder.vaeNet.encoder.z
+    
     # Optionally plot the latent space
     if (False):
         for attributeId in range(numAttributes):
@@ -112,7 +113,7 @@ def run_topopt(
     shared_vars = {}
 
     iterationCount = 0
-    obj0 = 1
+    obj0 = None # will get updated in the first iteration
     gamma = gamma_init
     def METALS_optimization_function(zeta):
         nonlocal iterationCount, obj0, gamma, zReal
@@ -123,17 +124,20 @@ def run_topopt(
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
         xDesign = zetaTensor[0:num_elems]
         zD = zetaTensor[num_elems:]
-        zDesign = zD.view(num_elems, -1)
+        zDesign = zD.view(-1,num_elems).T
+
         decoded = matEncoder.vaeNet.decoder(zDesign)
         material_properties = matEncoder.getMaterialProperties(decoded)
+        zValues = zDesign.detach().numpy()
+
+        #fe_solver_structural.plot_elem_field(zValues[:,0], title='z', colormap='viridis')
 
         # Set material properties for FEA solver
-        EDesign = material_properties['Youngs_Modulus']
-        EDesign = EDesign.detach().numpy()
+        Youngs_Modulus = material_properties['Youngs_Modulus'].detach().numpy()
 
         fe_solver_structural.mat_prop = [
-            mat_lib.create_material_with_defaults(name=f"Material_{i+1}", youngs_modulus=EDesign[i])
-            for i in range(len(EDesign))]
+            mat_lib.create_material_with_defaults(name=f"Material_{i+1}", youngs_modulus=Youngs_Modulus[i])
+            for i in range(len(Youngs_Modulus))]
         fe_solver_structural.set_structural_material(fe_solver_structural.mat_prop)
 
         # Solve FEA and compute objective/constraints/gradients
@@ -143,7 +147,7 @@ def run_topopt(
         cons, grad_cons = compute_mmto_constraint_and_gradient(
             to_params, sol, zeta, fe_solver_structural, KETemplate, matEncoder)
 
-        if (iterationCount == 0):
+        if (obj0 is None):
             obj0 = obj
         
         obj = obj / obj0  # Normalize objective
@@ -166,10 +170,8 @@ def run_topopt(
         grad_cons = np.array(grad_cons).reshape((len(cons), num_design_var))
 
      
-        shared_vars['zDesign'] = zDesign.detach().cpu().numpy() if hasattr(zDesign, 'detach') else zDesign
-        shared_vars['EDesign'] = material_properties.get('Youngs_Modulus', None)
-        shared_vars['EDesign'] = shared_vars['EDesign'].detach().numpy()
-      
+        shared_vars['zDesign'] = zDesign.detach().cpu().numpy()
+        shared_vars['Youngs_Modulus'] = material_properties.get('Youngs_Modulus', None).detach().numpy()
 
         # Extract names for printing
         objective_name = getattr(to_params.Objective[0], 'name', str(to_params.Objective[0]))
@@ -197,9 +199,13 @@ def run_topopt(
             
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
-            #KS: Why < 0
+
             dpen = zetaTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_elems, latentDim)
             grad_obj[num_elems:,0] += dpen.flatten()     
+            # Apply filter to grad_obj for the penalty term
+            if apply_filter_to_materials:
+                grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
+                grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             gamma = min(gamma*gamma_factor, gamma_max)
 
         iterationCount += 1
@@ -211,17 +217,19 @@ def run_topopt(
     x0 = 0.5 * np.ones(num_elems) 
     x0 = (H * x0) / Hs
 
-    z0 = np.random.uniform(-1, 1, size=(2 * num_elems,))  
+    z0 = np.random.uniform(-1,1, size=(2 * num_elems,))  
     if apply_filter_to_materials:
-        z0[0:num_elems] = (H * z0[0:num_elems]) / Hs
-        z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) / Hs
+        z0[0:num_elems] = (H * z0[0:num_elems]) 
+        z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) 
 
     zeta0 = np.concatenate((x0, z0), axis=0).reshape(-1, 1)  # shape: (3*num_elems, 1)
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
     # Set bounds for material latent variables
-    lowerBound[num_elems:] = np.min(zReal.cpu().numpy())
-    upperBound[num_elems:] = np.max(zReal.cpu().numpy())
+    lowerBound[num_elems:2*num_elems] = -2
+    upperBound[num_elems:2*num_elems] = 2
+    lowerBound[2*num_elems:3*num_elems] = -2
+    upperBound[2*num_elems:3*num_elems] = 2
     nVariables = num_design_var
     tStart = time.time()
     maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
@@ -244,12 +252,13 @@ def run_topopt(
         shared_vars['final_mass'] = shared_vars.get('current_mass', None)
     zetaOptimal = np.asarray(zetaOptimal).flatten()
     xDesign = zetaOptimal[0:num_elems]
+    
     zDesign = shared_vars['zDesign']
-    EDesign = shared_vars['EDesign']
+    Youngs_Modulus = shared_vars['Youngs_Modulus']
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
     fe_solver_structural.solve()
     fe_solver_structural.postprocess()
-    fe_solver_structural.plot_elem_field(EDesign, title='YoungModulus', colormap='viridis')
+    fe_solver_structural.plot_elem_field(Youngs_Modulus, title='YoungModulus', colormap='viridis')
     fe_solver_structural.plot_vonMisesStress()
     
     with torch.no_grad():
@@ -264,8 +273,9 @@ if __name__ == "__main__":
     nDOFDesired = 5000
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization=50,
-        nIterationsWithPenalization=0,
+        nIterationsWithoutPenalization = 50,
+        nIterationsWithPenalization = 50,
         use_pretrained_vae=True,
-        nDOFDesired=nDOFDesired
+        nDOFDesired=nDOFDesired,
+        apply_filter_to_materials=True
     )
