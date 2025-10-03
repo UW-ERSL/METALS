@@ -99,37 +99,4 @@ class MaterialEncoder:
         properties[name] = unlognorm(decoded[:, idx], scaleMax, scaleMin, minAdded)
     return properties
     
-  
-  # KS: Should we keep this?
-  def normalize_last_n(self, arr, n, min_val=-3, max_val=3):
-    # Copy the original array to avoid modifying it in-place
-    arr_copy = np.copy(arr)
-    # Select the last n values and normalize them
-    arr_copy[int(n)*-1:] = (arr_copy[int(n)*-1:] - min_val) / (max_val - min_val)
-    return arr_copy
-
-  # KS: Should we keep this?
-  # Unnormalizing function
-  def unnormalize_last_n(self, arr, n, min_val=-3, max_val=3):
-    # Copy the normalized array
-    arr_copy = np.copy(arr)
-    # Select the last n values and unnormalize them
-    arr_copy[int(n)*-1:] = arr_copy[int(n)*-1:] * (max_val - min_val) + min_val
-    return arr_copy
-  
-def functional_value(self, points_tensor):
-    """
-    Returns a dictionary of all denormalized and unlogged material properties,
-    each reshaped to (100, 100).
-    """
-    decoded = self.vaeNet.decoder(points_tensor)
-    properties = {}
-    for name, info in self.materialAttributes.items():
-        idx = info['idx']
-        scaleMax = info['scaleMax']
-        scaleMin = info['scaleMin']
-        minAdded = info['minAdded']
-        prop = 10**(decoded[:, idx] * (scaleMax - scaleMin) + scaleMin) - minAdded - 10
-        properties[name] = prop.detach().numpy().reshape((100, 100))
-    return properties
 

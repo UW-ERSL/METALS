@@ -1,5 +1,5 @@
 import enum
-from METALS_structural_examples import *
+from MMTO_structural_examples import *
 from PyTOImports import  *
 
 class VAEParams:
@@ -52,7 +52,7 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         vae_params.latentDim=2
     elif to_problem == METALSTOExamples.Bridge:
         structural_problem = METALSStructuralExamples.Bridge
-        to_params.Comment  = "Benchmark 2.5D with Cost Constraint"
+        to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint"
         to_params.XSymmetry = True 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired

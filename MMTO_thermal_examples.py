@@ -121,7 +121,7 @@ def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000,
     """
     # If mesh is not provided, create it using the structural example
     if mesh is None:
-        from METALS_structural_examples import createBliskSectionWithBlade
+        from MMTO_structural_examples import createBliskSectionWithBlade
         mesh, _, _, _ = createBliskSectionWithBlade(nDOFDesired=nDOFDesired)
         mesh.createEdofMatThermal()
     else:

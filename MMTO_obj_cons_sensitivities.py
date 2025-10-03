@@ -121,7 +121,7 @@ def compute_volume_constraint_and_gradient(x: np.ndarray, volfracUpper: float) -
 
 # --- Main Objective/Constraint Functions ---
 
-def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KE, matEncoder):
+def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETemplate, matEncoder):
     """
     Compute objective value and its gradient for METALS LSR.
     Handles:
@@ -135,23 +135,24 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KE, mat
     num_elems = fe_solver.mesh.num_elems
     x = zeta[0:fe_solver.mesh.num_elems]
     z = zeta[fe_solver.mesh.num_elems:]
-    zTensor = torch.tensor(z, requires_grad=True) # We only need gradients w.r.t. z through autograd
-    zDesign= zTensor.view(2, -1).T
+    zetaTensor = torch.tensor(zeta).float()
+    zetaTensor.requires_grad = True
+    zD= zetaTensor[num_elems:]
+    zDesign=zD.view(2,-1).T
 
     if objectiveType == TO_QOI.COMPLIANCE:
         decoded = matEncoder.vaeNet.decoder(zDesign)
         material_properties = matEncoder.getMaterialProperties(decoded)
-        youngsModulus = material_properties['youngs_modulus']
+        youngsModulus = material_properties['Youngs_Modulus']
         EDesign = youngsModulus.detach().numpy()
-
         compliance = np.einsum('i, i -> ', fe_solver.total_force, sol)
-        ce = (np.dot(sol[fe_solver.mesh.edofMat].reshape(num_elems, 24), KE) * sol[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+        ce = (np.dot(sol[fe_solver.mesh.edofMat].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
         penal = 3.0
         dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
         dJ_dEDesign = np.asarray((x ** penal) * ce)
         dJ_dEDesign_tensor = torch.tensor(dJ_dEDesign)
         youngsModulus.backward(dJ_dEDesign_tensor)
-        dJ_dzDesign = zTensor.grad.detach().numpy()
+        dJ_dzDesign = zetaTensor.grad.detach().numpy()
         grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzDesign[num_elems:].flatten()))
         
         return compliance, grad_compliance
@@ -179,7 +180,6 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KE, ma
       4. Yield strength/safety factor constraint
     """
     nConstraints = len(to_params.Constraints)
-    
     material_model = MaterialModel.SIMP
     x = zeta[0:fe_solver.mesh.num_elems]
     z = zeta[fe_solver.mesh.num_elems:]
@@ -189,7 +189,8 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KE, ma
     zetaTensor.requires_grad = True
     zDesign= zTensor.view(2, -1).T
     c = np.zeros((nConstraints, 1))
-    dc = np.zeros((nConstraints, x.size))
+    num_design_var = zeta.size
+    dc = np.zeros((nConstraints, num_design_var))
     for m in range(nConstraints):
         constraintType = to_params.Constraints[m][0]
         optionalParam = to_params.Constraints[m][1]
@@ -200,27 +201,29 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KE, ma
 
         elif constraintType == TO_QOI.MASS:
             decoded = matEncoder.vaeNet.decoder(zDesign)
-            mass_density = matEncoder.getMaterialProperties(decoded)['mass_density']
-            pseudodensity=zetaTensor[0:fe_solver.mesh.num_elems]
-            totalMass = torch.einsum('m,m->m', mass_density, pseudodensity).sum() * fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
-            massConstraint = ((totalMass / to_params.Constraints[0][2]) - 1.0)
+            mass_density = matEncoder.getMaterialProperties(decoded)['Density']
+            #print("Mass density min:", mass_density.min().item(), "max:", mass_density.max().item())
+            pseudodensity = zetaTensor[0:fe_solver.mesh.num_elems]
+            elemVolume =  fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
+            totalMass = torch.einsum('m,m->m', mass_density, pseudodensity).sum()*elemVolume 
+            massConstraint = ((totalMass / constraintLimit) - 1.0)
             massConstraint.backward(retain_graph=True)
             cons_mass = massConstraint.detach().numpy()
             grad_cons_mass = zetaTensor.grad.detach().numpy()
             c[m, 0] = cons_mass
             dc[m, :] = grad_cons_mass
-
         elif constraintType == TO_QOI.PNORM_STRESS or constraintType == TO_QOI.STRESS_SAFETY_FACTOR:
            pass
 
         elif constraintType == TO_QOI.COST:
             # Cost constraint: sum of density * mass_density * cost * element volume
             decoded = matEncoder.vaeNet.decoder(zDesign)
-            mass_density = matEncoder.getMaterialProperties(decoded)['mass_density']
-            cost = matEncoder.getMaterialProperties(decoded)['cost']
-            pseudodensity=zetaTensor[0:fe_solver.mesh.num_elems]
-            totalCost = torch.einsum('m,m,m->m', mass_density, cost, pseudodensity).sum() * fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
-            costConstraint = ((totalCost / to_params.Constraints[0][2]) - 1.0)
+            mass_density = matEncoder.getMaterialProperties(decoded)['Density']
+            costperunitmass = matEncoder.getMaterialProperties(decoded)['Cost']
+            pseudodensity = zetaTensor[0:fe_solver.mesh.num_elems]
+            elemVolume = fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
+            totalCost = torch.einsum('m,m,m->m', mass_density, costperunitmass, pseudodensity).sum()*elemVolume
+            costConstraint = ((totalCost /constraintLimit) - 1.0)
             costConstraint.backward(retain_graph=True)
             cons_cost = costConstraint.detach().numpy()
             grad_cons_cost = zetaTensor.grad.detach().numpy()
