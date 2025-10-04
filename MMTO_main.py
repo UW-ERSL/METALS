@@ -121,6 +121,8 @@ def run_topopt(
 
         # Solve FEA and compute objective/constraints/gradients
         sol = fe_solver_structural.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
+        fe_solver_structural.postprocess() # to compute stresses etc.
+
         obj, grad_obj = compute_mmto_objective_and_gradient(
             to_params, sol, zeta, fe_solver_structural, KETemplate, matEncoder)
         cons, grad_cons = compute_mmto_constraint_and_gradient(
@@ -167,7 +169,6 @@ def run_topopt(
 
         # Add penalty to objective to keep designs close to training data
         if (iterationCount >= nIterationsWithoutPenalization):
-            
             p_softmin = -6
             d_ij = torch.cdist(zDesign, zRealTorch, p=2) + 1e-12
             min_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
@@ -176,7 +177,6 @@ def run_topopt(
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
             grad_obj[num_elems:,0] += zetaTensor.grad[num_elems:].detach().numpy()
-
             obj = obj + penalty.item()
 
             # # Apply filter to grad_obj for the penalty term
@@ -247,13 +247,13 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = METALSTOExamples.Bridge
+    to_problem = METALSTOExamples.LBracketMidLoadStressSafetyFactor
 
-    nDOFDesired = 5000
+    nDOFDesired = 10000
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization = 50,
-        nIterationsWithPenalization = 50,
+        nIterationsWithoutPenalization = 150,
+        nIterationsWithPenalization = 0,
         use_pretrained_vae=True,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True
