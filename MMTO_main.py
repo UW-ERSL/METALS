@@ -16,14 +16,14 @@ def run_topopt(
     to_problem,
     debug=False,
     nIterationsWithoutPenalization=50,
-    nIterationsWithPenalization= 0,
+    nIterationsWithPenalization= 50,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
     rel_conv_tol=1e-7,
     nDOFDesired=5000,
     gamma_init = 1e-3,
-    gamma_max = 100,
+    gamma_max = 1000,
     gamma_factor = 2,
     apply_filter_to_materials=True):
     
@@ -168,7 +168,6 @@ def run_topopt(
         # Add penalty to objective to keep designs close to training data
         if (iterationCount >= nIterationsWithoutPenalization):
             p_softmin = -6
-            
             d_ij = torch.cdist(zDesign, zReal, p=2) + 1e-12  
             soft_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
             penalty = gamma * torch.sum(soft_i)/num_elems
@@ -179,10 +178,10 @@ def run_topopt(
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
 
-            dpen = zetaTensor.grad[num_elems:].detach().numpy().reshape(-1, 2)  # shape (num_elems, latentDim)
-            grad_obj[num_elems:,0] += dpen.flatten()     
-            # Apply filter to grad_obj for the penalty term
-            if apply_filter_to_materials:
+            grad_obj[num_elems:,0]  = zetaTensor.grad[num_elems:].detach().numpy()  # shape (num_elems, latentDim)
+          
+            # # Apply filter to grad_obj for the penalty term
+            if False and apply_filter_to_materials: # buggy. Don't use for now
                 grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
                 grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             gamma = min(gamma*gamma_factor, gamma_max)
@@ -196,8 +195,9 @@ def run_topopt(
     x0 = 0.5 * np.ones(num_elems) 
     x0 = (H * x0) / Hs
 
-    z0 = np.random.uniform(-1,1., size=(2 * num_elems,))  
-
+    z0 = np.random.uniform(-2,2, size=(2 * num_elems,))  
+   
+    z0 = np.max(zReal.cpu().numpy()) * np.ones(2 * num_elems)
     if apply_filter_to_materials:
         z0[0:num_elems] = (H * z0[0:num_elems])/Hs
         z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) / Hs
@@ -253,7 +253,7 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization = 50,
-        nIterationsWithPenalization = 0,
+        nIterationsWithPenalization = 50,
         use_pretrained_vae=True,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True
