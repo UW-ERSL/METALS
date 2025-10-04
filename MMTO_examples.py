@@ -53,14 +53,15 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
     elif to_problem == METALSTOExamples.Bridge:
         structural_problem = METALSStructuralExamples.Bridge
         to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint"
+        to_params.FilterRadius = 1.5
         to_params.XSymmetry = True 
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.MaterialsExcelFile = './data/BridgeMaterials.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
         vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-5
-        vae_params.numEpochs=20000
+        vae_params.learningRate=2e-6
+        vae_params.numEpochs= 100000
         vae_params.vae_hiddenDim=500
         vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
     elif to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor:

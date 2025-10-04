@@ -16,15 +16,15 @@ def run_topopt(
     to_problem,
     debug=False,
     nIterationsWithoutPenalization=50,
-    nIterationsWithPenalization=50,
+    nIterationsWithPenalization= 0,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
     rel_conv_tol=1e-7,
     nDOFDesired=5000,
     gamma_init = 1e-3,
-    gamma_max = 1000,
-    gamma_factor = 1.5,
+    gamma_max = 100,
+    gamma_factor = 2,
     apply_filter_to_materials=True):
     
     history = {
@@ -196,20 +196,20 @@ def run_topopt(
     x0 = 0.5 * np.ones(num_elems) 
     x0 = (H * x0) / Hs
 
-    z0 = np.random.uniform(-1,1, size=(2 * num_elems,))  
+    z0 = np.random.uniform(-1,1., size=(2 * num_elems,))  
 
     if apply_filter_to_materials:
-        z0[0:num_elems] = (H * z0[0:num_elems]) 
-        z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) 
+        z0[0:num_elems] = (H * z0[0:num_elems])/Hs
+        z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) / Hs
 
     zeta0 = np.concatenate((x0, z0), axis=0).reshape(-1, 1)  # shape: (3*num_elems, 1)
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
     # Set bounds for material latent variables
-    lowerBound[num_elems:2*num_elems] = -3
-    upperBound[num_elems:2*num_elems] = 3
-    lowerBound[2*num_elems:3*num_elems] = -3
-    upperBound[2*num_elems:3*num_elems] = 3
+   
+    lowerBound[num_elems:3*num_elems] = np.min(zReal.cpu().numpy())
+    upperBound[num_elems:3*num_elems] = np.max(zReal.cpu().numpy())
+
     nVariables = num_design_var
     tStart = time.time()
     maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
@@ -222,9 +222,7 @@ def run_topopt(
     zetaOptimal = optResults[0]
     tEnd = time.time()
     print(f"Total optimization time: {tEnd - tStart:.2f} seconds")
-    objective_name = getattr(to_params.Objective[0], 'name', str(to_params.Objective[0]))
-
-
+   
     # post process the results
     if 'history' in shared_vars and 'mass' in shared_vars['history'] and len(shared_vars['history']['mass']) > 0:
         shared_vars['final_mass'] = shared_vars['history']['mass'][-1]
@@ -235,6 +233,7 @@ def run_topopt(
     
     zDesign = shared_vars['zDesign']
     Youngs_Modulus = shared_vars['Youngs_Modulus']
+ 
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
     fe_solver_structural.solve()
     fe_solver_structural.postprocess()
@@ -244,7 +243,7 @@ def run_topopt(
     with torch.no_grad():
         z_real_np = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu().numpy()
     z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
-    matEncoder.plotLSR(z_real_np, zDesign=z_opt.reshape(-1, 2))
+    matEncoder.plotLSR(z_real_np, zDesign=z_opt.reshape(-1, 2), xDesign=xDesign)
 
 if __name__ == "__main__":
     
@@ -255,7 +254,7 @@ if __name__ == "__main__":
         to_problem=to_problem,
         nIterationsWithoutPenalization = 50,
         nIterationsWithPenalization = 0,
-        use_pretrained_vae=False,
+        use_pretrained_vae=True,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True
     )

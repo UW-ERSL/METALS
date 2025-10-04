@@ -10,7 +10,7 @@ class MaterialEncoder:
   def __init__(self,vae_params):
     self.nAttributes = 0
     self.vae_params = vae_params
-    self.offset = 1 # offset to avoid log(0)
+    self.offset = 10 # offset to avoid log(0)
 
   def readExcel(self, excel_file):
     self.excel_file = excel_file
@@ -40,7 +40,7 @@ class MaterialEncoder:
       # Extract attribute values from second column onwards, starting from third row
       values = df.iloc[2:, 1:].to_numpy(dtype=float)
 
-      # Custom log transform: log10(x + min + 10)
+  
       
       min_vals = np.min(values, axis=0)
       log_values = np.log10(values - min_vals + self.offset)
@@ -102,10 +102,12 @@ class MaterialEncoder:
     return 10**(x * (scaleMax - scaleMin) + scaleMin) + minAdded - self.offset
   
 
-  def plotLSR(self, zReal, zDesign = None):
+  def plotLSR(self, zReal, zDesign = None,xDesign=None):
    
-    if zDesign is not None:
-        plt.scatter(zDesign[:, 0], zDesign[:, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+    if zDesign is not None and xDesign is not None:
+      mask = xDesign > 0.5
+      if np.any(mask):
+        plt.scatter(zDesign[mask, 0], zDesign[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
     plt.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
     for i, label in enumerate(self.materialNames['name']):
         plt.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
@@ -179,7 +181,7 @@ class MaterialEncoder:
           # Reverse normalization and log transform
           true_properties[name] = self.unlognorm(true_values[:, idx], scaleMax, scaleMin, minAdded)
 
-      
+      print("-" * 40)
       print("{:<25} {:>15}".format("Attribute", "Max % Error"))
       print("-" * 40)
       for name in attribute_names:
@@ -196,4 +198,4 @@ class MaterialEncoder:
           percent_err = 100 * np.abs(decoded_vals - true_vals) / (np.abs(true_vals) + 1e-12)
           max_percent_err = np.max(percent_err)
           print("{:<25} {:>15.6f}".format(name, max_percent_err))
-    
+      print("-" * 40)
