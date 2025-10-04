@@ -102,6 +102,41 @@ class MaterialEncoder:
     return 10**(x * (scaleMax - scaleMin) + scaleMin) + minAdded - self.offset
   
 
+  def materialDistance(self, zReal, zDesign):
+    # Decode latent vectors to material properties
+    zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
+    with torch.no_grad():
+      decoded_real = self.vaeNet.decoder(torch.tensor(zReal, dtype=torch.float32))
+    decoded_design = self.vaeNet.decoder(zDesign_tensor)
+    props_real = self.getMaterialProperties(decoded_real)
+    # Convert dictionary of tensors to a single array for props_real
+    props_real = np.stack([v for v in props_real.values()], axis=1)
+    props_design = self.getMaterialProperties(decoded_design)
+    # Convert dictionary of tensors to a single tensor array for props_design
+    props_design = torch.stack([v if isinstance(v, torch.Tensor) else torch.tensor(v) for v in props_design.values()], dim=1)
+    props_real = torch.tensor(props_real) if not isinstance(props_real, torch.Tensor) else props_real
+    
+    # Compute normalized attribute-wise squared differences
+    # props_design: (nDesigns, nAttributes), props_real: (nReal, nAttributes)
+    # Expand dims for broadcasting
+    design_exp = props_design.unsqueeze(1)  # (nDesigns, 1, nAttributes)
+    real_exp = props_real.unsqueeze(0)      # (1, nReal, nAttributes)
+
+    # Normalized squared difference: ((design - real)^2) / (real^2 + 1e-12)
+    norm_diff = ((design_exp - real_exp) ** 2) / (real_exp ** 2 + 1e-12)  # (nDesigns, nReal, nAttributes)
+
+    # Sum over attributes to get net distance
+    net_distance = norm_diff.sum(dim=2)  # (nDesigns, nReal)
+    # Find the minimum distance for each design (over all real materials)
+    # Use standard min instead of p-norm to aggregate distances across real materials
+    # net_distance: (nDesigns, nReal)
+    min_distances, _ = torch.min(net_distance, dim=1)
+    penalty = min_distances.sum()
+    penalty.backward()
+    grad = zDesign_tensor.grad.detach().numpy()
+   
+    return penalty.detach().numpy(), grad
+
   def plotLSR(self, zReal, zDesign = None,xDesign=None):
    
     if zDesign is not None and xDesign is not None:
@@ -149,11 +184,11 @@ class MaterialEncoder:
     Keys are attribute names from materialAttributes.
     """
     properties = {}
-    for name, info in self.materialAttributes.items():
-        idx = info['idx']
-        scaleMax = info['scaleMax']
-        scaleMin = info['scaleMin']
-        minAdded = info['minAdded']
+    for name, attribute in self.materialAttributes.items():
+        idx = attribute['idx']
+        scaleMax = attribute['scaleMax']
+        scaleMin = attribute['scaleMin']
+        minAdded = attribute['minAdded']
         properties[name] = self.unlognorm(decoded[:, idx], scaleMax, scaleMin, minAdded)
     return properties
     

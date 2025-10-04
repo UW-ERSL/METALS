@@ -66,7 +66,7 @@ def run_topopt(
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
-    zReal = matEncoder.vaeNet.encoder.z
+    zRealTorch = matEncoder.vaeNet.encoder.z
     
     # Set up the FEA solver
     solver = linear_solvers.Solvers.PARDISO
@@ -95,7 +95,7 @@ def run_topopt(
     obj0 = None # will get updated in the first iteration
     gamma = gamma_init
     def METALS_optimization_function(zeta):
-        nonlocal iterationCount, obj0, gamma, zReal
+        nonlocal iterationCount, obj0, gamma, zRealTorch
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
@@ -167,24 +167,24 @@ def run_topopt(
 
         # Add penalty to objective to keep designs close to training data
         if (iterationCount >= nIterationsWithoutPenalization):
-            p_softmin = -6
-            d_ij = torch.cdist(zDesign, zReal, p=2) + 1e-12
-            soft_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
-            penalty = gamma * torch.sum(soft_i)/num_elems
-            # Add penalty to objective
-            obj = obj + penalty.item()
-            # Compute gradient of penalty
             
+            p_softmin = -6
+            d_ij = torch.cdist(zDesign, zRealTorch, p=2) + 1e-12
+            min_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
+            min_i = min_i * xDesign
+            penalty = gamma * torch.sum(min_i) / num_elems
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
+            grad_obj[num_elems:,0] += zetaTensor.grad[num_elems:].detach().numpy()
 
-            grad_obj[num_elems:,0]  += zetaTensor.grad[num_elems:].detach().numpy()  # shape (num_elems, latentDim)
-          
+            obj = obj + penalty.item()
+
             # # Apply filter to grad_obj for the penalty term
             if False and apply_filter_to_materials: # Don't use for now
                 grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
                 grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             gamma = min(gamma*gamma_factor, gamma_max)
+
 
         iterationCount += 1
         return obj, grad_obj, cons, grad_cons
@@ -196,7 +196,7 @@ def run_topopt(
     x0 = (H * x0) / Hs
 
     #z0 = np.random.uniform(-2,2, size=(2 * num_elems,))  
-    z0 = np.max(zReal.cpu().numpy()) * np.ones(2 * num_elems)
+    z0 = np.max(zRealTorch.cpu().numpy()) * np.ones(2 * num_elems)
 
     if apply_filter_to_materials:
         z0[0:num_elems] = (H * z0[0:num_elems])/Hs
@@ -207,8 +207,8 @@ def run_topopt(
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
     # Set bounds for material latent variables
    
-    lowerBound[num_elems:3*num_elems] = np.min(zReal.cpu().numpy())
-    upperBound[num_elems:3*num_elems] = np.max(zReal.cpu().numpy())
+    lowerBound[num_elems:3*num_elems] = np.min(zRealTorch.cpu().numpy())
+    upperBound[num_elems:3*num_elems] = np.max(zRealTorch.cpu().numpy())
 
     nVariables = num_design_var
     tStart = time.time()
@@ -253,7 +253,7 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization = 50,
-        nIterationsWithPenalization = 0,
+        nIterationsWithPenalization = 50,
         use_pretrained_vae=True,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True
