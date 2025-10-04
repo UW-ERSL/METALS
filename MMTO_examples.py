@@ -53,8 +53,8 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
     elif to_problem == METALSTOExamples.Bridge:
         structural_problem = METALSStructuralExamples.Bridge
         to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint"
-        to_params.FilterRadius = 1.5
         to_params.XSymmetry = True 
+        to_params.EXtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.MaterialsExcelFile = './data/BridgeMaterials.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)

@@ -168,7 +168,7 @@ def run_topopt(
         # Add penalty to objective to keep designs close to training data
         if (iterationCount >= nIterationsWithoutPenalization):
             p_softmin = -6
-            d_ij = torch.cdist(zDesign, zReal, p=2) + 1e-12  
+            d_ij = torch.cdist(zDesign, zReal, p=2) + 1e-12
             soft_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
             penalty = gamma * torch.sum(soft_i)/num_elems
             # Add penalty to objective
@@ -178,10 +178,10 @@ def run_topopt(
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
 
-            grad_obj[num_elems:,0]  = zetaTensor.grad[num_elems:].detach().numpy()  # shape (num_elems, latentDim)
+            grad_obj[num_elems:,0]  += zetaTensor.grad[num_elems:].detach().numpy()  # shape (num_elems, latentDim)
           
             # # Apply filter to grad_obj for the penalty term
-            if False and apply_filter_to_materials: # buggy. Don't use for now
+            if False and apply_filter_to_materials: # Don't use for now
                 grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
                 grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             gamma = min(gamma*gamma_factor, gamma_max)
@@ -195,9 +195,9 @@ def run_topopt(
     x0 = 0.5 * np.ones(num_elems) 
     x0 = (H * x0) / Hs
 
-    z0 = np.random.uniform(-2,2, size=(2 * num_elems,))  
-   
+    #z0 = np.random.uniform(-2,2, size=(2 * num_elems,))  
     z0 = np.max(zReal.cpu().numpy()) * np.ones(2 * num_elems)
+
     if apply_filter_to_materials:
         z0[0:num_elems] = (H * z0[0:num_elems])/Hs
         z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) / Hs
@@ -253,7 +253,7 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization = 50,
-        nIterationsWithPenalization = 50,
+        nIterationsWithPenalization = 0,
         use_pretrained_vae=True,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True
