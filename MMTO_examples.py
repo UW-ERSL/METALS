@@ -13,7 +13,7 @@ class METALSTOExamples(enum.Enum):
     EdgeCantilever = enum.auto()  # Another variant of edge cantilever
     BliskWithBladeMass = enum.auto()
     BliskSectionWithSymmetry = enum.auto()
-    Bridge = enum.auto()
+    BridgeComplianceMassCost = enum.auto()
     LBracketMidLoadComplianceMassCost = enum.auto()
     LBracketMidLoadStressSafetyFactor = enum.auto()
 
@@ -51,7 +51,7 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         vae_params.numEpochs=100000
         vae_params.vae_hiddenDim=500
         vae_params.latentDim=2
-    elif to_problem == METALSTOExamples.Bridge:
+    elif to_problem == METALSTOExamples.BridgeComplianceMassCost:
         structural_problem = METALSStructuralExamples.Bridge
         to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint"
         to_params.XSymmetry = True 
@@ -88,8 +88,8 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.MaterialsExcelFile = './data/LBracketMaterialsSI.xlsx'
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2), (TO_QOI.COMPLIANCE, None, 9e-4)] 
+        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2), (TO_QOI.COMPLIANCE, None, 50)] 
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 100000
@@ -103,11 +103,9 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
     # Add  elements to keep
     to_params.ElemsToKeep  = None # default value
 
-
     # Here we add additional parameters specific to the optimization problem
     if (to_params.KeepFixedElems):
         to_params.ElemsToKeep = find_elements_with_fixedDOF(mesh, bc,nDOFPerNode=3)
-
 
     if to_problem == METALSTOExamples.BliskWithBladeMass:
         # Get the elements to keep for the blade

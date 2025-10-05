@@ -8,7 +8,14 @@ from MMTO_obj_cons_sensitivities import (
     compute_mmto_constraint_and_gradient,
 )
 from PyTOImports import *
+from enum import Enum
 
+ # Choose initialization method for z0: 'lightest', 'heaviest', 'origin', or 'uniform'
+class Z0InitMethod(Enum):
+    LIGHTEST = 'lightest'
+    HEAVIEST = 'heaviest'
+    ORIGIN = 'origin'
+    UNIFORM = 'uniform'
 
 
 # The main code for METALS topology optimization
@@ -19,6 +26,7 @@ def run_topopt(
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=False,
+    z0_init_method = Z0InitMethod.LIGHTEST,  # options: Z0InitMethod.LIGHTEST, etc.
     rel_conv_tol=1e-7,
     gamma_init = 1e-3,
     gamma_max = 1000,
@@ -90,7 +98,7 @@ def run_topopt(
     # Create the filter for density and material variables
     print("Creating filter...")
     [H, Hs] = createFilters(fe_solver_structural, to_params)
-    shared_vars = {}
+
 
     iterationCount = 0
     obj0 = None # will get updated in the first iteration
@@ -108,10 +116,6 @@ def run_topopt(
 
         decoded = matEncoder.vaeNet.decoder(zDesign)
         material_properties = matEncoder.getMaterialProperties(decoded)
-        zValues = zDesign.detach().numpy()
-
-        #fe_solver_structural.plot_elem_field(zValues[:,0], title='z', colormap='viridis')
-
         # Set material properties for FEA solver
         Youngs_Modulus = material_properties['Youngs_Modulus'].detach().numpy()
 
@@ -149,9 +153,6 @@ def run_topopt(
         cons = np.array(cons).reshape((-1, 1))
         grad_cons = np.array(grad_cons).reshape((len(cons), num_design_var))
 
-     
-        shared_vars['zDesign'] = zDesign.detach().cpu().numpy()
-        shared_vars['Youngs_Modulus'] = material_properties.get('Youngs_Modulus', None).detach().numpy()
 
         # Extract names for printing
         objective_name = getattr(to_params.Objective[0], 'name', str(to_params.Objective[0]))
@@ -190,25 +191,44 @@ def run_topopt(
 
 
     # Initialize the design variables
-    nConstraints = len(to_params.Constraints)
     x0 = 0.5 * np.ones(num_elems) 
     x0 = (H * x0) / Hs
 
-    #z0 = np.random.uniform(-2,2, size=(2 * num_elems,))  
-    z0 = np.max(zRealTorch.cpu().numpy()) * np.ones(2 * num_elems)
 
+    z0 = np.zeros(2 * num_elems)
+    if z0_init_method == Z0InitMethod.LIGHTEST:
+        zLightest = matEncoder.getLightestMaterial()
+        z0[0:num_elems] = zLightest[0]
+        z0[num_elems:2*num_elems] = zLightest[1]
+    elif z0_init_method == Z0InitMethod.HEAVIEST:
+        zHeaviest = matEncoder.getHeaviestMaterial()
+        z0[0:num_elems] = zHeaviest[0]
+        z0[num_elems:2*num_elems] = zHeaviest[1]
+    elif z0_init_method == Z0InitMethod.ORIGIN:
+        z0[0:num_elems] = 0.0
+        z0[num_elems:2*num_elems] = 0.0
+    elif z0_init_method == Z0InitMethod.UNIFORM:
+        z0[0:num_elems] = np.random.uniform(-0.5, 0.5, size=num_elems)
+        z0[num_elems:2*num_elems] = np.random.uniform(-0.5, 0.5, size=num_elems)
+    else:
+        raise ValueError(f"Unknown z0_init_method: {z0_init_method}")
+
+    # Apply filter to initial design variables
     z0[0:num_elems] = (H * z0[0:num_elems])/Hs
     z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) / Hs
-
     zeta0 = np.concatenate((x0, z0), axis=0).reshape(-1, 1)  # shape: (3*num_elems, 1)
+
+    # Set bounds for design variables
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
+
     # Set bounds for material latent variables
-   
     lowerBound[num_elems:3*num_elems] = np.min(zRealTorch.cpu().numpy())
     upperBound[num_elems:3*num_elems] = np.max(zRealTorch.cpu().numpy())
 
+    # Set MMA parameters
     nVariables = num_design_var
+    nConstraints = len(to_params.Constraints)
     tStart = time.time()
     maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
 
@@ -221,35 +241,43 @@ def run_topopt(
     tEnd = time.time()
     print(f"Total optimization time: {tEnd - tStart:.2f} seconds")
    
-    # post process the results
-    if 'history' in shared_vars and 'mass' in shared_vars['history'] and len(shared_vars['history']['mass']) > 0:
-        shared_vars['final_mass'] = shared_vars['history']['mass'][-1]
-    else:
-        shared_vars['final_mass'] = shared_vars.get('current_mass', None)
+    # get design variables
     zetaOptimal = np.asarray(zetaOptimal).flatten()
     xDesign = zetaOptimal[0:num_elems]
+    zDesign =  zetaOptimal[num_elems:]
+    zDesignTensor = torch.tensor(zDesign).float()
     
-    zDesign = shared_vars['zDesign']
-    Youngs_Modulus = shared_vars['Youngs_Modulus']
- 
+    # get final material properties
+    decoded = matEncoder.vaeNet.decoder(zDesignTensor.view(2,-1).T)
+    material_properties = matEncoder.getMaterialProperties(decoded)
+    Youngs_Modulus = material_properties['Youngs_Modulus'].detach().cpu().numpy()
+
+    # Solve and plot
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
-    fe_solver_structural.solve()
+    fe_solver_structural.solve(xDesign)
     fe_solver_structural.postprocess()
     fe_solver_structural.plot_elem_field(Youngs_Modulus, title='YoungModulus', colormap='viridis')
     fe_solver_structural.plot_vonMisesStress()
+
+    # If Yield strength is available, compute and plot stress safety factor
+    if 'Yield_Strength' in material_properties:
+        Yield_Strength = material_properties['Yield_Strength'].detach().cpu().numpy()
+        # Get von Mises stress per element from FEA postprocessing
+        von_mises_stress = fe_solver_structural.vonMisesStress
+        # Compute safety factor: Yield_Strength / von_mises_stress (avoid div by zero)
+        safety_factor = np.divide(Yield_Strength, von_mises_stress, out=np.full_like(von_mises_stress, np.nan), where=von_mises_stress!=0)
+        fe_solver_structural.plot_elem_field(safety_factor, title='Stress Safety Factor', colormap='plasma')
     
-    with torch.no_grad():
-        z_real_np = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu().numpy()
-    z_opt = zDesign if isinstance(zDesign, np.ndarray) else zDesign.detach().cpu().numpy()
-    matEncoder.plotLSR(z_real_np, zDesign=z_opt.reshape(-1, 2), xDesign=xDesign)
+    # Plot latent space with designs and training data
+    matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zDesign.reshape(2, -1).T, xDesign=xDesign)
 
 if __name__ == "__main__":
     
-    to_problem = METALSTOExamples.LBracketMidLoadComplianceMassCost
+    to_problem = METALSTOExamples.LBracketMidLoadStressSafetyFactor
 
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization = 50,
-        nIterationsWithPenalization = 50,
+        nIterationsWithoutPenalization=50,
+        nIterationsWithPenalization=50,
         use_pretrained_vae=True
     )

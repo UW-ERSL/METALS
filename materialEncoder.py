@@ -85,6 +85,33 @@ class MaterialEncoder:
     torch.save(self.vaeNet.state_dict(), savedNet)
     return convgHistory
   
+  
+  def getHeaviestMaterial(self):
+    # Get real latent points for all materials
+    with torch.no_grad():
+        z_real = self.vaeNet.encoder(self.scaledMaterialData)
+        decoded = self.vaeNet.decoder(z_real)
+        decoded_properties = self.getMaterialProperties(decoded)
+
+    # Find the index of the heaviest material
+    density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
+    heaviest_idx = np.argmax(density_values)
+    heaviest_z = z_real[heaviest_idx].detach().cpu().numpy()
+    return heaviest_z
+  
+  def getLightestMaterial(self):
+    # Get real latent points for all materials
+    with torch.no_grad():
+      z_real = self.vaeNet.encoder(self.scaledMaterialData)
+      decoded = self.vaeNet.decoder(z_real)
+      decoded_properties = self.getMaterialProperties(decoded)
+
+    # Find the index of the lightest material
+    density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
+    lightest_idx = np.argmin(density_values)
+    lightest_z = z_real[lightest_idx].detach().cpu().numpy()
+    return lightest_z
+
   def materialDistance(self, zReal, zDesign):
     # Decode latent vectors to material properties
     zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
@@ -126,7 +153,7 @@ class MaterialEncoder:
       mask = xDesign > 0.5
       if np.any(mask):
         plt.scatter(zDesign[mask, 0], zDesign[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-    plt.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+    plt.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=0.3)
     for i, label in enumerate(self.materialNames['name']):
         plt.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
     plt.xlabel('$z_1$')

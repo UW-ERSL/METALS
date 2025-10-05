@@ -3,14 +3,14 @@ import torch
 from PyTOImports import *
 # --- Support Functions ---
 
-def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,YDesign, KETemplate, material_model, p):
+def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,YDesign, KETemplate, material_model):
     """
     Compute p-norm of (von Mises stress / yield strength) and its sensitivity for multi-material case.
     """
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
     q = 1  # STRESS_RELAXATION factor
-
+    pSIMP = 3  # PNORM_EXPONENT for SIMP
     # Handle multi-material: get yield strength for each element
     if isinstance(fe_solver.mat_prop, list):
         yield_strengths = YDesign
@@ -55,6 +55,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     inv_sf_elems = np.zeros(nelems)
     T1 = np.zeros(nelems)
     T2 = np.zeros(nelems)
+    vm_relaxed = np.zeros(nelems)
 
     for e in range(nelems):
         # Stress for T1 (no relaxation)
@@ -63,14 +64,14 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
         vm = np.sqrt(0.5 * ((sigma11 - sigma22) ** 2 + (sigma22 - sigma33) ** 2 + (sigma33 - sigma11) ** 2)
             + 3 * (sigma12 ** 2 + sigma13 ** 2 + sigma23 ** 2)) 
         inv_sf = vm / yield_strengths[e]
-        T1[e] = p * q * (x[e] ** (p * q - 1)) * inv_sf
+        T1[e] = pSIMP * q * (x[e] ** (pSIMP * q - 1)) * inv_sf
 
         # Stress for T2 (with relaxation)
         stress_elem_relaxed = (x[e] ** q) * fe_solver.stressComponents[e]
         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem_relaxed
-        vm_relaxed = np.sqrt( 0.5 * ((sigma11 - sigma22) ** 2 + (sigma22 - sigma33) ** 2 + (sigma33 - sigma11) ** 2)
+        vm_relaxed[e] = np.sqrt( 0.5 * ((sigma11 - sigma22) ** 2 + (sigma22 - sigma33) ** 2 + (sigma33 - sigma11) ** 2)
             + 3 * (sigma12 ** 2 + sigma13 ** 2 + sigma23 ** 2))
-        inv_sf_elems[e] = vm_relaxed / yield_strengths[e]
+        inv_sf_elems[e] = vm_relaxed[e] / yield_strengths[e]
 
         if isinstance(E, np.ndarray):
             F = F_stack[e]
@@ -81,17 +82,20 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
             + 6 * sigma12 * F[3]
             + 6 * sigma13 * F[4]
             + 6 * sigma23 * F[5]) / np.sqrt(2)
-        g_elem[e] = p * (inv_sf_elems[e] ** (p - 2)) * g_e 
+        g_elem[e] = pSIMP * (inv_sf_elems[e] ** (pSIMP - 2)) * g_e
 
-    inv_sf_pnorm = np.sum(inv_sf_elems ** p) ** (1 / p)
-    T1 *= (1 / p) * (np.sum(inv_sf_elems ** p) ** (1 / p - 1))
+    pNormMax = 6
+    inv_sf_pnorm = np.sum(inv_sf_elems ** pNormMax) ** (1 / pNormMax)
+    #print("Min safety factor:", np.min(1/inv_sf_elems), "p-norm safety factor:", 1/inv_sf_pnorm)
+
+    T1 *= (1 / pNormMax) * (np.sum(inv_sf_elems ** pNormMax) ** (1 / pNormMax - 1))
 
     # Assemble adjoint RHS
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):
         edof = mesh.edofMat[e]
         g[edof] += g_elem[e]
-    g *= -(1 / p) * (np.sum(inv_sf_elems ** p) ** (1 / p - 1))
+    g *= -(1 / pNormMax) * (np.sum(inv_sf_elems ** pNormMax) ** (1 / pNormMax - 1))
 
     adjointSol = linear_solvers.solve(
         fe_solver.stiff_mtrx,
@@ -106,7 +110,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     num_elems = fe_solver.mesh.num_elems
     nRows = KETemplate.shape[0]
     ce = ( np.dot(adjointSol[dofMat].reshape(num_elems, nRows), KETemplate)
-        * sol[dofMat].reshape(num_elems, nRows) ).sum(1)*EDesign
+        * sol[dofMat].reshape(num_elems, nRows) ).sum(1)
 
     T2 = get_structural_material_model_sensitivity(x, material_model) * ce / yield_strengths 
     inv_sf_pnorm_sensitivity = T1  + T2
@@ -284,16 +288,9 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             EDesign = youngsModulus.detach().numpy()
             DensDesign = mass_density.detach().numpy()
             
-            vm_max = np.max(fe_solver.vonMisesStress)
-            vm_min = np.min(fe_solver.vonMisesStress)
-            print("Max von Mises stress:", vm_max)
-            print("Min von Mises stress:", vm_min)
+          
             inv_sf_pnorm, grad_inv_sf_density = compute_pnorm_safety_factor_and_sensitivity(
-                sol, x, fe_solver,EDesign,YDesign, KETemplate, MaterialModel.SIMP,
-                p=to_params.PNormExponent
-            )
-            print("P-norm of inv safety factor:", inv_sf_pnorm)
-            print("Grad inv sf density min:", grad_inv_sf_density.min(), "max:", grad_inv_sf_density.max())
+                sol, x, fe_solver,EDesign,YDesign, KETemplate, MaterialModel.SIMP)
             # Safety factor constraint value
             safety_factor = constraintLimit
             safety_constraint = inv_sf_pnorm - (1.0 / safety_factor)
