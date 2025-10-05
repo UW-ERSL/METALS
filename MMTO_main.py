@@ -19,12 +19,12 @@ def run_topopt(
     nIterationsWithPenalization= 50,
     timeLimit=7200,
     saveNet=None,
-    use_pretrained_vae=True,
+    use_pretrained_vae=False,
     rel_conv_tol=1e-7,
     nDOFDesired=5000,
-    gamma_init = 1,
-    gamma_max = 100,
-    gamma_factor = 1,
+    gamma_init = 1e-2,
+    gamma_max = 1000,
+    gamma_factor = 2,
     apply_filter_to_materials=True):
     
     history = {
@@ -251,14 +251,14 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = METALSTOExamples.LBracketTopLoadComplianceMassCost
+    to_problem = METALSTOExamples.Bridge
 
     nDOFDesired = 10000
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization = 50,
-        nIterationsWithPenalization = 50,
-        use_pretrained_vae=False,
+        nIterationsWithoutPenalization = 20,
+        nIterationsWithPenalization = 80,
+        use_pretrained_vae=True,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True
     )
