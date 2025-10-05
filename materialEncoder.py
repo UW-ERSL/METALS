@@ -131,6 +131,7 @@ class MaterialEncoder:
         plt.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
     plt.xlabel('$z_1$')
     plt.ylabel('$z_2$')
+    plt.grid(True, linestyle='--', alpha=0.5)
     plt.show()
 
   def plotLSRContours(self, attributeId = 0, title=""):

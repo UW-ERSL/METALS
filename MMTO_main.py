@@ -14,25 +14,22 @@ from PyTOImports import *
 # The main code for METALS topology optimization
 def run_topopt(
     to_problem,
-    debug=False,
-    nIterationsWithoutPenalization=50,
-    nIterationsWithPenalization= 50,
+    nIterationsWithoutPenalization =50,
+    nIterationsWithPenalization = 50,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=False,
     rel_conv_tol=1e-7,
-    nDOFDesired=5000,
-    gamma_init = 1e-2,
+    gamma_init = 1e-3,
     gamma_max = 1000,
-    gamma_factor = 2,
-    apply_filter_to_materials=True):
+    gamma_factor = 2):
     
     history = {
         "objective": [],
         "constraints": []
     }
     # --- Get the TO problem
-    mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params, vae_params = getMETALSTOProblem(to_problem, nDOFDesired=nDOFDesired)
+    mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params, vae_params = getMETALSTOProblem(to_problem)
     
     # --- Read the materials excel file ---
     if to_params.MaterialsExcelFile  is None:
@@ -140,15 +137,13 @@ def run_topopt(
 
         # Apply filter to sensitivities
         grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
-        if apply_filter_to_materials:
-            grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
-            grad_obj[2*num_elems:3*num_elems] = (H * grad_obj[2*num_elems:3*num_elems]) / Hs
+        grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
+        grad_obj[2*num_elems:3*num_elems] = (H * grad_obj[2*num_elems:3*num_elems]) / Hs
 
         for i in range(grad_cons.shape[0]):  # For each constraint
             grad_cons[i, 0:num_elems] = (H * grad_cons[i, 0:num_elems]) / Hs
-            if apply_filter_to_materials:
-                grad_cons[i, num_elems:2*num_elems] = (H * grad_cons[i, num_elems:2*num_elems]) / Hs
-                grad_cons[i, 2*num_elems:3*num_elems] = (H * grad_cons[i, 2*num_elems:3*num_elems]) / Hs
+            grad_cons[i, num_elems:2*num_elems] = (H * grad_cons[i, num_elems:2*num_elems]) / Hs
+            grad_cons[i, 2*num_elems:3*num_elems] = (H * grad_cons[i, 2*num_elems:3*num_elems]) / Hs
 
         grad_obj = np.array([grad_obj]).reshape((num_design_var, 1))
         cons = np.array(cons).reshape((-1, 1))
@@ -184,7 +179,7 @@ def run_topopt(
             obj = obj + penalty.item()
 
             # # Apply filter to grad_obj for the penalty term
-            if False and apply_filter_to_materials: # Don't use for now
+            if False: # Don't use for now
                 grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
                 grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             gamma = min(gamma*gamma_factor, gamma_max)
@@ -202,9 +197,8 @@ def run_topopt(
     #z0 = np.random.uniform(-2,2, size=(2 * num_elems,))  
     z0 = np.max(zRealTorch.cpu().numpy()) * np.ones(2 * num_elems)
 
-    if apply_filter_to_materials:
-        z0[0:num_elems] = (H * z0[0:num_elems])/Hs
-        z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) / Hs
+    z0[0:num_elems] = (H * z0[0:num_elems])/Hs
+    z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) / Hs
 
     zeta0 = np.concatenate((x0, z0), axis=0).reshape(-1, 1)  # shape: (3*num_elems, 1)
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
@@ -251,14 +245,11 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = METALSTOExamples.Bridge
+    to_problem = METALSTOExamples.LBracketMidLoadComplianceMassCost
 
-    nDOFDesired = 10000
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization = 20,
-        nIterationsWithPenalization = 80,
-        use_pretrained_vae=True,
-        nDOFDesired=nDOFDesired,
-        apply_filter_to_materials=True
+        nIterationsWithoutPenalization = 50,
+        nIterationsWithPenalization = 50,
+        use_pretrained_vae=True
     )
