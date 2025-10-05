@@ -25,6 +25,7 @@ class Encoder(nn.Module):
     self.N = torch.distributions.Normal(0, 1)
     self.kl = 0
     self.isTraining = False
+    
   def forward(self, x):
     x = F.relu(self.linear1(x))
     mu =  self.linear2(x)

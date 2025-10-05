@@ -10,11 +10,10 @@ class MaterialEncoder:
   def __init__(self,vae_params):
     self.nAttributes = 0
     self.vae_params = vae_params
-    self.offset = 10 # offset to avoid log(0)
 
   def readExcel(self, excel_file):
     self.excel_file = excel_file
-    self.scaledMaterialData, self.materialAttributes, self.materialNames, self.trainInfo = self.preprocessData()  
+    self.scaledMaterialData, self.materialAttributes, self.materialNames = self.preprocessData()  
     self.nMaterials = self.scaledMaterialData.shape[0]
     self.nAttributes = self.scaledMaterialData.shape[1]
 
@@ -22,10 +21,7 @@ class MaterialEncoder:
         'encoder': {'inputDim': self.nAttributes, 'hiddenDim': self.vae_params.vae_hiddenDim, 'latentDim': self.vae_params.latentDim},
         'decoder': {'latentDim': self.vae_params.latentDim, 'hiddenDim': self.vae_params.vae_hiddenDim, 'outputDim': self.nAttributes}
     }
-
     self.vaeNet = VariationalAutoencoder(self.vaeSettings)
-
-
 
   def preprocessData(self):
       df = pd.read_excel(self.excel_file, header=None)
@@ -39,36 +35,27 @@ class MaterialEncoder:
       material_names = df.iloc[2:, 0].tolist()
       # Extract attribute values from second column onwards, starting from third row
       values = df.iloc[2:, 1:].to_numpy(dtype=float)
-
   
-      
-      min_vals = np.min(values, axis=0)
-      log_values = np.log10(values - min_vals + self.offset)
-      # Min-max normalization
-      dataScaleMin = log_values.min(axis=0)
-      dataScaleMax = log_values.max(axis=0)
 
-      normalizedData = (log_values - dataScaleMin) / (dataScaleMax - dataScaleMin + 1e-12)
+      self.max_vals = np.max(values, axis=0)
+    
+      normalizedData = values / self.max_vals
       scaledMaterialData = torch.tensor(normalizedData).float()
-
+     
       # Build materialAttributes dictionary
       materialAttributes = {}
       for i, name in enumerate(attribute_names):
           materialAttributes[name] = {
               'idx': i,
               'unit': units[i],
-              'scaleMin': dataScaleMin[i],
-              'scaleMax': dataScaleMax[i],
-              'minAdded': min_vals[i]
+              'max': self.max_vals[i],
           }
 
       # Identifier: first column is material name, second/third columns can be className/classID if present
       materialNames = {}
       materialNames['name'] = material_names
-    
-      trainInfo = log_values
 
-      return scaledMaterialData, materialAttributes, materialNames, trainInfo
+      return scaledMaterialData, materialAttributes, materialNames
 
   def loadAutoencoderFromFile(self, fileName):
     self.vaeNet.load_state_dict(torch.load(fileName))
@@ -78,6 +65,7 @@ class MaterialEncoder:
     opt = torch.optim.Adam(self.vaeNet.parameters(), learningRate)
     convgHistory = {'reconLoss':[], 'klLoss':[], 'loss':[]}
     self.vaeNet.encoder.isTraining = True
+ 
     for epoch in range(numEpochs):
       opt.zero_grad()
       predData = self.vaeNet(self.scaledMaterialData)
@@ -97,11 +85,6 @@ class MaterialEncoder:
     torch.save(self.vaeNet.state_dict(), savedNet)
     return convgHistory
   
-  def unlognorm(self, x, scaleMax, scaleMin, minAdded):
-    # Reverse the normalization and log transform
-    return 10**(x * (scaleMax - scaleMin) + scaleMin) + minAdded - self.offset
-  
-
   def materialDistance(self, zReal, zDesign):
     # Decode latent vectors to material properties
     zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
@@ -148,14 +131,13 @@ class MaterialEncoder:
         plt.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
     plt.xlabel('$z_1$')
     plt.ylabel('$z_2$')
-    plt.legend(fontsize=14)
     plt.show()
 
   def plotLSRContours(self, attributeId = 0, title=""):
     zReal = self.vaeNet.encoder.z.detach().numpy()
     n_points = 25
-    z1 = np.linspace(-3, 3, n_points)
-    z2 = np.linspace(-3, 3, n_points)
+    z1 = np.linspace(-4, 4, n_points)
+    z2 = np.linspace(-4, 4, n_points)
     Z1, Z2 = np.meshgrid(z1, z2)
     Z_grid = np.stack([Z1.ravel(), Z2.ravel()], axis=1)
     QOI = []
@@ -166,7 +148,7 @@ class MaterialEncoder:
             decodedValues = self.getMaterialProperties(decoded)
             QOI.append(decodedValues[list(decodedValues.keys())[attributeId]].item())
     QOI = np.array(QOI).reshape(Z1.shape)
-    plt.figure(figsize=(9.5, 8))
+    plt.figure(figsize=(7.5, 6))
     contour = plt.contourf(Z1, Z2, QOI, levels=30, cmap='viridis')
     units = self.materialAttributes[list(self.materialAttributes.keys())[attributeId]]['unit']
     plt.colorbar(contour, label=list(self.materialAttributes.keys())[attributeId] + " (" + units + ")")
@@ -186,10 +168,7 @@ class MaterialEncoder:
     properties = {}
     for name, attribute in self.materialAttributes.items():
         idx = attribute['idx']
-        scaleMax = attribute['scaleMax']
-        scaleMin = attribute['scaleMin']
-        minAdded = attribute['minAdded']
-        properties[name] = self.unlognorm(decoded[:, idx], scaleMax, scaleMin, minAdded)
+        properties[name] = decoded[:, idx] * self.max_vals[idx]
     return properties
     
   def printEncodingErrors(self):
@@ -210,11 +189,8 @@ class MaterialEncoder:
       for name in attribute_names:
           info = self.materialAttributes[name]
           idx = info['idx']
-          scaleMax = info['scaleMax']
-          scaleMin = info['scaleMin']
-          minAdded = info['minAdded']
           # Reverse normalization and log transform
-          true_properties[name] = self.unlognorm(true_values[:, idx], scaleMax, scaleMin, minAdded)
+          true_properties[name] = true_values[:, idx].numpy() * self.max_vals[idx]
 
       print("-" * 40)
       print("{:<25} {:>15}".format("Attribute", "Max % Error"))

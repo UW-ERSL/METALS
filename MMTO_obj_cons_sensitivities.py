@@ -267,6 +267,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             pseudodensity = zetaTensor[0:num_elems]
             elemVolume =  fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
             totalMass = torch.einsum('m,m->m', mass_density, pseudodensity).sum()*elemVolume 
+
             massConstraint = ((totalMass / constraintLimit) - 1.0)
             massConstraint.backward(retain_graph=True)
             cons_mass = massConstraint.detach().numpy()

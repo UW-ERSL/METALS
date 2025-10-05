@@ -22,9 +22,9 @@ def run_topopt(
     use_pretrained_vae=True,
     rel_conv_tol=1e-7,
     nDOFDesired=5000,
-    gamma_init = 1e-3,
-    gamma_max = 1000,
-    gamma_factor = 2,
+    gamma_init = 1,
+    gamma_max = 100,
+    gamma_factor = 1,
     apply_filter_to_materials=True):
     
     history = {
@@ -40,6 +40,7 @@ def run_topopt(
         return
     matEncoder = MaterialEncoder(vae_params)
     matEncoder.readExcel(to_params.MaterialsExcelFile)
+    
 
     numAttributes = matEncoder.nAttributes
 
@@ -55,8 +56,11 @@ def run_topopt(
         with torch.no_grad():
             z_real_np = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu().numpy()
     else:
-        print(f"Training autoencoder from scratch and saving to: {saveNet}")
+        print(f"Training autoencoder and saving to: {saveNet}")
+        time_start = time.time()
         matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate)
+        time_end = time.time()
+        print(f"Autoencoder training time: {time_end - time_start:.2f} seconds")
         with torch.no_grad():
             z_real_np = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu().numpy()
         matEncoder.printEncodingErrors()
@@ -247,14 +251,14 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = METALSTOExamples.LBracketMidLoadStressSafetyFactor
+    to_problem = METALSTOExamples.LBracketTopLoadComplianceMassCost
 
     nDOFDesired = 10000
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization = 150,
-        nIterationsWithPenalization = 0,
-        use_pretrained_vae=True,
+        nIterationsWithoutPenalization = 50,
+        nIterationsWithPenalization = 50,
+        use_pretrained_vae=False,
         nDOFDesired=nDOFDesired,
         apply_filter_to_materials=True
     )
