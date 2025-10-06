@@ -11,12 +11,12 @@ class VAEParams:
 
 class METALSTOExamples(enum.Enum):
     EdgeCantilever = enum.auto()  # Another variant of edge cantilever
-    BliskWithBladeMass = enum.auto()
-    BliskSectionWithSymmetry = enum.auto()
     BridgeComplianceMassCost = enum.auto()
     LBracketMidLoadComplianceMassCost = enum.auto()
     LBracketMidLoadStressSafetyFactor = enum.auto()
 
+    BliskSectionComplianceMassCost = enum.auto()
+    BliskSectionMassComplianceCostSafetyFactor = enum.auto()
 
 def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
@@ -37,20 +37,7 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.YSymmetry = True
         to_params.nDOFDesired = nDOFDesired
         to_params.Constraints = [(TO_QOI.MASS, None, 15)]  # kg
-    elif to_problem == METALSTOExamples.BliskSectionWithSymmetry:
-        structural_problem = METALSStructuralExamples.BliskSectionWithSymmetry
-        to_params.Comment  = "Large DOF"
-        to_params.KeepFixedElems = True
-        to_params.RemoveHangingElems = False
-        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
-        to_params.Objective = (TO_QOI.COMPLIANCE, None)
-        to_params.Constraints = [(TO_QOI.MASS, None,  0.035), (TO_QOI.COST, None, 0.5)]
-        to_params.MaterialsExcelFile = './data/TeledyneMaterials.xlsx'
-        vae_params.klFactor=5e-5
-        vae_params.learningRate=2e-4
-        vae_params.numEpochs=100000
-        vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2
+   
     elif to_problem == METALSTOExamples.BridgeComplianceMassCost:
         structural_problem = METALSStructuralExamples.Bridge
         to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint"
@@ -65,6 +52,7 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         vae_params.numEpochs= 100000
         vae_params.vae_hiddenDim=500
         vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
+
     elif to_problem == METALSTOExamples.LBracketMidLoadComplianceMassCost:
         structural_problem = METALSStructuralExamples.LBracket
         kwargs['topload'] = 0
@@ -80,6 +68,7 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         vae_params.numEpochs= 100000
         vae_params.vae_hiddenDim=500
         vae_params.latentDim=2 # don't change this. Only 2D latent space is supported
+
     elif to_problem == METALSTOExamples.LBracketMidLoadStressSafetyFactor:
         structural_problem = METALSStructuralExamples.LBracket
         kwargs['topload'] = 0
@@ -89,12 +78,43 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2), (TO_QOI.COMPLIANCE, None, 50)] 
+        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,200), (TO_QOI.COMPLIANCE, None, 400)] 
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 100000
         vae_params.vae_hiddenDim=500
         vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
+
+    elif to_problem == METALSTOExamples.BliskSectionComplianceMassCost:
+        structural_problem = METALSStructuralExamples.BliskSection
+        to_params.Comment  = "Large DOF"
+        to_params.KeepFixedElems = True
+        to_params.RemoveHangingElems = False
+        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.MASS, None,  7), (TO_QOI.COST, None, 25)]
+        to_params.MaterialsExcelFile = './data/TeledyneMaterialsSI.xlsx'
+        vae_params.klFactor=5e-5
+        vae_params.learningRate=2e-4
+        vae_params.numEpochs=100000
+        vae_params.vae_hiddenDim=500
+        vae_params.latentDim=2
+    elif to_problem == METALSTOExamples.BliskSectionMassComplianceCostSafetyFactor:
+        structural_problem = METALSStructuralExamples.BliskSection
+        to_params.Comment  = "Large DOF"
+        to_params.KeepFixedElems = True
+        to_params.RemoveHangingElems = False
+        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
+        to_params.Objective = (TO_QOI.MASS, None)
+        to_params.Constraints = [(TO_QOI.COMPLIANCE, None,  7), 
+                                 (TO_QOI.COST, None, 10), 
+                                 (TO_QOI.STRESS_SAFETY_FACTOR, None, 2.5)]
+        to_params.MaterialsExcelFile = './data/TeledyneMaterialsSI.xlsx'
+        vae_params.klFactor=5e-5
+        vae_params.learningRate=2e-4
+        vae_params.numEpochs=100000
+        vae_params.vae_hiddenDim=500
+        vae_params.latentDim=2
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     
@@ -107,19 +127,14 @@ def getMETALSTOProblem(to_problem: METALSTOExamples,nDOFDesired = None, **kwargs
     if (to_params.KeepFixedElems):
         to_params.ElemsToKeep = find_elements_with_fixedDOF(mesh, bc,nDOFPerNode=3)
 
-    if to_problem == METALSTOExamples.BliskWithBladeMass:
-        # Get the elements to keep for the blade
+
+    if to_problem == METALSTOExamples.BliskSectionComplianceMassCost or \
+        to_problem == METALSTOExamples.BliskSectionMassComplianceCostSafetyFactor:
         centerPt = [0,0,0]
         axis = [0,0,1]
-        outerRadius1 = 0.057
-        outerRadius2 = 0.08
+        outerRadius1 = 0.558
+        outerRadius2 = 1
         bladeElements = mesh.get_elems_within_annular_region(centerPt,axis,outerRadius1,outerRadius2)
         to_params.ElemsToKeep = np.union1d(to_params.ElemsToKeep, bladeElements)
-    if to_problem == METALSTOExamples.BliskSectionWithSymmetry:
-        centerPt = [0,0,0]
-        axis = [0,0,1]
-        outerRadius1 = 0.0558
-        outerRadius2 = 0.1
-        bladeElements = mesh.get_elems_within_annular_region(centerPt,axis,outerRadius1,outerRadius2)
-        to_params.ElemsToKeep = np.union1d(to_params.ElemsToKeep, bladeElements)
+        print(f"Number of elements in the blade region = {len(bladeElements)}")
     return mesh, mat_prop, bc, elem_body_force, to_params, vae_params

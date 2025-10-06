@@ -146,6 +146,9 @@ def run_topopt(
         obj = obj / obj0  # Normalize objective
         grad_obj = grad_obj / obj0
 
+        if (to_params.ElemsToKeep is not None):
+            grad_obj[to_params.ElemsToKeep] = min(grad_obj) # also retain elements that are in the keep list
+
         # Apply filter to sensitivities
         grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
         grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
@@ -286,6 +289,6 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization=50,
-        nIterationsWithPenalization=50,
-        use_pretrained_vae=True
+        nIterationsWithPenalization=0,
+        use_pretrained_vae=True,
     )
