@@ -9,7 +9,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     """
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
-    q = 1  # STRESS_RELAXATION factor
+    q = 2  # STRESS_RELAXATION factor
     pSIMP = 3  # PNORM_EXPONENT for SIMP
     # Handle multi-material: get yield strength for each element
     if isinstance(fe_solver.mat_prop, list):
@@ -82,10 +82,13 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
             + 6 * sigma12 * F[3]
             + 6 * sigma13 * F[4]
             + 6 * sigma23 * F[5]) / np.sqrt(2)
-        g_elem[e] = pSIMP * (inv_sf_elems[e] ** (pSIMP - 2)) * g_e
+        g_elem[e] = pSIMP *q* (inv_sf_elems[e] ** (pSIMP*q - 2)) * g_e
 
     pNormMax = 6
     inv_sf_pnorm = np.sum(inv_sf_elems ** pNormMax) ** (1 / pNormMax)
+    min_sf = 1 / np.max(inv_sf_elems)
+    scaling = inv_sf_pnorm/min_sf
+
     #print("Min safety factor:", np.min(1/inv_sf_elems), "p-norm safety factor:", 1/inv_sf_pnorm)
 
     T1 *= (1 / pNormMax) * (np.sum(inv_sf_elems ** pNormMax) ** (1 / pNormMax - 1))

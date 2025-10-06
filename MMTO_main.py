@@ -133,6 +133,13 @@ def run_topopt(
         cons, grad_cons = compute_mmto_constraint_and_gradient(
             to_params, sol, zeta, fe_solver_structural, KETemplate, matEncoder)
 
+        if (iterationCount == 0):
+            # Check if any constraints are violated (>0) and print a warning
+            if np.any(cons > 0):
+                print(50 * "-")
+                print("Warning: Constraint(s) violated at start of optimization!")
+                print("GCMMA may not converge for this problem. Consider changing constraints if convergence issues occur.")
+                print(50 * "-")
         if (obj0 is None):
             obj0 = obj
         
@@ -159,9 +166,10 @@ def run_topopt(
         constraint_names = [getattr(c[0], 'name', str(c[0])) for c in to_params.Constraints]
 
         # Print objective and constraints for this iteration
-        print(f"Objective ({objective_name}): {obj*obj0:.6f}")
+        print(f"Min. Objective ({objective_name}): {obj*obj0:.3g}")
         for idx, val in enumerate(cons.flatten()):
-            print(f"Constraint {idx+1} ({constraint_names[idx]}): {val:.6f}")
+            print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
+
 
         # Store history
         history["objective"].append(obj)
@@ -273,7 +281,7 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = METALSTOExamples.LBracketMidLoadStressSafetyFactor
+    to_problem = METALSTOExamples.BridgeComplianceMassCost
 
     run_topopt(
         to_problem=to_problem,
