@@ -3,7 +3,8 @@ import torch
 import time
 from MMTO_examples import MMTOExamples, getMMTOProblem
 from materialEncoder import MaterialEncoder
-from MMTO_T_obj_cons_sensitivities import (
+import matplotlib.pyplot as plt
+from MMTO_TempDependent_obj_cons_sensitivities import (
     compute_mmto_objective_and_gradient,
     compute_mmto_constraint_and_gradient,
 )
@@ -22,12 +23,13 @@ def run_topopt(
     to_problem,
     nIterationsWithoutPenalization=50,
     nIterationsWithPenalization= 50,
+    turnOnThermal=True,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
-    z0_init_method = Z0InitMethod.LIGHTEST,  # options: Z0InitMethod.LIGHTEST, etc.
-    rel_conv_tol=1e-3,
-    gamma_init = 1e-3,
+    z0_init_method = Z0InitMethod.UNIFORM,  # options: Z0InitMethod.LIGHTEST, etc.
+    rel_conv_tol=1e-10,
+    gamma_init = 1e-4,
     gamma_max = 1000,
     gamma_factor = 2):
     
@@ -58,16 +60,21 @@ def run_topopt(
         print(f"Training autoencoder from scratch and saving to: {saveNet}")
         matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate)
         matEncoder.printEncodingErrors()
-        if (False): # optionally plot the latent space
-            for attributeId in range(numAttributes):# Optionally plot the latent space
-                matEncoder.plotLSRContours(attributeId=attributeId)
 
-        
+
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
-    zRealTorch = matEncoder.vaeNet.encoder.z
-    
+    zRealTorch = matEncoder.training_latents
+
+
+    if (False): # optionally plot the latent space
+        matEncoder.plotTemperatureVsMaterialProperty("E")
+        matEncoder.plotTemperatureVsMaterialProperty("Y")
+        for attributeId in range(numAttributes):# Optionally plot the latent space
+            matEncoder.plotLSRContours(attributeId=attributeId)
+        
+
     # Set up the FEA solver
     solver = linear_solvers.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
@@ -117,32 +124,39 @@ def run_topopt(
         decoded = matEncoder.vaeNet.decoder(zPts)
         material_properties = matEncoder.getMaterialProperties(decoded)
        
-        
-        # Set material properties for FEA solver
-        thermalConductivity = material_properties['K']
-        thermalConductivity_elem = thermalConductivity.detach().numpy()
-        #print(f"Thermal Conductivity (min, max): {np.min(thermalConductivity_elem):.3g}, {np.max(thermalConductivity_elem):.3g}")
-        fe_solver_thermal.mat_prop = [
-            mat_lib.create_material_with_defaults(
-                name=f"K{i+1}",
-                thermal_conductivity=thermalConductivity_elem[i].item())
-            for i in range(num_elems)]
-        
-        #print("Solving thermal FEA...")
-        fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
-        T_full = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
-        #fe_solver_thermal.plot_temperature()
-        edofMat = fe_solver_thermal.mesh.edofMat
-        T = np.mean(T_full[edofMat], axis=1)
+        if (turnOnThermal):
+            # Set material properties for FEA solver
+            thermalConductivity = material_properties['K']
+            thermalConductivity_elem = thermalConductivity.detach().numpy()
+            #print(f"Thermal Conductivity (min, max): {np.min(thermalConductivity_elem):.3g}, {np.max(thermalConductivity_elem):.3g}")
+            fe_solver_thermal.mat_prop = [
+                mat_lib.create_material_with_defaults(
+                    name=f"K{i+1}",
+                    thermal_conductivity=thermalConductivity_elem[i].item())
+                for i in range(num_elems)]
+
+            #print("Solving thermal FEA...")
+            fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
+          
+            T_full = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
+
+            #fe_solver_thermal.plot_temperature()
+            edofMat = fe_solver_thermal.mesh.edofMat
+            T = np.mean(T_full[edofMat], axis=1)
+        else:
+            T = np.ones(num_elems) * 20.0  # uniform temperature of 20 degrees C
         #print(f"Temperature (min, max): {np.min(T):.3g}, {np.max(T):.3g}")
+
 
         # --- STRUCTURAL ANALYSIS WITH TEMPERATURE-DEPENDENT MATERIALS ---
         E  = matEncoder.getMaterialPropertyAtTemperature( "E",  zPts, T)
         Y = matEncoder.getMaterialPropertyAtTemperature( "Y",  zPts, T)
 
-        #print(f"Young's Modulus (min, max): {np.min(E):.3g}, {np.max(E):.3g}")
-        #print(f"Yield Strength (min, max): {np.min(Y):.3g}, {np.max(Y):.3g}")
+        #print(f"E (min, max): {np.min(E):.3g}, {np.max(E):.3g}")
+        #input("Press Enter to continue...")
+        #print(f"Y (min, max): {np.min(Y):.3g}, {np.max(Y):.3g}")
 
+       
         # Compute Young's modulus based on temperature
         fe_solver_structural.mat_prop = [
             mat_lib.create_material_with_defaults(
@@ -159,6 +173,8 @@ def run_topopt(
         # Solve FEA and compute objective/constraints/gradients
         #print("Solving structural FEA...")
         uvw = fe_solver_structural.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
+
+       
         fe_solver_structural.postprocess() # to compute stresses etc.
         #fe_solver_structural.plot_deformation()
         obj, grad_obj = compute_mmto_objective_and_gradient(
@@ -288,32 +304,38 @@ def run_topopt(
     # get final material properties
     decoded = matEncoder.vaeNet.decoder(zPts)
     material_properties = matEncoder.getMaterialProperties(decoded)
-    
-    # Set material properties for FEA solver
-    thermalConductivity = material_properties['K']
-    thermalConductivity_elem = thermalConductivity.detach().numpy()
-    #print(f"Thermal Conductivity (min, max): {np.min(thermalConductivity_elem):.3g}, {np.max(thermalConductivity_elem):.3g}")
-    fe_solver_thermal.mat_prop = [
-        mat_lib.create_material_with_defaults(
-            name=f"K{i+1}",
-            thermal_conductivity=thermalConductivity_elem[i].item())
-        for i in range(num_elems)]
-    
-    #print("Solving thermal FEA...")
-    fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
-    T_full = fe_solver_thermal.solve(xDesign)
-    #fe_solver_thermal.plot_temperature()
-    edofMat = fe_solver_thermal.mesh.edofMat
-    T = np.mean(T_full[edofMat], axis=1)
+    closest_index = matEncoder.getClosestRealMaterialIndex(zPts)
+
+    if (turnOnThermal):
+        # Set material properties for FEA solver
+        thermalConductivity = material_properties['K']
+        thermalConductivity_elem = thermalConductivity.detach().numpy()
+        #print(f"Thermal Conductivity (min, max): {np.min(thermalConductivity_elem):.3g}, {np.max(thermalConductivity_elem):.3g}")
+        fe_solver_thermal.mat_prop = [
+            mat_lib.create_material_with_defaults(
+                name=f"K{i+1}",
+                thermal_conductivity=thermalConductivity_elem[i].item())
+            for i in range(num_elems)]
+        
+        #print("Solving thermal FEA...")
+        fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
+        T_full = fe_solver_thermal.solve(xDesign)
+        #fe_solver_thermal.plot_temperature()
+        edofMat = fe_solver_thermal.mesh.edofMat
+        T = np.mean(T_full[edofMat], axis=1)
+    else:
+        T = np.ones(num_elems) * 20.0  # uniform temperature of 20 degrees C
   
     # --- STRUCTURAL ANALYSIS WITH TEMPERATURE-DEPENDENT MATERIALS ---
     E = matEncoder.getMaterialPropertyAtTemperature( "E",  zPts, T)
     Y = matEncoder.getMaterialPropertyAtTemperature( "Y",  zPts, T)
+    
     # Solve and plot
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
     fe_solver_structural.solve(xDesign)
     fe_solver_structural.postprocess()
-    #fe_solver_structural.plot_elem_field(Youngs_Modulus, title='YoungModulus', colormap='viridis')
+    
+    fe_solver_structural.plot_elem_field(closest_index, title='Mat ID', colormap='tab20')
     fe_solver_structural.plot_elem_field(T, title='Temperature', colormap='plasma')
     fe_solver_structural.plot_elem_field(E, title='Youngs Modulus', colormap='plasma')
     
@@ -328,6 +350,7 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization=0,
+        nIterationsWithPenalization= 50,
+        turnOnThermal=False,
         use_pretrained_vae=True
     )

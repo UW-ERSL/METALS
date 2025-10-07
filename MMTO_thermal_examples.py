@@ -185,8 +185,12 @@ def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right
 
     # Dirichlet BC at y = yMax (topmost end)
     top_nodes = np.where(node_pts[:, 1] == np.max(node_pts[:, 1]))[0]  # y = yMax plane
+    #top_nodes = np.intersect1d(mesh.getNodesOnBoundingBoxPlane(0,False) , np.where((node_pts[:, 1] >= 0.36))[0]) # hard coded    
+    
     # Dirichlet BC at x = xMax (rightmost end)
-    right_nodes = np.where(node_pts[:, 0] == np.max(node_pts[:, 0]))[0]  # x = xMax plane
+    #right_nodes = np.where(node_pts[:, 0] == np.max(node_pts[:, 0]))[0]  # x = xMax plane
+    right_nodes = np.intersect1d(mesh.getNodesOnBoundingBoxPlane(0,False) , np.where((node_pts[:, 1] >= 0.36))[0]) # hard coded    
+    
 
     fixed_dofs = np.concatenate([top_nodes, right_nodes]).astype(int)
     dirichlet_values = np.concatenate([

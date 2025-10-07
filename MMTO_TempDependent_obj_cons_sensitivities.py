@@ -184,7 +184,6 @@ def compute_mmto_objective_and_gradient(to_params, uvw, T, zeta, fe_solver_struc
 
     if objectiveType == TO_QOI.COMPLIANCE:
         ETensor = matEncoder.getMaterialPropertyAtTemperatureTorch("E", zetaTensor[num_elems:].view(2, -1).T, T)
-      
         compliance = np.einsum('i, i -> ', fe_solver_structural.total_force, uvw)
         ce = (np.dot(uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24), KETemplate) * uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24)).sum(1)
         pSIMP = 3.0

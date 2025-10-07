@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import pandas as pd
 
 TMin = 0
 TMax = 1250
@@ -39,6 +40,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     # We decided on this
     
+
     for example in [1, 2]:
         if (example == 1):    # This is a sample for 17-4PH SS
             E0, E1 = 196e9, 8e10     # Young's modulus at endpoints

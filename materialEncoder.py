@@ -67,8 +67,30 @@ class MaterialEncoder:
       materialNames['name'] = material_names
     
       trainInfo = log_values
-
+      self.materialNames = material_names
       return scaledMaterialData, materialAttributes, materialNames, trainInfo
+
+  
+  def plotTemperatureVsMaterialProperty(self,attrName):
+    """Plot temperature vs material property for the given mesh."""
+    # Extract material properties from the mesh
+    
+    zRealPts = self.vaeNet.encoder.z
+    plt.figure()
+    T = np.linspace(0, 1250, 300)
+    for i in range(zRealPts.shape[0]):
+        zPt = zRealPts[i,:].view(1,2)
+        M = self.getMaterialPropertyAtTemperature(attrName,  zPt, T)
+        plt.plot(T, M)
+
+    
+    plt.xlabel("Temperature (K)")
+    plt.ylabel(f"{attrName}")
+    plt.title(f"Temperature vs {attrName}")
+    plt.legend(self.materialNames['name'])
+    plt.grid()
+    plt.show()
+
 
   def loadAutoencoderFromFile(self, fileName):
     self.vaeNet.load_state_dict(torch.load(fileName))
@@ -121,6 +143,16 @@ class MaterialEncoder:
     # Reverse the normalization and log transform
     return 10**(x * (scaleMax - scaleMin) + scaleMin) + minAdded - self.offset
   
+  def getClosestRealMaterialIndex(self, zDesign):
+    # Get the index of the closest real material in latent space to the given design latent vector
+    with torch.no_grad():
+      zReal = self.vaeNet.encoder(self.scaledMaterialData)  
+
+    distances = torch.cdist(zDesign, zReal)
+    # For each design, find the closest real material index
+    closest_indices = torch.argmin(distances, dim=1)
+    return closest_indices
+ 
 
   def materialDistance(self, zReal, zDesign):
     # Decode latent vectors to material properties
@@ -169,10 +201,11 @@ class MaterialEncoder:
     plt.xlabel('$z_1$')
     plt.ylabel('$z_2$')
     plt.legend(fontsize=14)
+    plt.grid(True)
     plt.show()
 
   def plotLSRContours(self, attributeId = 0, title=""):
-    zReal = self.vaeNet.encoder.z.detach().numpy()
+    zReal = self.training_latents
     n_points = 25
     z1 = np.linspace(-4, 4, n_points)
     z2 = np.linspace(-4, 4, n_points)
@@ -186,7 +219,7 @@ class MaterialEncoder:
             decodedValues = self.getMaterialProperties(decoded)
             QOI.append(decodedValues[list(decodedValues.keys())[attributeId]].item())
     QOI = np.array(QOI).reshape(Z1.shape)
-    plt.figure(figsize=(9.5, 8))
+    plt.figure(figsize=(7.5, 6))
     contour = plt.contourf(Z1, Z2, QOI, levels=30, cmap='viridis')
     units = self.materialAttributes[list(self.materialAttributes.keys())[attributeId]]['unit']
     plt.colorbar(contour, label=list(self.materialAttributes.keys())[attributeId] + " (" + units + ")")
