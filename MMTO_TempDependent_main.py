@@ -345,12 +345,12 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = MMTOExamples.LBracketThermal
+    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMassCost
 
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization= 50,
-        turnOnThermal=False,
-        use_pretrained_vae=True
+        nIterationsWithoutPenalization= 30,
+        nIterationsWithPenalization= 70,
+        turnOnThermal=True,
+        use_pretrained_vae=False
     )

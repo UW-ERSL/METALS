@@ -14,7 +14,8 @@ class MaterialEncoder:
 
   def readExcel(self, excel_file):
     self.excel_file = excel_file
-    self.scaledMaterialData, self.materialAttributes, self.materialNames, self.trainInfo = self.preprocessData()  
+    self.preprocessData()  
+    
     self.nMaterials = self.scaledMaterialData.shape[0]
     self.nAttributes = self.scaledMaterialData.shape[1]
 
@@ -40,7 +41,7 @@ class MaterialEncoder:
       # Extract attribute values from second column onwards, starting from third row
       values = df.iloc[2:, 1:].to_numpy(dtype=float)
 
-  
+      self.rawData = values
       
       min_vals = np.min(values, axis=0)
       log_values = np.log10(values - min_vals + self.offset)
@@ -68,9 +69,68 @@ class MaterialEncoder:
     
       trainInfo = log_values
       self.materialNames = material_names
-      return scaledMaterialData, materialAttributes, materialNames, trainInfo
+      self.scaledMaterialData = scaledMaterialData
+      self.materialAttributes = materialAttributes
+      self.materialNames = materialNames
+      self.trainInfo = trainInfo
+      return
 
   
+  def runValidationChecks(self):
+    # Validation checks for material attributes (e.g., E0 >= E1, E_theta0 <= 0, etc.)
+    def check_constraint(attr0, attr1, op, attr0_name, attr1_name):
+      vals0 = self.rawData[:, self.materialAttributes[attr0]['idx']]
+      vals1 = self.rawData[:, self.materialAttributes[attr1]['idx']]
+      if op == '>=':
+        violations = (vals0 < vals1).nonzero(as_tuple=True)[0]
+      elif op == '<=':
+        violations = (vals0 > vals1).nonzero(as_tuple=True)[0]
+      else:
+        violations = []
+      if len(violations) > 0:
+        print(f"Constraint violated: {attr0_name} {op} {attr1_name} for materials:")
+        for idx in violations:
+          print(f"  {self.materialNames['name'][idx]}: {attr0_name}={vals0[idx].item():.4f}, {attr1_name}={vals1[idx].item():.4f}")
+
+    def check_sign(attr, sign, attr_name):
+      vals = self.scaledMaterialData[:, self.materialAttributes[attr]['idx']]
+      if sign == '<=0':
+        violations = (vals > 0).nonzero(as_tuple=True)[0]
+      elif sign == '>=0':
+        violations = (vals < 0).nonzero(as_tuple=True)[0]
+      else:
+        violations = []
+      if len(violations) > 0:
+        print(f"Constraint violated: {attr_name} {sign} for materials:")
+        for idx in violations:
+          print(f"  {self.materialNames['name'][idx]}: {attr_name}={vals[idx].item():.4f}")
+
+    # Example constraints (customize as needed)
+    # E constraints
+    if 'E0' in self.materialAttributes and 'E1' in self.materialAttributes:
+      check_constraint('E0', 'E1', '>=', 'E0', 'E1')
+    if 'E_theta0' in self.materialAttributes:
+      check_sign('E_theta0', '<=0', 'E_theta0')
+    if 'E_theta1' in self.materialAttributes:
+      check_sign('E_theta1', '<=0', 'E_theta1')
+
+    # Y constraints
+    if 'Y0' in self.materialAttributes and 'Y1' in self.materialAttributes:
+      check_constraint('Y0', 'Y1', '>=', 'Y0', 'Y1')
+    if 'Y_theta0' in self.materialAttributes:
+      check_sign('Y_theta0', '<=0', 'Y_theta0')
+    if 'Y_theta1' in self.materialAttributes:
+      check_sign('Y_theta1', '<=0', 'Y_theta1')
+
+    # K constraints
+    if 'K0' in self.materialAttributes and 'K1' in self.materialAttributes:
+      check_constraint('K0', 'K1', '>=', 'K0', 'K1')
+    if 'K_theta0' in self.materialAttributes:
+      check_sign('K_theta0', '<=0', 'K_theta0')
+    if 'K_theta1' in self.materialAttributes:
+      check_sign('K_theta1', '<=0', 'K_theta1')
+
+
   def plotTemperatureVsMaterialProperty(self,attrName):
     """Plot temperature vs material property for the given mesh."""
     # Extract material properties from the mesh

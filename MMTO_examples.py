@@ -19,7 +19,8 @@ class MMTOExamples(enum.Enum):
     BliskSectionComplianceMassCost = enum.auto()
     BliskSectionMassComplianceCostSafetyFactor = enum.auto()
 
-    LBracketThermal = enum.auto()
+    LBracket_TempDependent_ComplianceMass = enum.auto()
+    LBracket_TempDependent_ComplianceMassCost = enum.auto()
     LBracketStressThermal = enum.auto()
 
 def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
@@ -119,10 +120,10 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         vae_params.numEpochs=100000
         vae_params.vae_hiddenDim=500
         vae_params.latentDim=2
-    elif to_problem == MMTOExamples.LBracketThermal:
+    elif to_problem == MMTOExamples.LBracket_TempDependent_ComplianceMass:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
-        kwargs['topload'] = 5e4 
+        kwargs['topload'] = 1000 
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
         to_params.MaterialsExcelFile = './DataVaryingTemperature/LBracketMaterialsThermal.xlsx'
@@ -133,6 +134,25 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Y0=1
         to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[(TO_QOI.MASS, None, 60)]
+        vae_params.klFactor=5e-6
+        vae_params.learningRate=2e-6
+        vae_params.numEpochs= 100000
+        vae_params.vae_hiddenDim=500
+        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
+    elif to_problem == MMTOExamples.LBracket_TempDependent_ComplianceMassCost:
+        structural_problem=MMTOStructuralExamples.LBracket
+        thermal_problem=MMTOThermalExamples.LBracketThermal
+        kwargs['topload'] = 1000 
+        kwargs['midload'] = 0
+        to_params.Comment  = "Thermal + Structural TO Problem"
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/LBracketMaterialsThermal.xlsx'
+        to_params.Objective=(TO_QOI.COMPLIANCE, None)
+        to_params.ExtrudeZ = True
+        to_params.T0=500
+        to_params.E0=1
+        to_params.Y0=1
+        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints=[(TO_QOI.MASS, None, 60), (TO_QOI.COST, None, 120)]
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 100000
