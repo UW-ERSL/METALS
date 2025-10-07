@@ -3,24 +3,28 @@ import os
 import enum
 script_dir = os.path.dirname(os.path.abspath(__file__))
 from PyTOImports import *
+import pyvista as pv
 
-class METALSThermalExamples(enum.Enum):
+class MMTOThermalExamples(enum.Enum):
     EdgeCantilever = enum.auto()
     EdgeCantilever_TempBC = enum.auto()  # Edge cantilever with temperature boundary conditions
     BliskBlade = enum.auto()  # Blisk blade thermal problem
+    LBracketThermal = enum.auto()
     # Add more as needed
 
-def getMETALSThermalProblem(problem: METALSThermalExamples,nDOFDesired: int = 20000, mesh=None, **kwargs):
+def getMMTOThermalProblem(problem: MMTOThermalExamples,nDOFDesired: int = 20000, mesh=None, **kwargs):
     """
     Returns a thermal problem based on the given problem name.
     If mesh is provided, it will be reused for the thermal problem.
     """
-    if problem == METALSThermalExamples.EdgeCantilever:
+    if problem == MMTOThermalExamples.EdgeCantilever:
         return createEdgeCantileverThermalProblem(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
-    elif problem == METALSThermalExamples.BliskBlade:
+    elif problem == MMTOThermalExamples.BliskBlade:
         return createBliskBladeThermalProblem_TempBC(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
-    elif problem == METALSThermalExamples.EdgeCantilever_TempBC:
+    elif problem == MMTOThermalExamples.EdgeCantilever_TempBC:
         return createEdgeCantileverThermalProblem_TempBC(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
+    elif problem == MMTOThermalExamples.LBracketThermal:
+        return createLBracketThermalProblem(mesh=mesh, nDOFDesired=nDOFDesired)
     else:
         raise ValueError("Invalid thermal example name.")
 
@@ -162,7 +166,48 @@ def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000,
 
     return mesh, mat_prop, bc
 
-import pyvista as pv
+def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right=1000, temp_top=200, thermal_conductivity=1.0):
+    """
+    Creates a thermal problem setup for an L-bracket topology optimization.
+    If mesh is not provided, creates it using the structural LBracket problem.
+    Applies Dirichlet BCs: temp_right at rightmost end (x = xMax), temp_top at topmost end (y = yMax).
+    """
+    # If mesh is not provided, create it using the structural example
+    if mesh is None:
+        from MMTO_structural_examples import createLBracketProblem
+        mesh, _, _, _ = createLBracketProblem(nDOFDesired=nDOFDesired)
+        mesh.createEdofMatThermal()
+    else:
+        if not hasattr(mesh, 'edofMat') or mesh.edofMat is None:
+            mesh.createEdofMatThermal()
+
+    node_pts = mesh.node_xyz
+
+    # Dirichlet BC at y = yMax (topmost end)
+    top_nodes = np.where(node_pts[:, 1] == np.max(node_pts[:, 1]))[0]  # y = yMax plane
+    # Dirichlet BC at x = xMax (rightmost end)
+    right_nodes = np.where(node_pts[:, 0] == np.max(node_pts[:, 0]))[0]  # x = xMax plane
+
+    fixed_dofs = np.concatenate([top_nodes, right_nodes]).astype(int)
+    dirichlet_values = np.concatenate([
+        temp_top * np.ones_like(top_nodes, dtype=float),
+        temp_right * np.ones_like(right_nodes, dtype=float)
+    ])
+
+    mesh.node_indices[top_nodes, 3] = 1  # for plotting
+    mesh.node_indices[right_nodes, 3] = 2  # for plotting
+
+    # No heat source (Neumann BCs removed)
+    force = np.zeros(mesh.num_nodes)
+
+    bc = bound_cond.BC(force=force, fixed_dofs=fixed_dofs, dirichlet_values=dirichlet_values)
+    # Thermal material properties
+    mat_prop = mat_lib.create_material_with_defaults(
+        name="Thermal Material",
+        thermal_conductivity=thermal_conductivity
+    )
+    return mesh, mat_prop, bc
+
 def plot_thermal_bc(mesh, bc, title="Thermal BCs on Elements"):
     """
     Plots mesh elements, highlighting those with Dirichlet BCs.
@@ -308,4 +353,4 @@ def plot_thermal_mesh_with_bc(mesh, bc, title="Thermal BCs on Voxel Mesh", auto_
         plotter.show(interactive_update=not auto_close, auto_close=auto_close)
 
 # Example usage:
-# mesh, mat_prop, bc = getMETALSThermalProblem(METALSThermalExamples.EdgeCantilever, mesh=structural_mesh)
+# mesh, mat_prop, bc = getMMTOThermalProblem(MMTOThermalExamples.EdgeCantilever, mesh=structural_mesh)

@@ -1,6 +1,8 @@
+from unicodedata import name
 import numpy as np
 import torch
 from PyTOImports import *
+from HermiteFunction import hermiteInterpolation, hermiteInterpolation_torch
 # --- Support Functions ---
 
 def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,YDesign, KETemplate, material_model, p):
@@ -164,7 +166,7 @@ def compute_volume_constraint_and_gradient(x: np.ndarray, volfracUpper: float) -
 
 # --- Main Objective/Constraint Functions ---
 
-def compute_mmto_objective_and_gradient(to_params, sol, T, zeta, fe_solver_structural, KETemplate, matEncoder):
+def compute_mmto_objective_and_gradient(to_params, uvw, T, zeta, fe_solver_structural, KETemplate, matEncoder):
     """
     Compute objective value and its gradient for METALS LSR.
     Handles:
@@ -175,37 +177,21 @@ def compute_mmto_objective_and_gradient(to_params, sol, T, zeta, fe_solver_struc
     objectiveType = to_params.Objective[0]
     optionalParam = to_params.Objective[1]
     num_elems = fe_solver_structural.mesh.num_elems
-    x = zeta[0:fe_solver_structural.mesh.num_elems]
+    x = zeta[0:num_elems]
     zetaTensor = torch.tensor(zeta).float()
     zetaTensor.requires_grad = True
 
 
     if objectiveType == TO_QOI.COMPLIANCE:
-
-        decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(2,-1).T)
-        material_properties = matEncoder.getMaterialProperties(decoded)
-        Ed = material_properties['Youngs_modulus_constant_term']
-        Ec = material_properties['Youngs_modulus_linear_term']
-        Eb= material_properties['Youngs_modulus_quadratic_term']
-        Ea= material_properties['Youngs_modulus_cubic_term']
-        T_torch = torch.tensor(T, dtype=Ea.dtype, device=Ea.device)
-        E0 = to_params.E0 if hasattr(to_params, 'E0') else 100
-        T0 = to_params.T0 if hasattr(to_params, 'T0') else 500
-        EDesigntensor = (
-            Ea * T_torch**3 * E0 / T0**3 +
-            Eb * T_torch**2 * E0 / T0**2 +
-            Ec * T_torch * E0 / T0 +
-            Ed * E0
-        )
-        EDesign = EDesigntensor.detach().numpy()
-        compliance = np.einsum('i, i -> ', fe_solver_structural.total_force, sol)
-        ce = (np.dot(sol[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24), KETemplate) * sol[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24)).sum(1)
-        penal = 3.0
-        dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
-        dJ_dE = torch.tensor((x ** penal) * ce, dtype=Ea.dtype, device=Ea.device)
-        E = EDesigntensor
+        ETensor = matEncoder.getMaterialPropertyAtTemperatureTorch("E", zetaTensor[num_elems:].view(2, -1).T, T)
+      
+        compliance = np.einsum('i, i -> ', fe_solver_structural.total_force, uvw)
+        ce = (np.dot(uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24), KETemplate) * uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+        pSIMP = 3.0
+        dJ_dxDesign = (-pSIMP * x ** (pSIMP - 1)) * ETensor.detach().numpy() * ce
+        dJ_dE = torch.tensor((x ** pSIMP) * ce)
         zetaTensor.grad = None
-        E.backward(dJ_dE, retain_graph=True)
+        ETensor.backward(dJ_dE, retain_graph=True)
         dJ_dzDesign = zetaTensor.grad[num_elems:].detach().numpy()
         grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzDesign.flatten()))
         return compliance, grad_compliance
@@ -231,7 +217,7 @@ def compute_mmto_objective_and_gradient(to_params, sol, T, zeta, fe_solver_struc
         raise NotImplementedError(f"Objective {objectiveType} is not implemented yet.")
     
    
-def compute_mmto_constraint_and_gradient(to_params, sol,T, zeta, fe_solver_structural, KETemplate, matEncoder):
+def compute_mmto_constraint_and_gradient(to_params, uvw,T, zeta, fe_solver_structural, KETemplate, matEncoder):
     """
     Compute constraint values and their gradients for METALS LSR.
     Handles:
@@ -271,8 +257,8 @@ def compute_mmto_constraint_and_gradient(to_params, sol,T, zeta, fe_solver_struc
                 Ed * E0
             )
             EDesign= EDesignTensor.detach().numpy()
-            compliance = np.einsum('i, i -> ', fe_solver_structural.total_force, sol)
-            ce = (np.dot(sol[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24), KETemplate) * sol[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+            compliance = np.einsum('i, i -> ', fe_solver_structural.total_force, uvw)
+            ce = (np.dot(uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24), KETemplate) * uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24)).sum(1)
             penal = 3.0
             dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
             dJ_dE = torch.tensor((x ** penal) * ce, dtype=Ea.dtype, device=Ea.device)
@@ -336,7 +322,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol,T, zeta, fe_solver_struc
             print("Max von Mises stress:", vm_max)
             print("Min von Mises stress:", vm_min)
             inv_sf_pnorm, grad_inv_sf_density = compute_pnorm_safety_factor_and_sensitivity(
-                sol, x, fe_solver_structural,EDesign,YDesign, KETemplate, MaterialModel.SIMP,
+                uvw, x, fe_solver_structural,EDesign,YDesign, KETemplate, MaterialModel.SIMP,
                 p=to_params.PNormExponent
             )
             print("P-norm of inv safety factor:", inv_sf_pnorm)

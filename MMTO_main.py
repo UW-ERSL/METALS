@@ -1,16 +1,15 @@
 import numpy as np
 import torch
 import time
-from MMTO_examples import METALSTOExamples, getMETALSTOProblem
+from MMTO_examples import MMTOExamples, getMMTOProblem
 from materialEncoder import MaterialEncoder
 from MMTO_obj_cons_sensitivities import (
     compute_mmto_objective_and_gradient,
     compute_mmto_constraint_and_gradient,
 )
 from PyTOImports import *
-from enum import Enum
 
- # Choose initialization method for z0: 'lightest', 'heaviest', 'origin', or 'uniform'
+from enum import Enum
 class Z0InitMethod(Enum):
     LIGHTEST = 'lightest'
     HEAVIEST = 'heaviest'
@@ -18,10 +17,10 @@ class Z0InitMethod(Enum):
     UNIFORM = 'uniform'
 
 
-# The main code for METALS topology optimization
+# The main code for MMTO topology optimization
 def run_topopt(
     to_problem,
-    nIterationsWithoutPenalization =50,
+    nIterationsWithoutPenalization = 50,
     nIterationsWithPenalization = 50,
     timeLimit=7200,
     saveNet=None,
@@ -37,7 +36,7 @@ def run_topopt(
         "constraints": []
     }
     # --- Get the TO problem
-    mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params, vae_params = getMETALSTOProblem(to_problem)
+    mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
     
     # --- Read the materials excel file ---
     if to_params.MaterialsExcelFile  is None:
@@ -58,16 +57,12 @@ def run_topopt(
     if use_pretrained_vae and vae_file_exists:
         print(f"Loading pre-trained autoencoder from file: {saveNet}")
         matEncoder.loadAutoencoderFromFile(saveNet)
-        with torch.no_grad():
-            z_real_np = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu().numpy()
     else:
         print(f"Training autoencoder and saving to: {saveNet}")
         time_start = time.time()
         matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate)
         time_end = time.time()
         print(f"Autoencoder training time: {time_end - time_start:.2f} seconds")
-        with torch.no_grad():
-            z_real_np = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu().numpy()
         matEncoder.printEncodingErrors()
         for attributeId in range(numAttributes):# Optionally plot the latent space
             matEncoder.plotLSRContours(attributeId=attributeId)
@@ -103,7 +98,7 @@ def run_topopt(
     iterationCount = 0
     obj0 = None # will get updated in the first iteration
     gamma = gamma_init
-    def METALS_optimization_function(zeta):
+    def MMTO_optimization_function(zeta):
         nonlocal iterationCount, obj0, gamma, zRealTorch
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
@@ -133,15 +128,15 @@ def run_topopt(
         cons, grad_cons = compute_mmto_constraint_and_gradient(
             to_params, sol, zeta, fe_solver_structural, KETemplate, matEncoder)
 
-        if (iterationCount == 0):
+
+        if (iterationCount == 0): # For the iteration
+            obj0 = obj
             # Check if any constraints are violated (>0) and print a warning
             if np.any(cons > 0):
                 print(50 * "-")
                 print("Warning: Constraint(s) violated at start of optimization!")
                 print("GCMMA may not converge for this problem. Consider changing constraints if convergence issues occur.")
                 print(50 * "-")
-        if (obj0 is None):
-            obj0 = obj
         
         obj = obj / obj0  # Normalize objective
         grad_obj = grad_obj / obj0
@@ -179,7 +174,7 @@ def run_topopt(
         history["constraints"].append(cons.flatten().copy())
 
         # Add penalty to objective to keep designs close to training data
-        if (iterationCount >= nIterationsWithoutPenalization):
+        if (iterationCount > nIterationsWithoutPenalization):
             p_softmin = -6
             d_ij = torch.cdist(zDesign, zRealTorch, p=2) + 1e-12
             min_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
@@ -245,7 +240,7 @@ def run_topopt(
 
 
     # Run the MMA optimization
-    optResults = runMMA(nVariables, nConstraints, METALS_optimization_function, zeta0.reshape(-1, 1), lowerBound,
+    optResults = runMMA(nVariables, nConstraints, MMTO_optimization_function, zeta0.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
         move_limit=0.2, kktTol=1e-6, fTolerance=rel_conv_tol, gTolerance=rel_conv_tol, verbose=False)
     zetaOptimal = optResults[0]
@@ -284,11 +279,11 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = METALSTOExamples.BridgeComplianceMassCost
+    to_problem = MMTOExamples.BridgeComplianceMassCost
 
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization=50,
-        nIterationsWithPenalization=0,
-        use_pretrained_vae=True,
+        nIterationsWithPenalization=50,
+        use_pretrained_vae=False,
     )

@@ -5,7 +5,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 from PyTOImports import *
 import scipy.sparse as spy_sprs
 from scipy.sparse import lil_matrix
-class METALSStructuralExamples(enum.Enum):
+class MMTOStructuralExamples(enum.Enum):
 	EdgeCantilever = enum.auto()  
 	BliskWithBladeMass = enum.auto()
 	BliskSection= enum.auto()
@@ -13,7 +13,7 @@ class METALSStructuralExamples(enum.Enum):
 	LBracket = enum.auto()
 
   
-def getMETALSStructuralProblem(problem: METALSStructuralExamples,nDOFDesired: int = 20000, **kwargs):
+def getMMTOStructuralProblem(problem: MMTOStructuralExamples,nDOFDesired: int = 20000, **kwargs):
   """Returns a structural problem based on the given problem name.
 
   Parameters:
@@ -28,16 +28,16 @@ def getMETALSStructuralProblem(problem: METALSStructuralExamples,nDOFDesired: in
   tuple
     A tuple containing the mesh, material properties, and boundary conditions for the problem.
   """
-  if problem == METALSStructuralExamples.EdgeCantilever:
+  if problem == MMTOStructuralExamples.EdgeCantilever:
     return createEdgeCantileverProblem(nDOFDesired=nDOFDesired,**kwargs)
   
-  elif problem == METALSStructuralExamples.BliskSection:
+  elif problem == MMTOStructuralExamples.BliskSection:
     return createBliskSectionProblem(nDOFDesired=nDOFDesired,**kwargs)
   
-  elif problem == METALSStructuralExamples.Bridge:
+  elif problem == MMTOStructuralExamples.Bridge:
     return createBridgeProblem(nDOFDesired=nDOFDesired,**kwargs)
   
-  elif problem == METALSStructuralExamples.LBracket:
+  elif problem == MMTOStructuralExamples.LBracket:
     return createLBracketProblem(nDOFDesired=nDOFDesired,**kwargs)
   else:
     raise ValueError("Invalid structural example name.")

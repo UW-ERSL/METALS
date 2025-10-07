@@ -3,18 +3,18 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from HermiteFunction import  hermiteInterpolation, hermiteInterpolation_torch
+
+ # Choose initialization method for z0: 'lightest', 'heaviest', 'origin', or 'uniform'
 
 
 class MaterialEncoder:
   def __init__(self,vae_params):
     self.nAttributes = 0
     self.vae_params = vae_params
-    self.offset = 10 # offset to avoid log(0)
 
   def readExcel(self, excel_file):
     self.excel_file = excel_file
-    self.scaledMaterialData, self.materialAttributes, self.materialNames, self.trainInfo = self.preprocessData()  
+    self.scaledMaterialData, self.materialAttributes, self.materialNames = self.preprocessData()  
     self.nMaterials = self.scaledMaterialData.shape[0]
     self.nAttributes = self.scaledMaterialData.shape[1]
 
@@ -22,10 +22,7 @@ class MaterialEncoder:
         'encoder': {'inputDim': self.nAttributes, 'hiddenDim': self.vae_params.vae_hiddenDim, 'latentDim': self.vae_params.latentDim},
         'decoder': {'latentDim': self.vae_params.latentDim, 'hiddenDim': self.vae_params.vae_hiddenDim, 'outputDim': self.nAttributes}
     }
-
     self.vaeNet = VariationalAutoencoder(self.vaeSettings)
-
-
 
   def preprocessData(self):
       df = pd.read_excel(self.excel_file, header=None)
@@ -39,36 +36,29 @@ class MaterialEncoder:
       material_names = df.iloc[2:, 0].tolist()
       # Extract attribute values from second column onwards, starting from third row
       values = df.iloc[2:, 1:].to_numpy(dtype=float)
-
   
-      
-      min_vals = np.min(values, axis=0)
-      log_values = np.log10(values - min_vals + self.offset)
-      # Min-max normalization
-      dataScaleMin = log_values.min(axis=0)
-      dataScaleMax = log_values.max(axis=0)
 
-      normalizedData = (log_values - dataScaleMin) / (dataScaleMax - dataScaleMin + 1e-12)
+      self.max_vals = np.max(np.abs(values), axis=0)+1e-12 # avoid division by zero
+    
+      normalizedData = values / self.max_vals
+
+      print(normalizedData)
       scaledMaterialData = torch.tensor(normalizedData).float()
-
+     
       # Build materialAttributes dictionary
       materialAttributes = {}
       for i, name in enumerate(attribute_names):
           materialAttributes[name] = {
               'idx': i,
               'unit': units[i],
-              'scaleMin': dataScaleMin[i],
-              'scaleMax': dataScaleMax[i],
-              'minAdded': min_vals[i]
+              'max': self.max_vals[i],
           }
 
       # Identifier: first column is material name, second/third columns can be className/classID if present
       materialNames = {}
       materialNames['name'] = material_names
-    
-      trainInfo = log_values
 
-      return scaledMaterialData, materialAttributes, materialNames, trainInfo
+      return scaledMaterialData, materialAttributes, materialNames
 
   def loadAutoencoderFromFile(self, fileName):
     self.vaeNet.load_state_dict(torch.load(fileName))
@@ -78,6 +68,7 @@ class MaterialEncoder:
     opt = torch.optim.Adam(self.vaeNet.parameters(), learningRate)
     convgHistory = {'reconLoss':[], 'klLoss':[], 'loss':[]}
     self.vaeNet.encoder.isTraining = True
+ 
     for epoch in range(numEpochs):
       opt.zero_grad()
       predData = self.vaeNet(self.scaledMaterialData)
@@ -97,30 +88,32 @@ class MaterialEncoder:
     torch.save(self.vaeNet.state_dict(), savedNet)
     return convgHistory
   
-  def getMaterialPropertyAtTemperature(self, name,  zPts, T):
-      decoded = self.vaeNet.decoder(zPts)
-      material_properties = self.getMaterialProperties(decoded)
-      M0 = material_properties[name + '0'].detach().numpy()
-      M1 = material_properties[name + '1'].detach().numpy()
-      theta0 = material_properties[name + '_theta0'].detach().numpy()
-      theta1 = material_properties[name + '_theta1'].detach().numpy()
-      M = hermiteInterpolation(T, M0, M1, theta0, theta1)
-      return M
-
-  def getMaterialPropertyAtTemperatureTorch(self, name,  zPts, T):
-      decoded = self.vaeNet.decoder(zPts)
-      material_properties = self.getMaterialProperties(decoded)
-      M0 = material_properties[name + '0']
-      M1 = material_properties[name + '1']
-      theta0 = material_properties[name + '_theta0']
-      theta1 = material_properties[name + '_theta1']
-      M = hermiteInterpolation_torch(T, M0, M1, theta0, theta1)
-      return M
-
-  def unlognorm(self, x, scaleMax, scaleMin, minAdded):
-    # Reverse the normalization and log transform
-    return 10**(x * (scaleMax - scaleMin) + scaleMin) + minAdded - self.offset
   
+  def getHeaviestMaterial(self):
+    # Get real latent points for all materials
+    with torch.no_grad():
+        z_real = self.vaeNet.encoder(self.scaledMaterialData)
+        decoded = self.vaeNet.decoder(z_real)
+        decoded_properties = self.getMaterialProperties(decoded)
+
+    # Find the index of the heaviest material
+    density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
+    heaviest_idx = np.argmax(density_values)
+    heaviest_z = z_real[heaviest_idx].detach().cpu().numpy()
+    return heaviest_z
+  
+  def getLightestMaterial(self):
+    # Get real latent points for all materials
+    with torch.no_grad():
+      z_real = self.vaeNet.encoder(self.scaledMaterialData)
+      decoded = self.vaeNet.decoder(z_real)
+      decoded_properties = self.getMaterialProperties(decoded)
+
+    # Find the index of the lightest material
+    density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
+    lightest_idx = np.argmin(density_values)
+    lightest_z = z_real[lightest_idx].detach().cpu().numpy()
+    return lightest_z
 
   def materialDistance(self, zReal, zDesign):
     # Decode latent vectors to material properties
@@ -157,18 +150,18 @@ class MaterialEncoder:
    
     return penalty.detach().numpy(), grad
 
-  def plotLSR(self, zRealPts, zDesignPts = None,xDesign=None):
-
-    if zDesignPts is not None and xDesign is not None:
+  def plotLSR(self, zReal, zDesign = None,xDesign=None):
+   
+    if zDesign is not None and xDesign is not None:
       mask = xDesign > 0.5
       if np.any(mask):
-        plt.scatter(zDesignPts[mask, 0], zDesignPts[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-    plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+        plt.scatter(zDesign[mask, 0], zDesign[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+    plt.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=0.3)
     for i, label in enumerate(self.materialNames['name']):
-        plt.text(zRealPts[i, 0] + 0.1, zRealPts[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
+        plt.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
     plt.xlabel('$z_1$')
     plt.ylabel('$z_2$')
-    plt.legend(fontsize=14)
+    plt.grid(True, linestyle='--', alpha=0.5)
     plt.show()
 
   def plotLSRContours(self, attributeId = 0, title=""):
@@ -186,7 +179,7 @@ class MaterialEncoder:
             decodedValues = self.getMaterialProperties(decoded)
             QOI.append(decodedValues[list(decodedValues.keys())[attributeId]].item())
     QOI = np.array(QOI).reshape(Z1.shape)
-    plt.figure(figsize=(9.5, 8))
+    plt.figure(figsize=(7.5, 6))
     contour = plt.contourf(Z1, Z2, QOI, levels=30, cmap='viridis')
     units = self.materialAttributes[list(self.materialAttributes.keys())[attributeId]]['unit']
     plt.colorbar(contour, label=list(self.materialAttributes.keys())[attributeId] + " (" + units + ")")
@@ -198,33 +191,6 @@ class MaterialEncoder:
     plt.title(title)
     plt.show()
 
-  def getHeaviestMaterial(self):
-    # Get real latent points for all materials
-    with torch.no_grad():
-        z_real = self.vaeNet.encoder(self.scaledMaterialData)
-        decoded = self.vaeNet.decoder(z_real)
-        decoded_properties = self.getMaterialProperties(decoded)
-
-    # Find the index of the heaviest material
-    density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
-    heaviest_idx = np.argmax(density_values)
-    heaviest_z = z_real[heaviest_idx].detach().cpu().numpy()
-    return heaviest_z
-  
-  def getLightestMaterial(self):
-    # Get real latent points for all materials
-    with torch.no_grad():
-      z_real = self.vaeNet.encoder(self.scaledMaterialData)
-      decoded = self.vaeNet.decoder(z_real)
-      decoded_properties = self.getMaterialProperties(decoded)
-
-    # Find the index of the lightest material
-    density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
-    lightest_idx = np.argmin(density_values)
-    lightest_z = z_real[lightest_idx].detach().cpu().numpy()
-    return lightest_z
-
-
   def getMaterialProperties(self, decoded):
     """
     Returns a dictionary of all denormalized and unlogged material properties.
@@ -233,10 +199,7 @@ class MaterialEncoder:
     properties = {}
     for name, attribute in self.materialAttributes.items():
         idx = attribute['idx']
-        scaleMax = attribute['scaleMax']
-        scaleMin = attribute['scaleMin']
-        minAdded = attribute['minAdded']
-        properties[name] = self.unlognorm(decoded[:, idx], scaleMax, scaleMin, minAdded)
+        properties[name] = decoded[:, idx] * self.max_vals[idx]
     return properties
     
   def printEncodingErrors(self):
@@ -257,11 +220,8 @@ class MaterialEncoder:
       for name in attribute_names:
           info = self.materialAttributes[name]
           idx = info['idx']
-          scaleMax = info['scaleMax']
-          scaleMin = info['scaleMin']
-          minAdded = info['minAdded']
           # Reverse normalization and log transform
-          true_properties[name] = self.unlognorm(true_values[:, idx], scaleMax, scaleMin, minAdded)
+          true_properties[name] = true_values[:, idx].numpy() * self.max_vals[idx]
 
       print("-" * 40)
       print("{:<25} {:>15}".format("Attribute", "Max % Error"))
