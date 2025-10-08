@@ -2,7 +2,7 @@ from unicodedata import name
 import numpy as np
 import torch
 from PyTOImports import *
-from HermiteFunction import hermiteInterpolation, hermiteInterpolation_torch
+from InterpolationFunctions import hermiteInterpolation, hermiteInterpolation_torch
 # --- Support Functions ---
 from MMTO_obj_cons_sensitivities import compute_pnorm_safety_factor_and_sensitivity, d_relaxed_von_mises_dE, MaterialModel
 

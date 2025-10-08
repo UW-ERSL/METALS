@@ -113,14 +113,14 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     num_elems = fe_solver.mesh.num_elems
     nRows = KETemplate.shape[0]
     ce = ( np.dot(adjointSol[dofMat].reshape(num_elems, nRows), KETemplate)
-        * sol[dofMat].reshape(num_elems, nRows) ).sum(1)
+        * sol[dofMat].reshape(num_elems, nRows) ).sum(1)* EDesign
 
     T2 = get_structural_material_model_sensitivity(x, material_model) * ce / yield_strengths 
     inv_sf_pnorm_sensitivity = T1  + T2
 
     return inv_sf_pnorm, inv_sf_pnorm_sensitivity
 
-def d_relaxed_von_mises_dE(stress, x, q=1):
+def d_relaxed_von_mises_dE(stress, x, q=2):
     """
     Compute derivative of relaxed von Mises stress with respect to Young's modulus E for a single element.
     stress: (6,) array-like [sxx, syy, szz, syz, sxz, sxy] (unrelaxed)
@@ -306,7 +306,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             for e in range(num_elems):
                 # Divide by decoded youngs modulus for that element
                 d_sigma_vm_dE[e] = d_relaxed_von_mises_dE(
-                    fe_solver.stressComponents[e], x[e].item(), q=1) / youngsModulus[e].item()
+                    fe_solver.stressComponents[e], x[e].item(), q=2) / youngsModulus[e].item()
             # Get per-element von Mises and yield strength
             sigma_vm = np.zeros(num_elems)
             for e in range(num_elems):

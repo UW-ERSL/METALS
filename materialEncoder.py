@@ -3,14 +3,17 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from HermiteFunction import  hermiteInterpolation, hermiteInterpolation_torch
-
+from InterpolationFunctions import  hermiteInterpolation, hermiteInterpolation_torch
+from InterpolationFunctions import  bezierInterpolation, bezierInterpolation_torch
+from InterpolationFunctions import  cubicInterpolation, cubicInterpolation_torch
+from InterpolationFunctions import  logBezierInterpolation, logBezierInterpolation_torch
 
 class MaterialEncoder:
   def __init__(self,vae_params):
     self.nAttributes = 0
     self.vae_params = vae_params
     self.offset = 10 # offset to avoid log(0)
+    self.interpolationMethod = "logBezier" # Options: "hermite", "bezier", "cubic", "logBezier"
 
   def readExcel(self, excel_file):
     self.excel_file = excel_file
@@ -131,7 +134,7 @@ class MaterialEncoder:
       check_sign('K_theta1', '<=0', 'K_theta1')
 
 
-  def plotTemperatureVsMaterialProperty(self,attrName):
+  def plotTemperatureVsMaterialProperty(self,attrName,semilogy=False):
     """Plot temperature vs material property for the given mesh."""
     # Extract material properties from the mesh
     
@@ -141,9 +144,11 @@ class MaterialEncoder:
     for i in range(zRealPts.shape[0]):
         zPt = zRealPts[i,:].view(1,2)
         M = self.getMaterialPropertyAtTemperature(attrName,  zPt, T)
-        plt.plot(T, M)
+        if semilogy:
+            plt.semilogy(T, M, label=self.materialNames['name'][i])
+        else:
+          plt.plot(T, M)
 
-    
     plt.xlabel("Temperature (K)")
     plt.ylabel(f"{attrName}")
     plt.title(f"Temperature vs {attrName}")
@@ -182,21 +187,59 @@ class MaterialEncoder:
   def getMaterialPropertyAtTemperature(self, name,  zPts, T):
       decoded = self.vaeNet.decoder(zPts)
       material_properties = self.getMaterialProperties(decoded)
-      M0 = material_properties[name + '0'].detach().numpy()
-      M1 = material_properties[name + '1'].detach().numpy()
-      theta0 = material_properties[name + '_theta0'].detach().numpy()
-      theta1 = material_properties[name + '_theta1'].detach().numpy()
-      M = hermiteInterpolation(T, M0, M1, theta0, theta1)
+      if (self.interpolationMethod == "hermite"):
+        M0 = material_properties[name + '0'].detach().numpy()
+        M1 = material_properties[name + '1'].detach().numpy()
+        theta0 = material_properties[name + '_theta0'].detach().numpy()
+        theta1 = material_properties[name + '_theta1'].detach().numpy()
+        M = hermiteInterpolation(T, M0, M1, theta0, theta1)
+      elif (self.interpolationMethod == "bezier"):
+        M0 = material_properties[name + '0'].detach().numpy()
+        M1 = material_properties[name + '1'].detach().numpy()
+        M2 = material_properties[name + '2'].detach().numpy()
+        M3 = material_properties[name + '3'].detach().numpy()
+        M = bezierInterpolation(T, M0, M1, M2, M3)
+      elif (self.interpolationMethod == "cubic"):
+        M0 = material_properties[name + '0'].detach().numpy()
+        M1 = material_properties[name + '1'].detach().numpy()
+        M2 = material_properties[name + '2'].detach().numpy()
+        M3 = material_properties[name + '3'].detach().numpy()
+        M = cubicInterpolation(T, M0, M1, M2, M3)
+      elif (self.interpolationMethod == "logBezier"):
+        M0 = material_properties[name + '0'].detach().numpy()
+        M1 = material_properties[name + '1'].detach().numpy()
+        M2 = material_properties[name + '2'].detach().numpy()
+        M3 = material_properties[name + '3'].detach().numpy()
+        M = logBezierInterpolation(T, M0, M1, M2, M3)
       return M
 
   def getMaterialPropertyAtTemperatureTorch(self, name,  zPts, T):
       decoded = self.vaeNet.decoder(zPts)
       material_properties = self.getMaterialProperties(decoded)
-      M0 = material_properties[name + '0']
-      M1 = material_properties[name + '1']
-      theta0 = material_properties[name + '_theta0']
-      theta1 = material_properties[name + '_theta1']
-      M = hermiteInterpolation_torch(T, M0, M1, theta0, theta1)
+      if self.interpolationMethod == "hermite":
+          M0 = material_properties[name + '0']
+          M1 = material_properties[name + '1']
+          theta0 = material_properties[name + '_theta0']
+          theta1 = material_properties[name + '_theta1']
+          M = hermiteInterpolation_torch(T, M0, M1, theta0, theta1)
+      elif self.interpolationMethod == "bezier":
+          M0 = material_properties[name + '0']
+          M1 = material_properties[name + '1']
+          M2 = material_properties[name + '2']
+          M3 = material_properties[name + '3']
+          M = bezierInterpolation_torch(T, M0, M1, M2, M3)
+      elif self.interpolationMethod == "cubic":
+          M0 = material_properties[name + '0']
+          M1 = material_properties[name + '1']
+          M2 = material_properties[name + '2']
+          M3 = material_properties[name + '3']
+          M = cubicInterpolation_torch(T, M0, M1, M2, M3)
+      elif self.interpolationMethod == "logBezier":
+          M0 = material_properties[name + '0']
+          M1 = material_properties[name + '1']
+          M2 = material_properties[name + '2']
+          M3 = material_properties[name + '3']
+          M = logBezierInterpolation_torch(T, M0, M1, M2, M3)
       return M
 
   def unlognorm(self, x, scaleMax, scaleMin, minAdded):

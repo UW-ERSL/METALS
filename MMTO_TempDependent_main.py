@@ -9,7 +9,7 @@ from MMTO_TempDependent_obj_cons_sensitivities import (
     compute_mmto_constraint_and_gradient,
 )
 from PyTOImports import *
-from HermiteFunction import hermiteInterpolation
+from InterpolationFunctions import hermiteInterpolation
 from enum import Enum
 class Z0InitMethod(Enum):
     LIGHTEST = 'lightest'
@@ -29,7 +29,7 @@ def run_topopt(
     use_pretrained_vae=True,
     z0_init_method = Z0InitMethod.UNIFORM,  # options: Z0InitMethod.LIGHTEST, etc.
     rel_conv_tol=1e-10,
-    gamma_init = 1e-4,
+    gamma_init = 1e-5,
     gamma_max = 1000,
     gamma_factor = 2):
     
@@ -68,9 +68,10 @@ def run_topopt(
     zRealTorch = matEncoder.training_latents
 
 
+    if (True): # optionally material vs temperature plots
+        matEncoder.plotTemperatureVsMaterialProperty("E",semilogy=True)
+        matEncoder.plotTemperatureVsMaterialProperty("Y",semilogy=True)
     if (False): # optionally plot the latent space
-        matEncoder.plotTemperatureVsMaterialProperty("E")
-        matEncoder.plotTemperatureVsMaterialProperty("Y")
         for attributeId in range(numAttributes):# Optionally plot the latent space
             matEncoder.plotLSRContours(attributeId=attributeId)
         
@@ -337,19 +338,19 @@ def run_topopt(
     fe_solver_structural.plot_elem_field(closest_index, title='Mat ID', colormap='tab20')
     fe_solver_structural.plot_elem_field(T, title='Temperature', colormap='plasma')
     fe_solver_structural.plot_elem_field(E, title='Youngs Modulus', colormap='plasma')
-    
+    fe_solver_structural.plot_elem_field(Y, title='Yield Strength', colormap='plasma')
     
     # Plot latent space with designs and training data
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zDesign.reshape(2, -1).T, xDesign=xDesign)
 
 if __name__ == "__main__":
     
-    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMassCost
+    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMass
 
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization= 30,
-        nIterationsWithPenalization= 70,
+        nIterationsWithoutPenalization= 50,
+        nIterationsWithPenalization= 0,
         turnOnThermal=True,
         use_pretrained_vae=False
     )
