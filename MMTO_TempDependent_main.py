@@ -144,7 +144,7 @@ def run_topopt(
             edofMat = fe_solver_thermal.mesh.edofMat
             T = np.mean(T_full[edofMat], axis=1)
         else:
-            T = np.ones(num_elems) * 20.0  # uniform temperature of 20 degrees C
+            T = np.ones(num_elems) * 50.0  # uniform temperature of 50 degrees C
         #print(f"Temperature (min, max): {np.min(T):.3g}, {np.max(T):.3g}")
 
 
@@ -223,9 +223,8 @@ def run_topopt(
        
         # Add penalty to objective to keep designs close to training data
         if (iterationCount > nIterationsWithoutPenalization):
-            p_softmin = -6
             d_ij = torch.cdist(zPts, zRealTorch, p=2) + 1e-12
-            min_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
+            min_i = torch.min(d_ij, dim=1).values
             min_i = min_i * xDesign
             penalty = gamma * torch.sum(min_i) / num_elems
             zetaTensor.grad = None

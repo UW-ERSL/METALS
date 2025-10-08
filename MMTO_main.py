@@ -25,9 +25,9 @@ def run_topopt(
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=False,
-    z0_init_method = Z0InitMethod.LIGHTEST,  # options: Z0InitMethod.LIGHTEST, etc.
+    z0_init_method = Z0InitMethod.UNIFORM,  # options: Z0InitMethod.LIGHTEST, etc.
     rel_conv_tol=1e-7,
-    gamma_init = 1e-3,
+    gamma_init = 1e-5,
     gamma_max = 1000,
     gamma_factor = 2):
     
@@ -64,14 +64,16 @@ def run_topopt(
         time_end = time.time()
         print(f"Autoencoder training time: {time_end - time_start:.2f} seconds")
         matEncoder.printEncodingErrors()
-        for attributeId in range(numAttributes):# Optionally plot the latent space
-            matEncoder.plotLSRContours(attributeId=attributeId)
+        
         
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
-    zRealTorch = matEncoder.vaeNet.encoder.z
+    zRealTorch = matEncoder.training_latents
     
+    if (False): # optionally plot latent space contours
+        for attributeId in range(numAttributes):# Optionally plot the latent space
+            matEncoder.plotLSRContours(attributeId=attributeId)
     # Set up the FEA solver
     solver = linear_solvers.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
@@ -175,11 +177,10 @@ def run_topopt(
 
         # Add penalty to objective to keep designs close to training data
         if (iterationCount > nIterationsWithoutPenalization):
-            p_softmin = -6
-            d_ij = torch.cdist(zDesign, zRealTorch, p=2) + 1e-12
-            min_i = torch.sum(d_ij ** p_softmin, dim=1).pow(1.0/p_softmin)
-            min_i = min_i * xDesign
-            penalty = gamma * torch.sum(min_i) / num_elems
+            d_ij = torch.sqrt(torch.cdist(zDesign, zRealTorch, p=2))
+            min_i = torch.min(d_ij, dim=1).values
+            min_i = min_i * xDesign # don't penalize void elements
+            penalty = gamma * torch.mean(min_i) 
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
             grad_obj[num_elems:,0] += zetaTensor.grad[num_elems:].detach().numpy()
@@ -284,6 +285,6 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization=50,
-        nIterationsWithPenalization=50,
-        use_pretrained_vae=False,
+        nIterationsWithPenalization=70,
+        use_pretrained_vae=True,
     )
