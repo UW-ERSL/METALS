@@ -2,18 +2,19 @@ import numpy as np
 import torch
 import pandas as pd
 
+# These temperature values are used in several interpolation functions
 TMin = 0
 TMax = 1200
 
-T0_CUBIC = 0
-T1_CUBIC = 400
-T2_CUBIC = 800
-T3_CUBIC = 1200
+T0_CUBIC = TMin
+T1_CUBIC = TMin + (TMax - TMin) / 3
+T2_CUBIC = TMin + 2 * (TMax - TMin) / 3
+T3_CUBIC = TMax
 
-T0_BEZIER = 0
-T1_BEZIER = 400
-T2_BEZIER = 800
-T3_BEZIER = 1200
+T0_BEZIER = TMin
+T1_BEZIER = TMin + (TMax - TMin) / 3
+T2_BEZIER = TMin + 2 * (TMax - TMin) / 3
+T3_BEZIER = TMax
 
 def cubicInterpolation(T, M0, M1, M2, M3, T0=T0_CUBIC, T1=T1_CUBIC, T2=T2_CUBIC, T3=T3_CUBIC):
     """Cubic interpolation for material property variation with temperature using four points."""
@@ -131,34 +132,96 @@ def hermiteInterpolation_torch(T, M0, M1, theta0_deg, theta1_deg, T0 = TMin, T1 
     h11 = torch.tensor(t**3 - t**2)
     return h00*M0 + h10*(T1-T0)*m0 + h01*M1 + h11*(T1-T0)*m1
 
+def findControlPointsLogBezier(T_data, M_data, T0=TMin, T3=TMax):
+    """Find control points for log-space Bezier interpolation given data points."""
+    # Take log10 of M_data
+    M_log = np.log10(M_data)
+    # Normalize T_data to [0,1]
+    t_data = (T_data - T0) / (T3 - T0)
+    n = len(T_data)
+    if n < 4:
+        raise ValueError("At least four data points are required to determine control points.")
+    
+    # Set up the system of equations
+    A = np.zeros((n, 4))
+    for i in range(n):
+        t = t_data[i]
+        A[i, 0] = (1 - t) ** 3
+        A[i, 1] = 3 * (1 - t) ** 2 * t
+        A[i, 2] = 3 * (1 - t) * t ** 2
+        A[i, 3] = t ** 3
+    
+    # Solve the least squares problem to find control points
+    control_points_log, _, _, _ = np.linalg.lstsq(A, M_log, rcond=None)
+    control_points = 10 ** control_points_log  # Convert back from log space
+    return control_points   
+
+
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    # We decided on this
-    Data = [7.30E+10, 4.00E+9, 2.00E+06, 2.00E+03]
-
+    # Example of Bezier interpolation
+    # Data points for interpolation
+    K = [20, 19, 17.6, 15.5]  # Thermal conductivity data (sample values)
     # Plot Bezier interpolation using the Data array
     T_vals = np.linspace(TMin, TMax, 300)
-    vals = logBezierInterpolation(T_vals, *Data)
-    plt.semilogy(T_vals, vals, linestyle='--')
+    vals = bezierInterpolation(T_vals, *K)   
+    plt.plot(T_vals, vals, linestyle='-')
+    # Plot control points for Bezier interpolation
+    control_T = [T0_BEZIER, T1_BEZIER, T2_BEZIER, T3_BEZIER]
+    plt.plot(control_T, K, 'r*', label="Control Points")
+    plt.legend()
     plt.grid(True)
+    plt.xlabel("Temperature (°C)")
+    plt.ylabel("Conductivity K (W/m-K)")
+    plt.show()
+
+    # Example of Log Bezier interpolation for Elastic Modulus
+    # Data points for interpolation
+    E_steel = [1.9e11, 1.1e11, 9e10, 8e10]  # Elastic modulus data (sample values)
+    # Plot Log Bezier interpolation using the Data array
+    T_vals = np.linspace(TMin, TMax, 300)
+    vals = logBezierInterpolation(T_vals, *E_steel)
+    plt.semilogy(T_vals, vals, linestyle='--')
+    # Plot control points for Log Bezier interpolation
+    control_T = [TMin, TMax / 3, 2 * TMax / 3, TMax]
+    plt.semilogy(control_T, E_steel, 'g*', label="Control Points")
+    plt.legend()
+    plt.grid(True)
+    plt.xlabel("Temperature (°C)")
+    plt.ylabel("Youngs Modulus Steel (Pa)")
     plt.show()
 
 
-    # for example in [1, 2]:
-    #     if (example == 1):    # This is a sample for 17-4PH SS
-    #         E0, E1 = 196e9, 8e10     # Young's modulus at endpoints
-    #         theta0, theta1 = -3, -0.5   # slopes given as angles (degrees)
-    #         material = "17-4PH Stainless Steel"
-    #     else:     # This is a sample for 7078Al
-    #         E0, E1 = 7.3e10, -7e10     # Young's modulus at endpoints
-    #         theta0, theta1 = -40, 0  # slopes given as angles (degrees)
-    #         material = "7078 Aluminum"
-    #     T_vals = np.linspace(TMin, TMax, 300)
-    #     E_vals = hermiteInterpolation(T_vals,  E0, E1, theta0, theta1)
+    E_Al = [7.3e10, 4e10, 2e7, 2e6]  # Elastic modulus data (sample values)
+    # Plot Log Bezier interpolation using the Data array
+    T_vals = np.linspace(TMin, TMax, 300)
+    vals = logBezierInterpolation(T_vals, *E_Al)
+    plt.plot(T_vals, vals, linestyle='--')
+    # Plot control points for Log Bezier interpolation
+    control_T = [TMin, TMax / 3, 2 * TMax / 3, TMax]
+    plt.plot(control_T, E_Al, 'g*', label="Control Points")
+    plt.legend()
+    plt.grid(True)
+    plt.xlabel("Temperature (°C)")
+    plt.ylabel("Youngs Modulus Aluminum (Pa)")
+    plt.show()
 
-    #     plt.plot(T_vals, E_vals, label=material)
-    # plt.xlabel("Temperature (T)")
-    # plt.ylabel("Young's Modulus (E)")
-    # plt.legend()
-    # plt.grid(True)
-    # plt.show()
+
+    # Example of finding control points for Log Bezier interpolation
+    # Sample data points (Temperature vs Elastic Modulus)
+    T_data = np.array([25, 100, 125, 150, 200, 250, 300])  # Sample temperature data
+    M_data = 1e9 * np.array([70, 68, 66, 64, 60, 52, 40])  # Sample elastic modulus data
+    
+    control_points = findControlPointsLogBezier(T_data, M_data)
+    print("Control points for Log Bezier interpolation:", control_points)
+    # Verify by plotting
+    T_vals = np.linspace(TMin, TMax, 300)
+    M_vals = logBezierInterpolation(T_vals, *control_points)    
+    plt.semilogy(T_vals, M_vals, label="Log Bezier Interpolation")
+    plt.semilogy(T_data, M_data, 'ro', label="Data Points")       
+    plt.semilogy([TMin, TMax / 3, 2 * TMax / 3, TMax], control_points, 'g*', label="Control Points")
+    plt.legend()
+    plt.grid(True)  
+    plt.xlabel("Temperature (°C)")
+    plt.ylabel("Elastic Modulus (Pa)")
+    plt.show()
