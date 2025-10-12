@@ -57,6 +57,7 @@ class MaterialEncoder:
 
       
       scaledMaterialData = torch.tensor(normalizedData).float()
+      #Checking commit to branch METALS GAURAV
 
       # Build materialAttributes dictionary
       materialAttributes = {}
