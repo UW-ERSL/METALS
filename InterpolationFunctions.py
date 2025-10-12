@@ -191,15 +191,17 @@ if __name__ == "__main__":
     plt.ylabel("Youngs Modulus Steel (Pa)")
     plt.show()
 
+    # [7.10E+10, 3.00E+10, 2.00E+07, 2.00E+06], working 
 
-    E_Al = [7.3e10, 4e10, 2e7, 2e6]  # Elastic modulus data (sample values)
+
+    E_Al = [7.3e10, 1e9, 4e6, 4e5]  # Elastic modulus data (sample values)
     # Plot Log Bezier interpolation using the Data array
     T_vals = np.linspace(TMin, TMax, 300)
     vals = logBezierInterpolation(T_vals, *E_Al)
-    plt.plot(T_vals, vals, linestyle='--')
+    plt.semilogy(T_vals, vals, linestyle='--')
     # Plot control points for Log Bezier interpolation
     control_T = [TMin, TMax / 3, 2 * TMax / 3, TMax]
-    plt.plot(control_T, E_Al, 'g*', label="Control Points")
+    plt.semilogy(control_T, E_Al, 'g*', label="Control Points")
     plt.legend()
     plt.grid(True)
     plt.xlabel("Temperature (°C)")

@@ -36,8 +36,9 @@ def run_topopt(
         "constraints": []
     }
     # --- Get the TO problem
-    mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
-    
+    mesh_structural, mat_prop_struct, bc_struct,\
+          elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
+
     # --- Read the materials excel file ---
     if to_params.MaterialsExcelFile  is None:
         print("Please provide a valid MaterialsExcelFile in to_params.")
@@ -64,7 +65,6 @@ def run_topopt(
         time_end = time.time()
         print(f"Autoencoder training time: {time_end - time_start:.2f} seconds")
         matEncoder.printEncodingErrors()
-        
         
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
@@ -280,11 +280,11 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = MMTOExamples.BridgeComplianceMassCost
+    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMassCost
 
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization=50,
         nIterationsWithPenalization=70,
-        use_pretrained_vae=True,
+        use_pretrained_vae=False,
     )

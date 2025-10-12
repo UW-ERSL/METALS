@@ -61,7 +61,6 @@ def run_topopt(
         matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate)
         matEncoder.printEncodingErrors()
 
-
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
@@ -71,10 +70,9 @@ def run_topopt(
     if (True): # optionally material vs temperature plots
         matEncoder.plotTemperatureVsMaterialProperty("E",semilogy=True)
         matEncoder.plotTemperatureVsMaterialProperty("Y",semilogy=True)
-    if (False): # optionally plot the latent space
-        for attributeId in range(numAttributes):# Optionally plot the latent space
-            matEncoder.plotLSRContours(attributeId=attributeId)
-        
+    if (True): # optionally plot the latent space
+        matEncoder.plotLSRContours("E0")
+        matEncoder.plotLSRContours("E1")
 
     # Set up the FEA solver
     solver = linear_solvers.Solvers.PARDISO
@@ -127,7 +125,7 @@ def run_topopt(
        
         if (turnOnThermal):
             # Set material properties for FEA solver
-            thermalConductivity = material_properties['K']
+            thermalConductivity = material_properties['K0']
             thermalConductivity_elem = thermalConductivity.detach().numpy()
             #print(f"Thermal Conductivity (min, max): {np.min(thermalConductivity_elem):.3g}, {np.max(thermalConductivity_elem):.3g}")
             fe_solver_thermal.mat_prop = [
@@ -239,13 +237,11 @@ def run_topopt(
                 grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             gamma = min(gamma*gamma_factor, gamma_max)
 
-
         iterationCount += 1
         return obj, grad_obj, cons, grad_cons
 
 
     # Initialize the design variables
-    
     x0 = 0.5 * np.ones(num_elems) 
     x0 = (H * x0) / Hs
 
@@ -308,7 +304,7 @@ def run_topopt(
 
     if (turnOnThermal):
         # Set material properties for FEA solver
-        thermalConductivity = material_properties['K']
+        thermalConductivity = material_properties['K0']
         thermalConductivity_elem = thermalConductivity.detach().numpy()
         #print(f"Thermal Conductivity (min, max): {np.min(thermalConductivity_elem):.3g}, {np.max(thermalConductivity_elem):.3g}")
         fe_solver_thermal.mat_prop = [
@@ -334,8 +330,10 @@ def run_topopt(
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
     fe_solver_structural.solve(xDesign)
     fe_solver_structural.postprocess()
-    
+
     fe_solver_structural.plot_elem_field(closest_index, title='Mat ID', colormap='tab20')
+
+    
     fe_solver_structural.plot_elem_field(T, title='Temperature', colormap='plasma')
     fe_solver_structural.plot_elem_field(E, title='Youngs Modulus', colormap='plasma')
     fe_solver_structural.plot_elem_field(Y, title='Yield Strength', colormap='plasma')
@@ -345,12 +343,12 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMass
+    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMassCost
 
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization= 0,
+        nIterationsWithPenalization= 50,
         turnOnThermal=True,
         use_pretrained_vae=False
     )

@@ -142,7 +142,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         kwargs['topload'] = 1000 
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/LBracketMaterialsThermalLogBezier.xlsx'
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/Data6Materials.xlsx'
         to_params.Objective=(TO_QOI.COMPLIANCE, None)
         to_params.ExtrudeZ = True
         to_params.T0=500
@@ -186,7 +186,9 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         print("Setting up thermal + structural TO problem")
         mesh_thermal, mat_prop_thermal, bc_thermal = getMMTOThermalProblem(thermal_problem, nDOFDesired=to_params.nDOFDesired, **kwargs)
         return mesh, mesh_thermal, mat_prop, mat_prop_thermal, bc, bc_thermal, elem_body_force, to_params, vae_params
-
+    else:
+        mesh_thermal, mat_prop_thermal, bc_thermal = None, None, None
+    
 
     # Add  elements to keep
     to_params.ElemsToKeep  = None # default value
@@ -205,4 +207,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         bladeElements = mesh.get_elems_within_annular_region(centerPt,axis,outerRadius1,outerRadius2)
         to_params.ElemsToKeep = np.union1d(to_params.ElemsToKeep, bladeElements)
         print(f"Number of elements in the blade region = {len(bladeElements)}")
-    return mesh, mat_prop, bc, elem_body_force, to_params, vae_params
+
+
+    return mesh, mesh_thermal,mat_prop, bc, elem_body_force, to_params, vae_params
+
