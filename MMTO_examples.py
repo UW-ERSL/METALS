@@ -21,6 +21,7 @@ class MMTOExamples(enum.Enum):
 
     LBracket_TempDependent_ComplianceMass = enum.auto()
     LBracket_TempDependent_ComplianceMassCost = enum.auto()
+    LBracket_TempDependent_ComplianceMassCriticality = enum.auto()
     LBracketStressThermal = enum.auto()
 
 def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
@@ -150,6 +151,22 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Y0=1
         to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[(TO_QOI.MASS, None, 60), (TO_QOI.COST, None, 500)]
+        vae_params.klFactor=5e-6
+        vae_params.learningRate=2e-6
+        vae_params.numEpochs= 100000
+        vae_params.vae_hiddenDim=500
+        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
+    elif to_problem == MMTOExamples.LBracket_TempDependent_ComplianceMassCriticality:
+        structural_problem=MMTOStructuralExamples.LBracket
+        thermal_problem=MMTOThermalExamples.LBracketThermal
+        kwargs['topload'] = 1000 
+        kwargs['midload'] = 0
+        to_params.Comment  = "Thermal + Structural TO Problem"
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/Data6Materials.xlsx'
+        to_params.Objective=(TO_QOI.COMPLIANCE, None)
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints=[(TO_QOI.MASS, None, 100), (TO_QOI.CRITICALITY, None, 5)]
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 100000

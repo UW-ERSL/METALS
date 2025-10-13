@@ -356,6 +356,22 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             grad_cons_cost = zetaTensor.grad.detach().numpy()
             c[m, 0] = cons_cost
             dc[m, :] = grad_cons_cost
+        elif constraintType == TO_QOI.CRITICALITY:
+            decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(2,-1).T)
+            criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
+            mass_density = matEncoder.getMaterialProperties(decoded)['Density']
+            pseudodensity = zetaTensor[0:fe_solver.mesh.num_elems]
+            elemVolume =  fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
+            totalmass = torch.einsum('m,m->m', mass_density, pseudodensity).sum()*elemVolume
+            avgCriticality = torch.einsum('m,m,m->m',mass_density, criticality, pseudodensity).sum()*elemVolume/totalmass
+            criticalityConstraint = ((avgCriticality / constraintLimit) - 1.0)
+            criticalityConstraint.backward(retain_graph=True)
+            cons_criticality = criticalityConstraint.detach().numpy()
+            grad_cons_criticality = zetaTensor.grad.detach().numpy()
+            c[m, 0] = cons_criticality
+            dc[m, :] = grad_cons_criticality
+        
+
 
         else:
             raise NotImplementedError(f"Constraint {constraintType} is not implemented yet.")
