@@ -41,10 +41,19 @@ class MaterialEncoder:
       normalizedData = np.zeros_like(values)
       dataScaleMin = np.zeros(values.shape[1])
       dataScaleMax = np.zeros(values.shape[1])
-
+      self.large_range_attributes = []
+      
       for i, name in enumerate(attribute_names):
           col = values[:, i]
-          if name in ['E0', 'E1', 'E2', 'E3', 'Y0', 'Y1', 'Y2', 'Y3']:
+          col_min = col.min()
+          col_max = col.max()
+          if col_max / (col_min + 1e-12) > 100:
+            self.large_range_attributes.append(name)
+
+      print("Attributes with dataScaleMax/dataScaleMin > 100:", self.large_range_attributes)
+      for i, name in enumerate(attribute_names):
+          col = values[:, i]
+          if name in self.large_range_attributes:
               log_col = np.log10(col)
               dataScaleMin[i] = log_col.min()
               dataScaleMax[i] = log_col.max()
@@ -207,7 +216,7 @@ class MaterialEncoder:
         idx = attribute['idx']
         scaleMax = attribute['scaleMax']
         scaleMin = attribute['scaleMin']
-        if name in ['E0', 'E1', 'E2', 'E3', 'Y0', 'Y1', 'Y2', 'Y3']:
+        if name in self.large_range_attributes:
             properties[name] = 10**(decoded[:, idx] * (scaleMax - scaleMin) + scaleMin)
         else:
             properties[name] = (decoded[:, idx] * (scaleMax - scaleMin) + scaleMin)
