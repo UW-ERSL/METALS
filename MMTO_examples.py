@@ -53,10 +53,10 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.MaterialsExcelFile = './DataConstantTemperature/BridgeMaterials.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
+        vae_params.klFactor= 2e-4
+        vae_params.learningRate=5e-6
         vae_params.numEpochs= 100000
-        vae_params.vae_hiddenDim=500
+        vae_params.vae_hiddenDim= 500
         vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
 
     elif to_problem == MMTOExamples.LBracketMidLoadComplianceMassCost:

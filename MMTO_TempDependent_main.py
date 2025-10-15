@@ -30,9 +30,9 @@ def run_topopt(
     use_pretrained_vae=True,
     z0_init_method=Z0InitMethod.UNIFORM,
     rel_conv_tol=1e-10,
-    gamma_init=1e-5,
+    gamma_init=1e-3,
     gamma_max=1000,
-    gamma_factor=2):
+    gamma_factor=1.1):
 
     mesh_structural, mesh_thermal, mat_prop_struct, mat_prop_thermal, \
     bc_struct, bc_thermal, elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
@@ -370,13 +370,13 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMassCriticality
+    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMassCost
 
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization= 50,
+        nIterationsWithPenalization= 0,
         turnOnThermal=True,
-        nonlinearThermal=True,
+        nonlinearThermal=False,
         use_pretrained_vae=True
     )

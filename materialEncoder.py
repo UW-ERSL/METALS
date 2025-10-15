@@ -224,16 +224,23 @@ class MaterialEncoder:
     closest_indices = torch.argmin(distances, dim=1)
     return closest_indices
  
+ 
+  def getClosestRealMaterialZValues(self, zDesign):
+    # Get the index of the closest real material in latent space to the given design latent vector
+    with torch.no_grad():
+      zReal = self.vaeNet.encoder(self.scaledMaterialData)  
 
-  def materialDistance(self, zReal, zDesign):
+    distances = torch.cdist(zDesign, zReal)
+    # For each design, find the closest real material index
+    closest_indices = torch.argmin(distances, dim=1)
+    return zReal[closest_indices].detach().numpy()
+
+  def materialDistance(self, zDesign,xDesign,gamma):
     # Decode latent vectors to material properties
     zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
-    with torch.no_grad():
-      decoded_real = self.vaeNet.decoder(torch.tensor(zReal, dtype=torch.float32))
     decoded_design = self.vaeNet.decoder(zDesign_tensor)
-    props_real = self.getMaterialProperties(decoded_real)
-    # Convert dictionary of tensors to a single array for props_real
-    props_real = np.stack([v for v in props_real.values()], axis=1)
+
+    props_real = self.rawData
     props_design = self.getMaterialProperties(decoded_design)
     # Convert dictionary of tensors to a single tensor array for props_design
     props_design = torch.stack([v if isinstance(v, torch.Tensor) else torch.tensor(v) for v in props_design.values()], dim=1)
@@ -254,10 +261,12 @@ class MaterialEncoder:
     # Use standard min instead of p-norm to aggregate distances across real materials
     # net_distance: (nDesigns, nReal)
     min_distances, _ = torch.min(net_distance, dim=1)
-    penalty = min_distances.sum()
+
+    penalty = gamma * torch.mean(min_distances * xDesign)
+    # Compute gradient of penalty w.r.t. zDesign
     penalty.backward()
     grad = zDesign_tensor.grad.detach().numpy()
-   
+    grad = grad.T.reshape(-1)
     return penalty.detach().numpy(), grad
 
   def plotLSR(self, zRealPts, zDesignPts = None,xDesign=None):
@@ -266,12 +275,14 @@ class MaterialEncoder:
       mask = xDesign > 0.5
       if np.any(mask):
         plt.scatter(zDesignPts[mask, 0], zDesignPts[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-    plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
+    plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=0.4)
     for i, label in enumerate(self.materialNames):
         plt.text(zRealPts[i, 0] + 0.1, zRealPts[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
     plt.xlabel('$z_1$')
     plt.ylabel('$z_2$')
-    plt.legend(fontsize=14)
+    plt.legend(fontsize=10)
+    plt.xlim(-4, 4)
+    plt.ylim(-4, 4)
     plt.grid(True)
     plt.show()
 
