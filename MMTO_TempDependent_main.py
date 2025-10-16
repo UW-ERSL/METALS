@@ -237,6 +237,9 @@ def run_topopt(
             print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
 
         if iterationCount > nIterationsWithoutPenalization:
+            if True:
+                grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
+                grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             d_ij = torch.cdist(zPts, zRealTorch, p=2) + 1e-12
             min_i = torch.min(d_ij, dim=1).values
             min_i = min_i * xDesign
@@ -392,7 +395,7 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization= 50,
+        nIterationsWithPenalization= 200,
         turnOnThermal=True,
         nonlinearThermal=False,
         use_pretrained_vae=True
