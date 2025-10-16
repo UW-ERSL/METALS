@@ -25,9 +25,10 @@ def run_topopt(
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=False,
+    snap_to_real_material=False,
     z0_init_method = Z0InitMethod.UNIFORM,  # options: Z0InitMethod.LIGHTEST, etc.
     rel_conv_tol=1e-7,
-    gamma_init = 1e-5,
+    gamma_init = 1e-3,
     gamma_max = 1000,
     gamma_factor = 2):
     
@@ -36,6 +37,7 @@ def run_topopt(
         "constraints": []
     }
     # --- Get the TO problem
+ 
     mesh_structural, mat_prop_struct, bc_struct,\
           elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
 
@@ -69,11 +71,13 @@ def run_topopt(
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
-    zRealTorch = matEncoder.training_latents
+    zRealPoints = matEncoder.training_latents
     
-    if (False): # optionally plot latent space contours
-        for attributeId in range(numAttributes):# Optionally plot the latent space
-            matEncoder.plotLSRContours(attributeId=attributeId)
+    if (True): # optionally plot latent space contours
+        matEncoder.plotLSRContours("Youngs_Modulus")
+        matEncoder.plotLSRContours("Density")
+        matEncoder.plotLSRContours("Cost")
+
     # Set up the FEA solver
     solver = linear_solvers.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
@@ -101,17 +105,17 @@ def run_topopt(
     obj0 = None # will get updated in the first iteration
     gamma = gamma_init
     def MMTO_optimization_function(zeta):
-        nonlocal iterationCount, obj0, gamma, zRealTorch
+        nonlocal iterationCount, obj0, gamma, zRealPoints
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
         # Prepare tensors and decode material properties
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
         xDesign = zetaTensor[0:num_elems]
-        zD = zetaTensor[num_elems:]
-        zDesign = zD.view(2, -1).T
+        zDesign = zetaTensor[num_elems:]
+        zPoints = zDesign.view(2, -1).T
 
-        decoded = matEncoder.vaeNet.decoder(zDesign)
+        decoded = matEncoder.vaeNet.decoder(zPoints)
         material_properties = matEncoder.getMaterialProperties(decoded)
         # Set material properties for FEA solver
         Youngs_Modulus = material_properties['Youngs_Modulus'].detach().numpy()
@@ -166,7 +170,7 @@ def run_topopt(
         constraint_names = [getattr(c[0], 'name', str(c[0])) for c in to_params.Constraints]
 
         # Print objective and constraints for this iteration
-        print(f"Min. Objective ({objective_name}): {obj*obj0:.3g}")
+        print(f"Min. Objective ({objective_name}): {obj*obj0:.5g}")
         for idx, val in enumerate(cons.flatten()):
             print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
 
@@ -175,15 +179,28 @@ def run_topopt(
         history["objective"].append(obj)
         history["constraints"].append(cons.flatten().copy())
 
+            
         # Add penalty to objective to keep designs close to training data
+        if (iterationCount == nIterationsWithoutPenalization):
+            matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zPoints.detach().cpu().numpy(),xDesign = xDesign.detach().cpu().numpy())
+
+        useMaterialDistance = True
         if (iterationCount > nIterationsWithoutPenalization):
-            d_ij = torch.sqrt(torch.cdist(zDesign, zRealTorch, p=2))
-            min_i = torch.min(d_ij, dim=1).values
-            min_i = min_i * xDesign # don't penalize void elements
-            penalty = gamma * torch.mean(min_i) 
-            zetaTensor.grad = None
-            penalty.backward(retain_graph=True)
-            grad_obj[num_elems:,0] += zetaTensor.grad[num_elems:].detach().numpy()
+            if (useMaterialDistance):
+                penalty, gradMeanDistance = matEncoder.materialAttributeDistance( 'Youngs_Modulus', 
+                                                                                 zPoints.detach().cpu().numpy(),
+                                                             xDesign,gamma)
+            else:
+                d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
+                min_i = torch.min(d_ij, dim=1).values
+                min_i = min_i * xDesign # only penalize if element is present
+                meanDistance = torch.mean(min_i).item()
+                penalty = gamma * meanDistance
+                zetaTensor.grad = None
+                penalty.backward(retain_graph=True)
+                gradMeanDistance = zetaTensor[num_elems:].grad.detach().numpy()
+            
+            grad_obj[num_elems:,0] += gradMeanDistance
             obj = obj + penalty.item()
 
             # # Apply filter to grad_obj for the penalty term
@@ -191,7 +208,6 @@ def run_topopt(
                 grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
                 grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             gamma = min(gamma*gamma_factor, gamma_max)
-
 
         iterationCount += 1
         return obj, grad_obj, cons, grad_cons
@@ -230,8 +246,8 @@ def run_topopt(
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
 
     # Set bounds for material latent variables
-    lowerBound[num_elems:3*num_elems] = np.min(zRealTorch.cpu().numpy())
-    upperBound[num_elems:3*num_elems] = np.max(zRealTorch.cpu().numpy())
+    lowerBound[num_elems:3*num_elems] = np.min(zRealPoints.cpu().numpy())
+    upperBound[num_elems:3*num_elems] = np.max(zRealPoints.cpu().numpy())
 
     # Set MMA parameters
     nVariables = num_design_var
@@ -250,41 +266,38 @@ def run_topopt(
    
     # get design variables
     zetaOptimal = np.asarray(zetaOptimal).flatten()
-    xDesign = zetaOptimal[0:num_elems]
-    zDesign =  zetaOptimal[num_elems:]
-    zDesignTensor = torch.tensor(zDesign).float()
+    xOptimal = zetaOptimal[0:num_elems]
+    zOptimal =  zetaOptimal[num_elems:]
+    zOptimalPts = torch.tensor(zOptimal).view(2, -1).T.float()
+
+    matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zOptimalPts.detach().cpu().numpy(),xDesign = xOptimal)
+
+    if (snap_to_real_material): # optionally snap to closest real material
+        zOptimalPts = torch.tensor(matEncoder.getClosestRealMaterialZValues(zOptimalPts))
+
+        zetaOptimal[num_elems:] = zOptimalPts.flatten().numpy()
+        print(50 * "-")
+        print("After snapping:")
+        print(50 * "-")
+        MMTO_optimization_function(zetaOptimal)
     
-    # get final material properties
-    decoded = matEncoder.vaeNet.decoder(zDesignTensor.view(2,-1).T)
+    decoded = matEncoder.vaeNet.decoder(zOptimalPts)
     material_properties = matEncoder.getMaterialProperties(decoded)
     Youngs_Modulus = material_properties['Youngs_Modulus'].detach().cpu().numpy()
-
-    # Solve and plot
-    fe_solver_structural.mesh.setPseudoDensity(xDesign)
-    fe_solver_structural.solve(xDesign)
-    fe_solver_structural.postprocess()
+    fe_solver_structural.mesh.setPseudoDensity(xOptimal)
     fe_solver_structural.plot_elem_field(Youngs_Modulus, title='YoungModulus', colormap='viridis')
-    fe_solver_structural.plot_vonMisesStress()
 
-    # If Yield strength is available, compute and plot stress safety factor
-    if 'Yield_Strength' in material_properties:
-        Yield_Strength = material_properties['Yield_Strength'].detach().cpu().numpy()
-        # Get von Mises stress per element from FEA postprocessing
-        von_mises_stress = fe_solver_structural.vonMisesStress
-        # Compute safety factor: Yield_Strength / von_mises_stress (avoid div by zero)
-        safety_factor = np.divide(Yield_Strength, von_mises_stress, out=np.full_like(von_mises_stress, np.nan), where=von_mises_stress!=0)
-        fe_solver_structural.plot_elem_field(safety_factor, title='Stress Safety Factor', colormap='plasma')
-    
     # Plot latent space with designs and training data
-    matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zDesign.reshape(2, -1).T, xDesign=xDesign)
+    matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zOptimalPts, xDesign=xOptimal)
 
 if __name__ == "__main__":
     
-    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMassCost
+    to_problem = MMTOExamples.BridgeComplianceMassCost
 
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization=50,
-        nIterationsWithPenalization=70,
-        use_pretrained_vae=False,
+        nIterationsWithPenalization=50,
+        use_pretrained_vae=True,
+        snap_to_real_material=False,
     )

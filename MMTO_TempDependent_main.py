@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import time
-from MMTO_examples import MMTOExamples, getMMTOProblem
+from MMTO_TempDependent_examples import MMTOTempDependentExamples, getMMTOTempDependentProblem
 from materialEncoder import MaterialEncoder
 import matplotlib.pyplot as plt
 from MMTO_TempDependent_obj_cons_sensitivities import (
@@ -30,12 +30,13 @@ def run_topopt(
     use_pretrained_vae=True,
     z0_init_method=Z0InitMethod.UNIFORM,
     rel_conv_tol=1e-10,
-    gamma_init=1e-5,
+    gamma_init=1e-3,
     gamma_max=1000,
-    gamma_factor=2):
+    gamma_factor=1.1):
 
     mesh_structural, mesh_thermal, mat_prop_struct, mat_prop_thermal, \
-    bc_struct, bc_thermal, elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
+    bc_struct, bc_thermal, elem_body_force, to_params, vae_params = \
+        getMMTOTempDependentProblem(to_problem)
 
     if to_params.MaterialsExcelFile is None:
         print("Please provide a valid MaterialsExcelFile in to_params.")
@@ -66,7 +67,7 @@ def run_topopt(
     if True:
         matEncoder.plotTemperatureVsMaterialProperty("E", semilogy=True)
         matEncoder.plotTemperatureVsMaterialProperty("Y", semilogy=True)
-    if True:
+    if False:
         matEncoder.plotLSRContours("E0")
         matEncoder.plotLSRContours("E1")
 
@@ -303,6 +304,7 @@ def run_topopt(
     material_properties = matEncoder.getMaterialProperties(decoded)
     closest_index = matEncoder.getClosestRealMaterialIndex(zPts)
 
+
     if turnOnThermal:
         if nonlinearThermal:
             K0 = material_properties['K0'].detach().numpy()
@@ -356,27 +358,42 @@ def run_topopt(
 
     E = matEncoder.getMaterialPropertyAtTemperature("E", zPts, T)
     Y = matEncoder.getMaterialPropertyAtTemperature("Y", zPts, T)
+    T_Limit = matEncoder.getValuesAtLatentPoints("T_Limit", zPts)
+   
+    isTemperatureWithinLimits = (T <= T_Limit.flatten()) | (xDesign < 0.5)
+
+    print(f"Number of elements exceeding T_Limit: {np.sum(~isTemperatureWithinLimits)} out of {num_elems}")
 
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
     fe_solver_structural.solve(xDesign)
     fe_solver_structural.postprocess()
 
-    fe_solver_structural.plot_elem_field(closest_index, title='Mat ID', colormap='tab20')
+    # Plot closest_index
+    fe_solver_structural.plot_elem_field(closest_index)
+   
+    # Plot Temperature
     fe_solver_structural.plot_elem_field(T, title='Temperature', colormap='plasma')
-    fe_solver_structural.plot_elem_field(E, title='Youngs Modulus', colormap='plasma')
-    fe_solver_structural.plot_elem_field(Y, title='Yield Strength', colormap='plasma')
+   
 
+    # Plot Is Within Limits
+    fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Is Within Limits', colormap='RdYlGn')
+    
+
+    # Plot Young's Modulus
+    fe_solver_structural.plot_elem_field(E, title='Young\'s Modulus', colormap='plasma')
+
+  
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zDesign.reshape(2, -1).T, xDesign=xDesign)
 
 if __name__ == "__main__":
     
-    to_problem = MMTOExamples.LBracket_TempDependent_ComplianceMassCriticality
+    to_problem = MMTOTempDependentExamples.LBracket_ComplianceMassCost
 
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization= 50,
         nIterationsWithPenalization= 50,
         turnOnThermal=True,
-        nonlinearThermal=True,
+        nonlinearThermal=False,
         use_pretrained_vae=True
     )
