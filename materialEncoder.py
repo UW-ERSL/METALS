@@ -41,10 +41,19 @@ class MaterialEncoder:
       normalizedData = np.zeros_like(values)
       dataScaleMin = np.zeros(values.shape[1])
       dataScaleMax = np.zeros(values.shape[1])
-
+      self.large_range_attributes = []
+      
       for i, name in enumerate(attribute_names):
           col = values[:, i]
-          if name in ['E0', 'E1', 'E2', 'E3', 'Y0', 'Y1', 'Y2', 'Y3']:
+          col_min = col.min()
+          col_max = col.max()
+          if col_max / (col_min + 1e-12) > 100:
+            self.large_range_attributes.append(name)
+
+      print("Attributes with dataScaleMax/dataScaleMin > 100:", self.large_range_attributes)
+      for i, name in enumerate(attribute_names):
+          col = values[:, i]
+          if name in self.large_range_attributes:
               log_col = np.log10(col)
               dataScaleMin[i] = log_col.min()
               dataScaleMax[i] = log_col.max()
@@ -160,15 +169,6 @@ class MaterialEncoder:
       else:
           raise IndexError("Index out of range for material names.")
       
-  def getValuesAtLatentPoints(self, attributeName, zPts):
-      """
-      Returns the attribute values for a given set of latent points.
-      """
-      decoded = self.vaeNet.decoder(zPts)
-      material_properties = self.getMaterialProperties(decoded)
-      return material_properties[attributeName].detach().numpy()  
-  
-
   def getMaterialPropertyAtTemperature(self, name,  zPts, T):
       decoded = self.vaeNet.decoder(zPts)
       material_properties = self.getMaterialProperties(decoded)
@@ -216,7 +216,7 @@ class MaterialEncoder:
         idx = attribute['idx']
         scaleMax = attribute['scaleMax']
         scaleMin = attribute['scaleMin']
-        if name in ['E0', 'E1', 'E2', 'E3', 'Y0', 'Y1', 'Y2', 'Y3']:
+        if name in self.large_range_attributes:
             properties[name] = 10**(decoded[:, idx] * (scaleMax - scaleMin) + scaleMin)
         else:
             properties[name] = (decoded[:, idx] * (scaleMax - scaleMin) + scaleMin)
@@ -233,23 +233,16 @@ class MaterialEncoder:
     closest_indices = torch.argmin(distances, dim=1)
     return closest_indices
  
- 
-  def getClosestRealMaterialZValues(self, zDesign):
-    # Get the index of the closest real material in latent space to the given design latent vector
-    with torch.no_grad():
-      zReal = self.vaeNet.encoder(self.scaledMaterialData)  
 
-    distances = torch.cdist(zDesign, zReal)
-    # For each design, find the closest real material index
-    closest_indices = torch.argmin(distances, dim=1)
-    return zReal[closest_indices].detach().numpy()
-
-  def materialDistance(self, zDesign,xDesign,gamma):
+  def materialDistance(self, zReal, zDesign):
     # Decode latent vectors to material properties
     zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
+    with torch.no_grad():
+      decoded_real = self.vaeNet.decoder(torch.tensor(zReal, dtype=torch.float32))
     decoded_design = self.vaeNet.decoder(zDesign_tensor)
-
-    props_real = self.rawData
+    props_real = self.getMaterialProperties(decoded_real)
+    # Convert dictionary of tensors to a single array for props_real
+    props_real = np.stack([v for v in props_real.values()], axis=1)
     props_design = self.getMaterialProperties(decoded_design)
     # Convert dictionary of tensors to a single tensor array for props_design
     props_design = torch.stack([v if isinstance(v, torch.Tensor) else torch.tensor(v) for v in props_design.values()], dim=1)
@@ -270,70 +263,31 @@ class MaterialEncoder:
     # Use standard min instead of p-norm to aggregate distances across real materials
     # net_distance: (nDesigns, nReal)
     min_distances, _ = torch.min(net_distance, dim=1)
-
-    penalty = gamma * torch.mean(min_distances * xDesign)
-    # Compute gradient of penalty w.r.t. zDesign
+    penalty = min_distances.sum()
     penalty.backward()
     grad = zDesign_tensor.grad.detach().numpy()
-    grad = grad.T.reshape(-1)
+   
     return penalty.detach().numpy(), grad
 
-  def materialAttributeDistance(self, attributeName, zDesign, xDesign, gamma):
-    attributeId = list(self.materialAttributes.keys()).index(attributeName)
-    # Decode latent vectors to material properties
-    zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
-    decoded_design = self.vaeNet.decoder(zDesign_tensor)
-
-    props_real = self.rawData
-    props_design = self.getMaterialProperties(decoded_design)
-    # Convert dictionary of tensors to a single tensor array for props_design
-    props_design = torch.stack([v if isinstance(v, torch.Tensor) else torch.tensor(v) for v in props_design.values()], dim=1)
-    props_real = torch.tensor(props_real) if not isinstance(props_real, torch.Tensor) else props_real
-    
-    # Compute normalized attribute-wise squared differences
-    # props_design: (nDesigns, nAttributes), props_real: (nReal, nAttributes)
-    # Expand dims for broadcasting
-    design_exp = props_design[:, attributeId].unsqueeze(1)  # (nDesigns, 1)
-    real_exp = props_real[:, attributeId].unsqueeze(0)      # (1, nReal)
-
-    # Normalized squared difference: ((design - real)^2) / (real^2 + 1e-12)
-    norm_diff = ((design_exp - real_exp) ** 2) / (real_exp ** 2 + 1e-12)  # (nDesigns, nReal)
-
-    # Sum over attributes to get net distance
-    net_distance = norm_diff  # (nDesigns, nReal)
-    # Find the minimum distance for each design (over all real materials)
-    # Use standard min instead of p-norm to aggregate distances across real materials
-    # net_distance: (nDesigns, nReal)
-    min_distances, _ = torch.min(net_distance, dim=1)
-
-    penalty = gamma * torch.mean(min_distances * xDesign)
-    # Compute gradient of penalty w.r.t. zDesign
-    penalty.backward()
-    grad = zDesign_tensor.grad.detach().numpy()
-    grad = grad.T.reshape(-1)
-    return penalty.detach().numpy(), grad
-  
   def plotLSR(self, zRealPts, zDesignPts = None,xDesign=None):
 
     if zDesignPts is not None and xDesign is not None:
       mask = xDesign > 0.5
       if np.any(mask):
         plt.scatter(zDesignPts[mask, 0], zDesignPts[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-    plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=0.4)
+    plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=1.0)
     for i, label in enumerate(self.materialNames):
         plt.text(zRealPts[i, 0] + 0.1, zRealPts[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
     plt.xlabel('$z_1$')
     plt.ylabel('$z_2$')
-    plt.legend(fontsize=10)
-    plt.xlim(-4, 4)
-    plt.ylim(-4, 4)
+    plt.legend(fontsize=14)
     plt.grid(True)
     plt.show()
 
   def plotLSRContours(self, attributeName, title=""):
     attributeId = list(self.materialAttributes.keys()).index(attributeName)
     zReal = self.training_latents
-    n_points = 50
+    n_points = 25
     z1 = np.linspace(-5, 5, n_points)
     z2 = np.linspace(-5, 5, n_points)
     Z1, Z2 = np.meshgrid(z1, z2)
