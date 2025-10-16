@@ -268,7 +268,13 @@ class MaterialEncoder:
     grad = zDesign_tensor.grad.detach().numpy()
    
     return penalty.detach().numpy(), grad
-
+  def getValuesAtLatentPoints(self, attributeName, zPts):
+      """
+      Returns the attribute values for a given set of latent points.
+      """
+      decoded = self.vaeNet.decoder(zPts)
+      material_properties = self.getMaterialProperties(decoded)
+      return material_properties[attributeName].detach().numpy()  
   def plotLSR(self, zRealPts, zDesignPts = None,xDesign=None):
 
     if zDesignPts is not None and xDesign is not None:
