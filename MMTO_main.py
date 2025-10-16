@@ -29,7 +29,7 @@ def run_topopt(
     z0_init_method = Z0InitMethod.UNIFORM,  # options: Z0InitMethod.LIGHTEST, etc.
     rel_conv_tol=1e-7,
     gamma_init = 1e-3,
-    gamma_max = 1,
+    gamma_max = 1000,
     gamma_factor = 2):
     
     history = {
@@ -37,9 +37,8 @@ def run_topopt(
         "constraints": []
     }
     # --- Get the TO problem
-    returns = getMMTOProblem(to_problem)
-    
-    mesh_structural, mesh_thermal, mat_prop_struct, bc_struct,\
+ 
+    mesh_structural, mat_prop_struct, bc_struct,\
           elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
 
     # --- Read the materials excel file ---
@@ -188,7 +187,8 @@ def run_topopt(
         useMaterialDistance = True
         if (iterationCount > nIterationsWithoutPenalization):
             if (useMaterialDistance):
-                penalty, gradMeanDistance = matEncoder.materialDistance( zPoints.detach().cpu().numpy(),
+                penalty, gradMeanDistance = matEncoder.materialAttributeDistance( 'Youngs_Modulus', 
+                                                                                 zPoints.detach().cpu().numpy(),
                                                              xDesign,gamma)
             else:
                 d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
@@ -196,7 +196,6 @@ def run_topopt(
                 min_i = min_i * xDesign # only penalize if element is present
                 meanDistance = torch.mean(min_i).item()
                 penalty = gamma * meanDistance
-
                 zetaTensor.grad = None
                 penalty.backward(retain_graph=True)
                 gradMeanDistance = zetaTensor[num_elems:].grad.detach().numpy()
@@ -300,5 +299,5 @@ if __name__ == "__main__":
         nIterationsWithoutPenalization=50,
         nIterationsWithPenalization=50,
         use_pretrained_vae=True,
-        snap_to_real_material=True,
+        snap_to_real_material=False,
     )
