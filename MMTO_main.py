@@ -8,6 +8,7 @@ from MMTO_obj_cons_sensitivities import (
     compute_mmto_constraint_and_gradient,
 )
 from PyTOImports import *
+import matplotlib.pyplot as plt
 
 from enum import Enum
 class Z0InitMethod(Enum):
@@ -20,15 +21,15 @@ class Z0InitMethod(Enum):
 # The main code for MMTO topology optimization
 def run_topopt(
     to_problem,
-    nIterationsWithoutPenalization = 50,
-    nIterationsWithPenalization = 50,
+    nIterationsWithoutPenalization=50,
+    nIterationsWithPenalization=50,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=False,
     snap_to_real_material=False,
-    z0_init_method = Z0InitMethod.UNIFORM,  # options: Z0InitMethod.LIGHTEST, etc.
-    rel_conv_tol=1e-7,
-    gamma_init = 1e-3,
+    z0_init_method = Z0InitMethod.ORIGIN,  # options: Z0InitMethod.LIGHTEST, etc.
+    rel_conv_tol= 1e-7,
+    gamma_init = 0.1,
     gamma_max = 1000,
     gamma_factor = 2):
     
@@ -47,9 +48,6 @@ def run_topopt(
         return
     matEncoder = MaterialEncoder(vae_params)
     matEncoder.readExcel(to_params.MaterialsExcelFile)
-    
-
-    numAttributes = matEncoder.nAttributes
 
     # Train the autoencoder or save/load from file
     if saveNet is None:
@@ -73,7 +71,7 @@ def run_topopt(
 
     zRealPoints = matEncoder.training_latents
     
-    if (True): # optionally plot latent space contours
+    if (not use_pretrained_vae): # optionally plot latent space contours
         matEncoder.plotLSRContours("Youngs_Modulus")
         matEncoder.plotLSRContours("Density")
         matEncoder.plotLSRContours("Cost")
@@ -104,8 +102,11 @@ def run_topopt(
     iterationCount = 0
     obj0 = None # will get updated in the first iteration
     gamma = gamma_init
+    objPrev = 1e20
+    usePenalization = False
+
     def MMTO_optimization_function(zeta):
-        nonlocal iterationCount, obj0, gamma, zRealPoints
+        nonlocal iterationCount, obj0, gamma, zRealPoints, objPrev, usePenalization
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
@@ -134,7 +135,7 @@ def run_topopt(
         cons, grad_cons = compute_mmto_constraint_and_gradient(
             to_params, sol, zeta, fe_solver_structural, KETemplate, matEncoder)
 
-
+    
         if (iterationCount == 0): # For the iteration
             obj0 = obj
             # Check if any constraints are violated (>0) and print a warning
@@ -144,6 +145,18 @@ def run_topopt(
                 print("GCMMA may not converge for this problem. Consider changing constraints if convergence issues occur.")
                 print(50 * "-")
         
+     
+        if (not usePenalization) and (iterationCount == nIterationsWithoutPenalization):
+            decoded = matEncoder.vaeNet.decoder(zPoints)
+            material_properties = matEncoder.getMaterialProperties(decoded)
+            Youngs_Modulus = material_properties['Youngs_Modulus'].detach().cpu().numpy()
+            fe_solver_structural.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
+            fe_solver_structural.plot_elem_field(Youngs_Modulus, title='Youngs Modulus', colormap='viridis')
+
+            matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zPoints.detach().cpu().numpy(),xDesign = xDesign.detach().cpu().numpy())
+            usePenalization  = True
+            print("Enabling penalization to keep designs close to training data.")
+
         obj = obj / obj0  # Normalize objective
         grad_obj = grad_obj / obj0
 
@@ -174,31 +187,25 @@ def run_topopt(
         for idx, val in enumerate(cons.flatten()):
             print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
 
-
         # Store history
         history["objective"].append(obj)
         history["constraints"].append(cons.flatten().copy())
-
-            
-        # Add penalty to objective to keep designs close to training data
-        if (iterationCount == nIterationsWithoutPenalization):
-            matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zPoints.detach().cpu().numpy(),xDesign = xDesign.detach().cpu().numpy())
-
-        useMaterialDistance = True
-        if (iterationCount > nIterationsWithoutPenalization):
+ 
+        
+        if (usePenalization):
+            useMaterialDistance = False
             if (useMaterialDistance):
-                penalty, gradMeanDistance = matEncoder.materialAttributeDistance( 'Youngs_Modulus', 
+                penalty, gradMeanDistance = matEncoder.materialAttributeDistance( 'Density', 
                                                                                  zPoints.detach().cpu().numpy(),
                                                              xDesign,gamma)
             else:
                 d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
                 min_i = torch.min(d_ij, dim=1).values
                 min_i = min_i * xDesign # only penalize if element is present
-                meanDistance = torch.mean(min_i).item()
+                meanDistance = torch.mean(min_i)
                 penalty = gamma * meanDistance
-                zetaTensor.grad = None
                 penalty.backward(retain_graph=True)
-                gradMeanDistance = zetaTensor[num_elems:].grad.detach().numpy()
+                gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
             
             grad_obj[num_elems:,0] += gradMeanDistance
             obj = obj + penalty.item()
@@ -255,7 +262,6 @@ def run_topopt(
     tStart = time.time()
     maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
 
-
     # Run the MMA optimization
     optResults = runMMA(nVariables, nConstraints, MMTO_optimization_function, zeta0.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
@@ -273,9 +279,8 @@ def run_topopt(
     matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zOptimalPts.detach().cpu().numpy(),xDesign = xOptimal)
 
     if (snap_to_real_material): # optionally snap to closest real material
-        zOptimalPts = torch.tensor(matEncoder.getClosestRealMaterialZValues(zOptimalPts))
-
-        zetaOptimal[num_elems:] = zOptimalPts.flatten().numpy()
+        zSnappedPts = torch.tensor(matEncoder.getClosestRealMaterialZValues(zOptimalPts))
+        zetaOptimal[num_elems:] = zSnappedPts.T.flatten().numpy()
         print(50 * "-")
         print("After snapping:")
         print(50 * "-")
@@ -290,6 +295,42 @@ def run_topopt(
     # Plot latent space with designs and training data
     matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zOptimalPts, xDesign=xOptimal)
 
+    # Combined plot for objective and constraints vs. iterations
+    plt.figure(figsize=(12, 6))
+    
+    # Plot objective
+    plt.plot(
+        range(len(history["objective"])),
+        history["objective"],
+        label="Objective",
+        color="blue",
+        linewidth=2,
+        marker="o",
+        markevery=5
+    )
+    
+    # Plot constraints
+    markers = ['s', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_']
+    colors = plt.cm.tab10.colors  # Use a colormap for distinct colors
+    for i in range(len(history["constraints"][0])):
+        constraint_values = [history["constraints"][j][i] for j in range(len(history["constraints"]))]
+        plt.plot(
+            range(len(constraint_values)),
+            constraint_values,
+            label=f"Constraint {i+1}",
+            marker=markers[i % len(markers)],
+            color=colors[i % len(colors)],
+            markevery=5  # Add markers every 5 points for clarity
+        )
+    
+    # Add labels, title, and legend
+    plt.xlabel("Iteration")
+    plt.ylabel("Value")
+    plt.title("Objective and Constraints vs. Iterations")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
 if __name__ == "__main__":
     
     to_problem = MMTOExamples.BridgeComplianceMassCost
@@ -299,5 +340,5 @@ if __name__ == "__main__":
         nIterationsWithoutPenalization=50,
         nIterationsWithPenalization=50,
         use_pretrained_vae=True,
-        snap_to_real_material=False,
+        snap_to_real_material=True,
     )
