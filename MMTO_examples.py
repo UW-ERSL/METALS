@@ -49,6 +49,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.MaterialsExcelFile = './DataConstantTemperature/BridgeMaterials.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
+        #to_params.RelativeFilterRadius = 1.5
         vae_params.klFactor= 5e-6
         vae_params.learningRate=2e-5
         vae_params.numEpochs= 100000

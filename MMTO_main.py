@@ -21,17 +21,16 @@ class Z0InitMethod(Enum):
 # The main code for MMTO topology optimization
 def run_topopt(
     to_problem,
-    nIterationsWithoutPenalization=50,
-    nIterationsWithPenalization=50,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=False,
     snap_to_real_material=False,
-    z0_init_method = Z0InitMethod.ORIGIN,  # options: Z0InitMethod.LIGHTEST, etc.
     rel_conv_tol= 1e-7,
-    gamma_init = 0.1,
+    maxIterations=100,
+    z0_init_method = Z0InitMethod.ORIGIN,  
+    gamma_init = 1e-7,
     gamma_max = 1000,
-    gamma_factor = 2):
+    gamma_factor = 1.5):
     
     history = {
         "objective": [],
@@ -103,10 +102,9 @@ def run_topopt(
     obj0 = None # will get updated in the first iteration
     gamma = gamma_init
     objPrev = 1e20
-    usePenalization = False
 
     def MMTO_optimization_function(zeta):
-        nonlocal iterationCount, obj0, gamma, zRealPoints, objPrev, usePenalization
+        nonlocal iterationCount, obj0, gamma, zRealPoints, objPrev
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
@@ -136,27 +134,10 @@ def run_topopt(
             to_params, sol, zeta, fe_solver_structural, KETemplate, matEncoder)
 
     
-        if (iterationCount == 0): # For the iteration
+        if (obj0 is None): # For the first iteration
             obj0 = obj
-            # Check if any constraints are violated (>0) and print a warning
-            if np.any(cons > 0):
-                print(50 * "-")
-                print("Warning: Constraint(s) violated at start of optimization!")
-                print("GCMMA may not converge for this problem. Consider changing constraints if convergence issues occur.")
-                print(50 * "-")
+           
         
-     
-        if (not usePenalization) and (iterationCount == nIterationsWithoutPenalization):
-            decoded = matEncoder.vaeNet.decoder(zPoints)
-            material_properties = matEncoder.getMaterialProperties(decoded)
-            Youngs_Modulus = material_properties['Youngs_Modulus'].detach().cpu().numpy()
-            fe_solver_structural.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
-            fe_solver_structural.plot_elem_field(Youngs_Modulus, title='Youngs Modulus', colormap='viridis')
-
-            matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zPoints.detach().cpu().numpy(),xDesign = xDesign.detach().cpu().numpy())
-            usePenalization  = True
-            print("Enabling penalization to keep designs close to training data.")
-
         obj = obj / obj0  # Normalize objective
         grad_obj = grad_obj / obj0
 
@@ -190,30 +171,29 @@ def run_topopt(
         # Store history
         history["objective"].append(obj)
         history["constraints"].append(cons.flatten().copy())
- 
+    
+        useMaterialDistance = False
+        if (useMaterialDistance):
+            penalty, gradMeanDistance = matEncoder.materialAttributeDistance( 'Density', 
+                                                                                zPoints.detach().cpu().numpy(),
+                                                            xDesign,gamma)
+        else:
+            d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
+            min_i = torch.min(d_ij, dim=1).values
+            min_i = min_i * xDesign # only penalize if element is present
+            meanDistance = torch.mean(min_i)
+            penalty = gamma * meanDistance
+            zetaTensor.grad = None
+            penalty.backward(retain_graph=True)
+            gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
         
-        if (usePenalization):
-            useMaterialDistance = False
-            if (useMaterialDistance):
-                penalty, gradMeanDistance = matEncoder.materialAttributeDistance( 'Density', 
-                                                                                 zPoints.detach().cpu().numpy(),
-                                                             xDesign,gamma)
-            else:
-                d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
-                min_i = torch.min(d_ij, dim=1).values
-                min_i = min_i * xDesign # only penalize if element is present
-                meanDistance = torch.mean(min_i)
-                penalty = gamma * meanDistance
-                penalty.backward(retain_graph=True)
-                gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
-            
+
+            if False: # Apply filter to grad_obj for the penalty term
+                gradMeanDistance[0:num_elems] = (H * gradMeanDistance[0:num_elems]) / Hs
+                gradMeanDistance[num_elems:2*num_elems] = (H * gradMeanDistance[num_elems:2*num_elems]) / Hs
+             
             grad_obj[num_elems:,0] += gradMeanDistance
             obj = obj + penalty.item()
-
-            # # Apply filter to grad_obj for the penalty term
-            if False: # Don't use for now
-                grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
-                grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             gamma = min(gamma*gamma_factor, gamma_max)
 
         iterationCount += 1
@@ -260,7 +240,7 @@ def run_topopt(
     nVariables = num_design_var
     nConstraints = len(to_params.Constraints)
     tStart = time.time()
-    maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
+    maxMMAIterations = maxIterations
 
     # Run the MMA optimization
     optResults = runMMA(nVariables, nConstraints, MMTO_optimization_function, zeta0.reshape(-1, 1), lowerBound,
@@ -328,6 +308,7 @@ def run_topopt(
     plt.ylabel("Value")
     plt.title("Objective and Constraints vs. Iterations")
     plt.legend()
+
     plt.grid()
     plt.show()
 
@@ -337,8 +318,5 @@ if __name__ == "__main__":
 
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization=50,
-        nIterationsWithPenalization=50,
         use_pretrained_vae=True,
-        snap_to_real_material=True,
     )
