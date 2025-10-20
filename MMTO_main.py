@@ -60,10 +60,11 @@ def run_topopt(
     else:
         print(f"Training autoencoder and saving to: {saveNet}")
         time_start = time.time()
-        matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate)
+        matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate, vae_params.maxAttributeErrorPercent)
         time_end = time.time()
         print(f"Autoencoder training time: {time_end - time_start:.2f} seconds")
         matEncoder.printEncodingErrors()
+
         
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
@@ -318,5 +319,5 @@ if __name__ == "__main__":
 
     run_topopt(
         to_problem=to_problem,
-        use_pretrained_vae=True,
+        use_pretrained_vae=False,
     )
