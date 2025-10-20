@@ -90,8 +90,23 @@ class MaterialEncoder:
       print("-" * 40)
       for name, ratio in sigma_mean_ratios.items():
           print(f"{name:<20} {ratio:.6f}")
+  
+  def largestEncodingErrorPercent(self):
+      """
+      Returns the largest percent error for any decoded real material attribute
+      compared to the actual Excel sheet values.
+      """
+      # Get real latent points for all materials
+      self.vaeNet.encoder.isTraining = False
+      with torch.no_grad():
+          z_real = self.vaeNet.encoder(self.scaledMaterialData)
+          decoded = self.vaeNet.decoder(z_real)
+          diffMatrix = self.scaledMaterialData - decoded
+          
+          largestErrorPercent = 100.0 * torch.max(torch.abs(diffMatrix)).item()
+      self.vaeNet.encoder.isTraining = True
+      return largestErrorPercent
 
-      
   def printEncodingErrors(self):
       """
       Prints a table of maximum percent error for each decoded real material attribute
@@ -101,24 +116,15 @@ class MaterialEncoder:
       with torch.no_grad():
           z_real = self.vaeNet.encoder(self.scaledMaterialData)
           decoded = self.vaeNet.decoder(z_real)
-          decoded_properties = self.getMaterialProperties(decoded)
+          diffMatrix = self.scaledMaterialData - decoded
 
-      print("-" * 40)
-      print(f"Number of materials: {self.nMaterials}")
-      print(f"Number of attributes: {self.nAttributes}")
       attribute_names = list(self.materialAttributes.keys())  
       print("-" * 40)
       print("{:<25} {:>15}".format("Attribute", "Max % Error"))
       print("-" * 40)
       col = 0
       for name in attribute_names:
-          decoded_vals = decoded_properties[name]
-          if hasattr(decoded_vals, "detach"):
-              decoded_vals = decoded_vals.detach().cpu().numpy().flatten()
-          else:
-              decoded_vals = np.array(decoded_vals).flatten()
-          true_vals = self.rawData[:, col]
-          percent_err = 100 * np.abs(decoded_vals - true_vals) / (np.abs(true_vals) + 1e-12)
+          percent_err = 100 * diffMatrix[:, col].abs().numpy()
           max_percent_err = np.max(percent_err)
           print("{:<25} {:>15.6f}".format(name, max_percent_err))
           col += 1
@@ -127,8 +133,8 @@ class MaterialEncoder:
   def loadAutoencoderFromFile(self, fileName):
     self.vaeNet.load_state_dict(torch.load(fileName))
     self.vaeNet.eval()
-    
-  def trainAutoencoder(self, numEpochs, klFactor, savedNet, learningRate):
+
+  def trainAutoencoder(self, numEpochs, klFactor, savedNet, learningRate, maxAttributeErrorPercent=0.0005):
     opt = torch.optim.Adam(self.vaeNet.parameters(), learningRate)
     convgHistory = {'reconLoss':[], 'klLoss':[], 'loss':[]}
     self.vaeNet.encoder.isTraining = True
@@ -142,11 +148,16 @@ class MaterialEncoder:
       convgHistory['reconLoss'].append(reconLoss)
       convgHistory['klLoss'].append(klLoss/klFactor) # save unscaled loss
       convgHistory['loss'].append(loss)
-      opt.step()
+      largestErrorPercent = self.largestEncodingErrorPercent()
+      if largestErrorPercent < maxAttributeErrorPercent:
+          print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.5f}'.\
+            format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
+          print("Converged!")
+          break
       if(epoch%500 == 0):
-        print('Iter {:d} reconLoss {:.3e} klLoss {:.3e} loss {:.3e}'.\
-              format(epoch, reconLoss.item(), klLoss.item(), loss.item()))
-     
+        print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.5f}'.\
+            format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
+      opt.step()
     self.vaeNet.encoder.isTraining = False
     torch.save(self.vaeNet.state_dict(), savedNet)
     return convgHistory
