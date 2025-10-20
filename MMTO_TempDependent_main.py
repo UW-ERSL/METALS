@@ -390,7 +390,7 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = MMTOTempDependentExamples.LBracket_ComplianceMassCost
+    to_problem = MMTOTempDependentExamples.LBracket_Pnormstress_ComplianceMass
 
     run_topopt(
         to_problem=to_problem,

@@ -14,7 +14,8 @@ class MMTOTempDependentExamples(enum.Enum):
     LBracket_ComplianceMass = enum.auto()
     LBracket_ComplianceMassCost = enum.auto()
     LBracket_ComplianceMassCriticality = enum.auto()
-    LBracketStress_Thermal = enum.auto()
+    LBracketStressThermal = enum.auto()
+    LBracket_Pnormstress_ComplianceMass = enum.auto()
 
 def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
@@ -77,14 +78,29 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.numEpochs= 100000
         vae_params.vae_hiddenDim=500
         vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
-
+    elif to_problem == MMTOTempDependentExamples.LBracket_Pnormstress_ComplianceMass:
+        structural_problem=MMTOStructuralExamples.LBracket
+        thermal_problem=MMTOThermalExamples.LBracketThermal
+        kwargs['topload'] = 1000 
+        kwargs['midload'] = 0
+        to_params.Comment  = "Thermal + Structural TO Problem"
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/Data3Materials.xlsx'
+        to_params.Objective=(TO_QOI.PNORM_STRESS, None)
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 5000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.COMPLIANCE, None, 3)]
+        vae_params.klFactor=5e-6
+        vae_params.learningRate=2e-6
+        vae_params.numEpochs= 100000
+        vae_params.vae_hiddenDim=500
+        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported
     elif to_problem == MMTOTempDependentExamples.LBracketStressThermal:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
         kwargs['topload'] = 5e-4   
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile =  './MaterialDataTemperatureDependent/LBracketMaterialsThermal.xlsx'
+        to_params.MaterialsExcelFile =  './DataVaryingTemperature/Data3MaterialsCriticalityConductivity.xlsx'
         to_params.Objective=(TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.T0=500
