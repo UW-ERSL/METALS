@@ -31,8 +31,8 @@ def run_topopt(
     z0_init_method=Z0InitMethod.UNIFORM,
     rel_conv_tol=1e-10,
     gamma_init=1e-3,
-    gamma_max=1000,
-    gamma_factor=1.1):
+    gamma_max=0.1,
+    gamma_factor=1.5):
 
     mesh_structural, mesh_thermal, mat_prop_struct, mat_prop_thermal, \
     bc_struct, bc_thermal, elem_body_force, to_params, vae_params = \
@@ -237,6 +237,9 @@ def run_topopt(
             print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
 
         if iterationCount > nIterationsWithoutPenalization:
+            if False:
+                grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
+                grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             d_ij = torch.cdist(zPts, zRealTorch, p=2) + 1e-12
             min_i = torch.min(d_ij, dim=1).values
             min_i = min_i * xDesign
@@ -387,13 +390,13 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = MMTOTempDependentExamples.LBracket_ComplianceMassCost
+    to_problem = MMTOTempDependentExamples.LBracket_Pnormstress_ComplianceMass
 
     run_topopt(
         to_problem=to_problem,
         nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization= 50,
+        nIterationsWithPenalization= 0,
         turnOnThermal=True,
         nonlinearThermal=False,
-        use_pretrained_vae=True
+        use_pretrained_vae=True,
     )
