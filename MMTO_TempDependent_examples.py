@@ -9,13 +9,15 @@ class VAEParams:
     numEpochs = 100000
     vae_hiddenDim = 500
     latentDim = 2
+    maxAttributeErrorPercent = 0.0001
 
 class MMTOTempDependentExamples(enum.Enum):
     LBracket_ComplianceMass = enum.auto()
     LBracket_ComplianceMassCost = enum.auto()
     LBracket_ComplianceMassCriticality = enum.auto()
-    LBracketStressThermal = enum.auto()
     LBracket_Pnormstress_ComplianceMass = enum.auto()
+    LBracket_Mass_ComplianceSafetyFactor = enum.auto()
+
 
 def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
@@ -87,14 +89,14 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.MaterialsExcelFile = './DataVaryingTemperature/Data3Materials.xlsx'
         to_params.Objective=(TO_QOI.PNORM_STRESS, None)
         to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 5000 if nDOFDesired is None else nDOFDesired
+        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.COMPLIANCE, None, 3)]
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 100000
         vae_params.vae_hiddenDim=500
         vae_params.latentDim=2 # don't change this. Only 2D latent space is supported
-    elif to_problem == MMTOTempDependentExamples.LBracketStressThermal:
+    elif to_problem == MMTOTempDependentExamples.LBracket_Mass_ComplianceSafetyFactor:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
         kwargs['topload'] = 5e-4   

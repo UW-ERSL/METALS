@@ -208,8 +208,6 @@ def compute_mmto_constraint_and_gradient(to_params, uvw,T, zeta, fe_solver_struc
             grad_safety[:num_elems] = grad_inv_sf_density
             grad_safety[num_elems:] = grad_z
             dc[m, :] = grad_safety
-            
-
         elif constraintType == TO_QOI.COST:
             # Cost constraint: sum of density * mass_density * cost * element volume
             mass_density = matEncoder.getMaterialProperties(decoded)['Density']
@@ -223,6 +221,7 @@ def compute_mmto_constraint_and_gradient(to_params, uvw,T, zeta, fe_solver_struc
             grad_cons_cost = zetaTensor.grad.detach().numpy()
             c[m, 0] = cons_cost
             dc[m, :] = grad_cons_cost
+        elif constraintType == TO_QOI.CRITICALITY:
             criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
             mass_density = matEncoder.getMaterialProperties(decoded)['Density']
             pseudodensity = zetaTensor[0:fe_solver_structural.mesh.num_elems]

@@ -136,36 +136,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     qStress = 2  # STRESS factor for sensitivity
     pSIMP = 3
 
-    # if isinstance(fe_solver.mat_prop, list):
-    #     E = EDesign
-    #     nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
-    #     D_list = []
-    #     for Ei, nui in zip(E, nu):
-    #         D = Ei / ((1 + nui) * (1 - 2 * nui)) * np.array([
-    #             [1 - nui, nui, nui, 0, 0, 0],
-    #             [nui, 1 - nui, nui, 0, 0, 0],
-    #             [nui, nui, 1 - nui, 0, 0, 0],
-    #             [0, 0, 0, (1 - 2 * nui) / 2, 0, 0],
-    #             [0, 0, 0, 0, (1 - 2 * nui) / 2, 0],
-    #             [0, 0, 0, 0, 0, (1 - 2 * nui) / 2]
-    #         ])
-    #         D_list.append(D)
-    #     D = np.stack(D_list)
-    # else:
-    #     print("Using single material model for p-norm stress sensitivity.")
-    #     E = fe_solver.mat_prop.youngs_modulus
-    #     nu = fe_solver.mat_prop.poissons_ratio
-    #     D = hex_element_stiffness.isotropic_constitutive_matrix(E, nu)
-    #     D = E / ((1 + nu) * (1 - 2 * nu)) * np.array([
-    #         [1 - nu, nu, nu, 0, 0, 0],
-    #         [nu, 1 - nu, nu, 0, 0, 0],
-    #         [nu, nu, 1 - nu, 0, 0, 0],
-    #         [0, 0, 0, (1 - 2 * nu) / 2, 0, 0],
-    #         [0, 0, 0, 0, (1 - 2 * nu) / 2, 0],
-    #         [0, 0, 0, 0, 0, (1 - 2 * nu) / 2]
-    #     ])
     if isinstance(fe_solver.mat_prop, list):
-        
         E = EDesign
         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
         D_list = []
@@ -465,8 +436,43 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         pass
 
     elif objectiveType == TO_QOI.PNORM_STRESS:
-       pass
+        decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(2,-1).T)
+        material_properties = matEncoder.getMaterialProperties(decoded)
+        ETensor = material_properties['Youngs_Modulus']
+        EDesign = ETensor.detach().numpy()
+        pNormStress=6
+        vm_pnorm, grad_vm_density, max_vm = compute_pnorm_stress_and_sensitivity(
+            sol, x, fe_solver, EDesign, KETemplate, MaterialModel.SIMP)
+        d_sigma_vm_dE = np.zeros(num_elems)
+        for e in range(num_elems):
+            # Divide by decoded youngs modulus for that element
+            d_sigma_vm_dE[e] = d_relaxed_von_mises_dE(
+                fe_solver.stressComponents[e], x[e].item(), q=1) / EDesign[e].item()
+        # Get per-element von Mises and yield strength
+        sigma_vm = np.zeros(num_elems)
+        for e in range(num_elems):
+            stress = fe_solver.stressComponents[e]
+            sxx, syy, szz, syz, sxz, sxy = stress
+            sigma_vm[e] = np.sqrt(0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2) +
+                3 * (syz ** 2 + sxz ** 2 + sxy ** 2)) * (zetaTensor[0:num_elems][e].item() ** 1)
+        sum_p = np.sum(sigma_vm ** pNormStress)
+        outer = (sum_p) ** (1.0 / pNormStress - 1)
+        grad_vm_z = np.zeros(2*num_elems)
+        # Backward for dE/dz and dY/dz
+        zetaTensor.grad = None
+        ETensor.backward(torch.ones_like(ETensor), retain_graph=True)
+        dE_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, -1)
+        zetaTensor.grad = None
 
+        for e in range(num_elems):
+            d_sigma_dz = d_sigma_vm_dE[e] * dE_dz[e]
+            grad_vm_z[0:num_elems] += (pNormStress * (max_vm ** (pNormStress - 1))) * d_sigma_dz[0]
+            grad_vm_z[num_elems:] += (pNormStress * (max_vm ** (pNormStress - 1))) * d_sigma_dz[1]
+        grad_vm_z = (1.0 / pNormStress) * outer * grad_vm_z
+        grad_pnorm_stress = np.zeros_like(zeta)
+        grad_pnorm_stress[0:num_elems] = grad_vm_density
+        grad_pnorm_stress[num_elems:] = grad_vm_z
+        return vm_pnorm, grad_pnorm_stress
     elif objectiveType == TO_QOI.MASS:
         decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(2,-1).T)
         mass_density = matEncoder.getMaterialProperties(decoded)['Density']

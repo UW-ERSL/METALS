@@ -26,7 +26,7 @@ def run_topopt(
     use_pretrained_vae=False,
     snap_to_real_material=False,
     rel_conv_tol= 1e-7,
-    maxIterations=100,
+    maxIterations=50,
     z0_init_method = Z0InitMethod.ORIGIN,  
     gamma_init = 1e-7,
     gamma_max = 1000,
@@ -315,7 +315,7 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = MMTOExamples.BridgeComplianceMassCost
+    to_problem = MMTOExamples.LBracketTopLoadStressMassCompliance
 
     run_topopt(
         to_problem=to_problem,

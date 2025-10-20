@@ -28,7 +28,7 @@ def run_topopt(
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
-    z0_init_method=Z0InitMethod.UNIFORM,
+    z0_init_method=Z0InitMethod.ORIGIN,
     rel_conv_tol=1e-10,
     gamma_init=1e-3,
     gamma_max=0.1,
@@ -237,13 +237,10 @@ def run_topopt(
             print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
 
         if iterationCount > nIterationsWithoutPenalization:
-            if False:
-                grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
-                grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             d_ij = torch.cdist(zPts, zRealTorch, p=2) + 1e-12
             min_i = torch.min(d_ij, dim=1).values
             min_i = min_i * xDesign
-            penalty = gamma * torch.sum(min_i) / num_elems
+            penalty = gamma * torch.mean(min_i) 
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
             grad_obj[num_elems:, 0] += zetaTensor.grad[num_elems:].detach().numpy()
@@ -394,9 +391,6 @@ if __name__ == "__main__":
 
     run_topopt(
         to_problem=to_problem,
-        nIterationsWithoutPenalization= 50,
-        nIterationsWithPenalization= 0,
-        turnOnThermal=True,
         nonlinearThermal=False,
         use_pretrained_vae=True,
     )

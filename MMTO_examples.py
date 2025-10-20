@@ -9,13 +9,15 @@ class VAEParams:
     numEpochs = 100000
     vae_hiddenDim = 500
     latentDim = 2
-    maxAttributeErrorPercent = 0.01
+    maxAttributeErrorPercent = 0.0001
 
 class MMTOExamples(enum.Enum):
     EdgeCantilever = enum.auto()  # Another variant of edge cantilever
     BridgeComplianceMassCost = enum.auto()
-    LBracketMidLoadComplianceMassCost = enum.auto()
-    LBracketMidLoadStressSafetyFactor = enum.auto()
+
+    LBracketTopLoadStressMassCompliance = enum.auto()
+    LBracketTopLoadComplianceMassCost = enum.auto()
+    LBracketTopLoadStressSafetyFactor = enum.auto()
 
     BliskSectionComplianceMassCost = enum.auto()
     BliskSectionMassComplianceCostSafetyFactor = enum.auto()
@@ -58,10 +60,10 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         vae_params.maxAttributeErrorPercent=0.001
         vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
 
-    elif to_problem == MMTOExamples.LBracketMidLoadComplianceMassCost:
+    elif to_problem == MMTOExamples.LBracketTopLoadComplianceMassCost:
         structural_problem = MMTOStructuralExamples.LBracket
-        kwargs['topload'] = 0
-        kwargs['midload'] = 1e4
+        kwargs['topload'] = 1e4
+        kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.MaterialsExcelFile = './DataConstantTemperature/LBracketMaterialsSI.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
@@ -74,10 +76,26 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         vae_params.vae_hiddenDim=500
         vae_params.latentDim=2 # don't change this. Only 2D latent space is supported
 
-    elif to_problem == MMTOExamples.LBracketMidLoadStressSafetyFactor:
+    elif to_problem == MMTOExamples.LBracketTopLoadStressMassCompliance:
         structural_problem = MMTOStructuralExamples.LBracket
-        kwargs['topload'] = 0
-        kwargs['midload'] = 5e4
+        kwargs['topload'] = 5e4
+        kwargs['midload'] = 0
+        to_params.Comment  = "Stress Safety Factor"
+        to_params.MaterialsExcelFile = './DataConstantTemperature/LBracketMaterialsSI.xlsx'
+        to_params.Objective = (TO_QOI.PNORM_STRESS, None) 
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [ (TO_QOI.MASS, None,200), (TO_QOI.COMPLIANCE, None, 400)] 
+        vae_params.klFactor=5e-6
+        vae_params.learningRate=2e-6
+        vae_params.numEpochs= 100000
+        vae_params.vae_hiddenDim=500
+        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
+
+    elif to_problem == MMTOExamples.LBracketTopLoadStressSafetyFactor:
+        structural_problem = MMTOStructuralExamples.LBracket
+        kwargs['topload'] = 5e4
+        kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.MaterialsExcelFile = './DataConstantTemperature/LBracketMaterialsSI.xlsx'
         to_params.Objective = (TO_QOI.MASS, None) 

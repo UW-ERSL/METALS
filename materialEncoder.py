@@ -150,12 +150,12 @@ class MaterialEncoder:
       convgHistory['loss'].append(loss)
       largestErrorPercent = self.largestEncodingErrorPercent()
       if largestErrorPercent < maxAttributeErrorPercent:
-          print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.5f}'.\
+          print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.3e}'.\
             format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
           print("Converged!")
           break
       if(epoch%500 == 0):
-        print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.5f}'.\
+        print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.3e}'.\
             format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
       opt.step()
     self.vaeNet.encoder.isTraining = False
