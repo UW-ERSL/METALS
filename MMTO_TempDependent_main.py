@@ -158,7 +158,7 @@ def run_topopt(
                     norm_diff = np.linalg.norm(Temp_nodes_new - Temp_nodes)
                     if norm_diff < picard_tol:
                         Temp_nodes = Temp_nodes_new
-                        print(f"Converged in {picard_iter+1} iterations with norm: {norm_diff:.6e}")
+                        #print(f"Converged in {picard_iter+1} iterations with norm: {norm_diff:.6e}")
                         break
                     Temp_nodes = Temp_nodes_new
                 else:
@@ -309,7 +309,7 @@ def run_topopt(
     T_Limit = matEncoder.getValuesAtLatentPoints("T_Limit", zPts)
 
     isTemperatureWithinLimits = (Temp_elem <= T_Limit.flatten()) | (xDesign < 0.5)
-    print(f"Number of elements exceeding T_Limit: {np.sum(~isTemperatureWithinLimits)} out of {num_elems}")
+    print(f"Number of elements exceeding Temp Limit: {np.sum(~isTemperatureWithinLimits)} out of {num_elems}")
 
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
     fe_solver_structural.solve(xDesign)
@@ -345,5 +345,5 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         turnOnNonlinearThermal=False,
-        use_pretrained_vae=False,
+        use_pretrained_vae=True,
     )
