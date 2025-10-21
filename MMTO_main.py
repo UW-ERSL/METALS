@@ -26,9 +26,9 @@ def run_topopt(
     use_pretrained_vae=False,
     snap_to_real_material=False,
     rel_conv_tol= 1e-7,
-    maxIterations=50,
+    maxIterations=100,
     z0_init_method = Z0InitMethod.ORIGIN,  
-    gamma_init = 1e-7,
+    gamma_init = 1e-7, # This is for penalization
     gamma_max = 1000,
     gamma_factor = 1.5):
     
@@ -257,8 +257,7 @@ def run_topopt(
     zOptimal =  zetaOptimal[num_elems:]
     zOptimalPts = torch.tensor(zOptimal).view(2, -1).T.float()
 
-    matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zOptimalPts.detach().cpu().numpy(),xDesign = xOptimal)
-
+  
     if (snap_to_real_material): # optionally snap to closest real material
         zSnappedPts = torch.tensor(matEncoder.getClosestRealMaterialZValues(zOptimalPts))
         zetaOptimal[num_elems:] = zSnappedPts.T.flatten().numpy()
@@ -315,9 +314,20 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    to_problem = MMTOExamples.LBracketTopLoadStressMassCompliance
+    # TO Problems examples (see MMTO_examples.py for details):
+    
+    # 1. Bridge_Compliance_MassCost (Bridge design, Minimize Compliance with Mass and Cost constraints)
+    # 2. LBracketTopLoad_Compliance_MassCost (L-Bracket with Top Load, Minimize Compliance with Mass and Cost constraints)
+    # 3. LBracketTopLoad_Compliance_MassCriticality (L-Bracket with Top Load, Minimize Compliance with Mass Criticality constraints)
+    # 4. LBracketTopLoad_Stress_MassCompliance (L-Bracket with Top Load, Minimize Stress with Mass Compliance constraints)
+    # 5. LBracketTopLoad_Mass_StressSafetyFactorCompliance (L-Bracket with Top Load, Minimize Mass with Stress Safety Factor Compliance constraints)
+    # 6. BliskSection_Compliance_MassCost (Blisk Section design, Minimize Compliance with Mass and Cost constraints)
+    # 7. BliskSection_Mass_ComplianceCriticality (Blisk Section design, Minimize Mass Compliance with Cost and Safety Factor constraints)
+
+    to_problem = MMTOExamples.Bridge_Compliance_MassCost
+
 
     run_topopt(
         to_problem=to_problem,
-        use_pretrained_vae=False,
+        use_pretrained_vae=True,
     )

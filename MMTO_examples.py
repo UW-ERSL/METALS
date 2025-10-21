@@ -12,15 +12,15 @@ class VAEParams:
     maxAttributeErrorPercent = 0.0001
 
 class MMTOExamples(enum.Enum):
-    EdgeCantilever = enum.auto()  # Another variant of edge cantilever
-    BridgeComplianceMassCost = enum.auto()
+    Bridge_Compliance_MassCost = enum.auto()
 
-    LBracketTopLoadStressMassCompliance = enum.auto()
-    LBracketTopLoadComplianceMassCost = enum.auto()
-    LBracketTopLoadStressSafetyFactor = enum.auto()
+    LBracketTopLoad_Compliance_MassCost = enum.auto()
+    LBracketTopLoad_Compliance_MassCriticality = enum.auto()
+    LBracketTopLoad_Stress_MassCompliance = enum.auto()
+    LBracketTopLoad_Mass_StressSafetyFactorCompliance = enum.auto()
 
-    BliskSectionComplianceMassCost = enum.auto()
-    BliskSectionMassComplianceCostSafetyFactor = enum.auto()
+    BliskSection_Compliance_MassCost = enum.auto()
+    BliskSection_Mass_ComplianceCriticality = enum.auto()
 
 
 def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
@@ -36,20 +36,13 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
     
     to_params = TOParams()
     vae_params = VAEParams()
-    if to_problem == MMTOExamples.EdgeCantilever:
-        structural_problem = MMTOStructuralExamples.EdgeCantilever
-        to_params.Comment = "Classic TO Problem"
-        to_params.YSymmetry = True
-        to_params.nDOFDesired = nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 15)]  # kg
-   
-    elif to_problem == MMTOExamples.BridgeComplianceMassCost:
+    if to_problem == MMTOExamples.Bridge_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.Bridge
         to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint"
         to_params.XSymmetry = True 
         to_params.EXtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.MaterialsExcelFile = './DataConstantTemperature/BridgeMaterials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/Bridge3Materials.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
         #to_params.RelativeFilterRadius = 1.5
@@ -57,15 +50,13 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         vae_params.learningRate = 2e-5
         vae_params.numEpochs = 100000
         vae_params.vae_hiddenDim = 500
-        vae_params.maxAttributeErrorPercent=0.001
-        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
-
-    elif to_problem == MMTOExamples.LBracketTopLoadComplianceMassCost:
+      
+    elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 1e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/LBracketMaterialsSI.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
@@ -74,70 +65,81 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 100000
         vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported
 
-    elif to_problem == MMTOExamples.LBracketTopLoadStressMassCompliance:
+    elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_MassCriticality:
+        structural_problem = MMTOStructuralExamples.LBracket
+        kwargs['topload'] = 1e4
+        kwargs['midload'] = 0
+        to_params.Comment  = "Stress Safety Factor"
+        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
+        to_params.Objective = (TO_QOI.COMPLIANCE, None) 
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [(TO_QOI.MASS, None, 100),(TO_QOI.CRITICALITY, None, 0.05)] 
+        vae_params.klFactor=5e-6
+        vae_params.learningRate=2e-6
+        vae_params.numEpochs= 150000
+        vae_params.vae_hiddenDim=500   
+
+    elif to_problem == MMTOExamples.LBracketTopLoad_Stress_MassCompliance:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 5e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/LBracketMaterialsSI.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
         to_params.Objective = (TO_QOI.PNORM_STRESS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.MASS, None,200), (TO_QOI.COMPLIANCE, None, 400)] 
+        to_params.Constraints = [ (TO_QOI.MASS, None,400), (TO_QOI.COMPLIANCE, None, 400)] 
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
-        vae_params.numEpochs= 100000
+        vae_params.numEpochs= 150000
         vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
-
-    elif to_problem == MMTOExamples.LBracketTopLoadStressSafetyFactor:
+    
+    elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressSafetyFactorCompliance:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 5e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/LBracketMaterialsSI.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,200), (TO_QOI.COMPLIANCE, None, 400)] 
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
-        vae_params.numEpochs= 100000
+        vae_params.numEpochs= 150000
         vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
-
-    elif to_problem == MMTOExamples.BliskSectionComplianceMassCost:
+       
+    elif to_problem == MMTOExamples.BliskSection_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.BliskSection
         to_params.Comment  = "Large DOF"
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = False
         to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
-        to_params.Constraints = [(TO_QOI.MASS, None,  7), (TO_QOI.COST, None, 25)]
-        to_params.MaterialsExcelFile = './DataConstantTemperature/TeledyneMaterialsSI.xlsx'
+        to_params.Constraints = [(TO_QOI.MASS, None,  30), (TO_QOI.COST, None, 25)]
+        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
         vae_params.klFactor=5e-5
-        vae_params.learningRate=2e-4
-        vae_params.numEpochs=100000
+        vae_params.learningRate=8e-6
+        vae_params.numEpochs=150000
         vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2
-    elif to_problem == MMTOExamples.BliskSectionMassComplianceCostSafetyFactor:
+        
+    elif to_problem == MMTOExamples.BliskSection_Mass_ComplianceCriticality:
         structural_problem = MMTOStructuralExamples.BliskSection
         to_params.Comment  = "Large DOF"
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = False
-        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
+        to_params.nDOFDesired = 30000 if nDOFDesired is None else nDOFDesired
         to_params.Objective = (TO_QOI.MASS, None)
-        to_params.Constraints = [(TO_QOI.COMPLIANCE, None,  7), 
-                                 (TO_QOI.COST, None, 10), 
-                                 (TO_QOI.STRESS_SAFETY_FACTOR, None, 2.5)]
-        to_params.MaterialsExcelFile = './DataConstantTemperature/TeledyneMaterialsSI.xlsx'
+        to_params.Constraints = [(TO_QOI.COMPLIANCE, None,1), 
+                                 (TO_QOI.CRITICALITY, None,0.05)]
+        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
         vae_params.klFactor=5e-5
         vae_params.learningRate=2e-4
-        vae_params.numEpochs=100000
+        vae_params.numEpochs=150000
         vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2
+        
 
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
@@ -153,8 +155,8 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.ElemsToKeep = find_elements_with_fixedDOF(mesh, bc,nDOFPerNode=3)
 
 
-    if to_problem == MMTOExamples.BliskSectionComplianceMassCost or \
-        to_problem == MMTOExamples.BliskSectionMassComplianceCostSafetyFactor:
+    if to_problem == MMTOExamples.BliskSection_Compliance_MassCost or \
+        to_problem == MMTOExamples.BliskSection_Mass_ComplianceCriticality:
         centerPt = [0,0,0]
         axis = [0,0,1]
         outerRadius1 = 0.558

@@ -387,6 +387,14 @@ def run_topopt(
 
 if __name__ == "__main__":
     
+    # TO Problems examples:
+    
+    # LBracket_ComplianceMass
+    # LBracket_ComplianceMassCost
+    # LBracket_ComplianceMassCriticality 
+    # LBracket_Pnormstress_ComplianceMass
+    # LBracket_Mass_ComplianceSafetyFactor
+
     to_problem = MMTOTempDependentExamples.LBracket_Pnormstress_ComplianceMass
 
     run_topopt(
