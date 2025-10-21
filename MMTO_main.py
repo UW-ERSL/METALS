@@ -173,29 +173,24 @@ def run_topopt(
         history["objective"].append(obj)
         history["constraints"].append(cons.flatten().copy())
     
-        useMaterialDistance = False
-        if (useMaterialDistance):
-            penalty, gradMeanDistance = matEncoder.materialAttributeDistance( 'Density', 
-                                                                                zPoints.detach().cpu().numpy(),
-                                                            xDesign,gamma)
-        else:
-            d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
-            min_i = torch.min(d_ij, dim=1).values
-            min_i = min_i * xDesign # only penalize if element is present
-            meanDistance = torch.mean(min_i)
-            penalty = gamma * meanDistance
-            zetaTensor.grad = None
-            penalty.backward(retain_graph=True)
-            gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
-        
+        # penalation is applied
+        d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
+        min_i = torch.min(d_ij, dim=1).values
+        min_i = min_i * xDesign # only penalize if element is present
+        meanDistance = torch.mean(min_i)
+        penalty = gamma * meanDistance
+        zetaTensor.grad = None
+        penalty.backward(retain_graph=True)
+        gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
+    
 
-            if False: # Apply filter to grad_obj for the penalty term
-                gradMeanDistance[0:num_elems] = (H * gradMeanDistance[0:num_elems]) / Hs
-                gradMeanDistance[num_elems:2*num_elems] = (H * gradMeanDistance[num_elems:2*num_elems]) / Hs
+        if False: # Apply filter to grad_obj for the penalty term
+            gradMeanDistance[0:num_elems] = (H * gradMeanDistance[0:num_elems]) / Hs
+            gradMeanDistance[num_elems:2*num_elems] = (H * gradMeanDistance[num_elems:2*num_elems]) / Hs
              
-            grad_obj[num_elems:,0] += gradMeanDistance
-            obj = obj + penalty.item()
-            gamma = min(gamma*gamma_factor, gamma_max)
+        grad_obj[num_elems:,0] += gradMeanDistance
+        obj = obj + penalty.item()
+        gamma = min(gamma*gamma_factor, gamma_max)
 
         iterationCount += 1
         return obj, grad_obj, cons, grad_cons

@@ -378,11 +378,9 @@ def run_topopt(
     # Plot Is Within Limits
     fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Is Within Limits', colormap='RdYlGn')
     
-
     # Plot Young's Modulus
     fe_solver_structural.plot_elem_field(E, title='Young\'s Modulus', colormap='plasma')
 
-  
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zDesign.reshape(2, -1).T, xDesign=xDesign)
 
 if __name__ == "__main__":
