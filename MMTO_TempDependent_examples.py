@@ -35,10 +35,10 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
     if to_problem == MMTOTempDependentExamples.LBracket_Compliance_Mass:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
-        kwargs['topload'] = 1000 
+        kwargs['topload'] = 1e4 
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/Data3MaterialsCriticalityConductivity.xlsx'
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
         to_params.Objective=(TO_QOI.COMPLIANCE, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
@@ -51,10 +51,10 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
     elif to_problem == MMTOTempDependentExamples.LBracket_Compliance_MassCost:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
-        kwargs['topload'] = 1000 
+        kwargs['topload'] = 1e4 
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/Data3Materials.xlsx'
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
         to_params.Objective=(TO_QOI.COMPLIANCE, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
@@ -67,10 +67,10 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
     elif to_problem == MMTOTempDependentExamples.LBracket_Compliance_MassCriticality:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
-        kwargs['topload'] = 1000 
+        kwargs['topload'] = 1e4 
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/Data3MaterialsCriticalityConductivity.xlsx'
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
         to_params.Objective=(TO_QOI.COMPLIANCE, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
@@ -83,10 +83,10 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
     elif to_problem == MMTOTempDependentExamples.LBracket_Pnormstress_ComplianceMass:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
-        kwargs['topload'] = 1000 
+        kwargs['topload'] = 1e4 
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/Data3Materials.xlsx'
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
         to_params.Objective=(TO_QOI.PNORM_STRESS, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
@@ -99,10 +99,10 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
     elif to_problem == MMTOTempDependentExamples.LBracket_Mass_ComplianceSafetyFactor:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
-        kwargs['topload'] = 5e-4   
+        kwargs['topload'] = 1e4  
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile =  './DataVaryingTemperature/Data3MaterialsCriticalityConductivity.xlsx'
+        to_params.MaterialsExcelFile =  './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
         to_params.Objective=(TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.T0=500

@@ -99,7 +99,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
 
     elif to_problem == MMTOExamples.LBracketTopLoad_Stress_Compliance:
         structural_problem = MMTOStructuralExamples.LBracket
-        kwargs['topload'] = 5e4
+        kwargs['topload'] = 1e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
@@ -114,7 +114,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
     
     elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressSafetyFactorCompliance:
         structural_problem = MMTOStructuralExamples.LBracket
-        kwargs['topload'] = 5e4
+        kwargs['topload'] = 1e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
@@ -146,10 +146,10 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Comment  = "Large DOF"
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = False
-        to_params.nDOFDesired = 30000 if nDOFDesired is None else nDOFDesired
+        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
         to_params.Objective = (TO_QOI.MASS, None)
-        to_params.Constraints = [(TO_QOI.COMPLIANCE, None,1), 
-                                 (TO_QOI.CRITICALITY, None,0.05)]
+        to_params.Constraints = [(TO_QOI.COMPLIANCE, None,10), 
+                                 (TO_QOI.CRITICALITY, None,0.5)]
         to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
         vae_params.klFactor=5e-5
         vae_params.learningRate=2e-4

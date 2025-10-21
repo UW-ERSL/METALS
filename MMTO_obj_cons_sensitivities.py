@@ -349,7 +349,7 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
 
         for e in range(num_elems):
             d_sigma_dz = d_sigma_vm_dE[e] * dE_dz[e]
-            grad_vm_z[num_elems:2*num_elems] += (pNormStress * (max_vm ** (pNormStress - 1))) * d_sigma_dz[0] #KS: bug fixed here
+            grad_vm_z[num_elems:2*num_elems] += (pNormStress * (max_vm ** (pNormStress - 1))) * d_sigma_dz[0] 
             grad_vm_z[2*num_elems:3*num_elems] += (pNormStress * (max_vm ** (pNormStress - 1))) * d_sigma_dz[1]
         grad_vm_z = (1.0 / pNormStress) * outer * grad_vm_z
         grad_pnorm_stress = np.zeros_like(zeta)
