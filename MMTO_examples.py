@@ -14,9 +14,10 @@ class VAEParams:
 class MMTOExamples(enum.Enum):
     Bridge_Compliance_MassCost = enum.auto()
 
+    LBracketTopLoad_Compliance_Mass = enum.auto()
     LBracketTopLoad_Compliance_MassCost = enum.auto()
     LBracketTopLoad_Compliance_MassCriticality = enum.auto()
-    LBracketTopLoad_Stress_MassCompliance = enum.auto()
+    LBracketTopLoad_Stress_Compliance = enum.auto()
     LBracketTopLoad_Mass_StressSafetyFactorCompliance = enum.auto()
 
     BliskSection_Compliance_MassCost = enum.auto()
@@ -51,16 +52,31 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         vae_params.numEpochs = 100000
         vae_params.vae_hiddenDim = 500
       
+    elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_Mass:
+        structural_problem = MMTOStructuralExamples.LBracket
+        kwargs['topload'] = 1e4
+        kwargs['midload'] = 0
+        to_params.Comment  = "Stress Safety Factor"
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
+        to_params.Objective = (TO_QOI.COMPLIANCE, None) 
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [(TO_QOI.MASS, None, 60)] 
+        vae_params.klFactor=5e-6
+        vae_params.learningRate=2e-6
+        vae_params.numEpochs= 100000
+        vae_params.vae_hiddenDim=500
+
     elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 1e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 100),(TO_QOI.COST, None, 200)] 
+        to_params.Constraints = [(TO_QOI.MASS, None, 60),(TO_QOI.COST, None, 100)] 
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 100000
@@ -71,26 +87,26 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         kwargs['topload'] = 1e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 100),(TO_QOI.CRITICALITY, None, 0.05)] 
+        to_params.Constraints = [(TO_QOI.MASS, None, 160),(TO_QOI.CRITICALITY, None, 0.5)] 
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 150000
         vae_params.vae_hiddenDim=500   
 
-    elif to_problem == MMTOExamples.LBracketTopLoad_Stress_MassCompliance:
+    elif to_problem == MMTOExamples.LBracketTopLoad_Stress_Compliance:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 5e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
         to_params.Objective = (TO_QOI.PNORM_STRESS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.MASS, None,400), (TO_QOI.COMPLIANCE, None, 400)] 
+        to_params.Constraints = [ (TO_QOI.COMPLIANCE, None, 300)] 
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 150000
@@ -101,7 +117,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         kwargs['topload'] = 5e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
@@ -119,7 +135,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None,  30), (TO_QOI.COST, None, 25)]
-        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
         vae_params.klFactor=5e-5
         vae_params.learningRate=8e-6
         vae_params.numEpochs=150000
@@ -134,7 +150,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Objective = (TO_QOI.MASS, None)
         to_params.Constraints = [(TO_QOI.COMPLIANCE, None,1), 
                                  (TO_QOI.CRITICALITY, None,0.05)]
-        to_params.MaterialsExcelFile = './DataConstantTemperature/FourMaterials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
         vae_params.klFactor=5e-5
         vae_params.learningRate=2e-4
         vae_params.numEpochs=150000

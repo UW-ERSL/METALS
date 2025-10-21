@@ -24,7 +24,7 @@ def run_topopt(
     nIterationsWithoutPenalization=50,
     nIterationsWithPenalization=50,
     turnOnThermal=True,
-    nonlinearThermal=False,  
+    turnOnNonlinearThermal=False,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
@@ -101,15 +101,16 @@ def run_topopt(
     iterationCount = 0
     obj0 = None
     gamma = gamma_init
-    if turnOnThermal and nonlinearThermal:
+    if turnOnThermal and turnOnNonlinearThermal:
         print("Performing nonlinear thermal analysis...")
-    elif turnOnThermal and not nonlinearThermal:
+    elif turnOnThermal and not turnOnNonlinearThermal:
         print("Performing linear thermal analysis...")
     else:
         print("Thermal analysis is turned off...")
-    last_T_full = None # Store last converged temperature field
+    last_Temp_nodes = None # Store last converged temperature field
+    Temp_elem = None
     def MMTO_optimization_function(zeta):
-        nonlocal iterationCount, obj0, gamma, zRealTorch, last_T_full
+        nonlocal iterationCount, obj0, gamma, zRealTorch, last_Temp_nodes, Temp_elem
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
@@ -120,9 +121,8 @@ def run_topopt(
         decoded = matEncoder.vaeNet.decoder(zPts)
         material_properties = matEncoder.getMaterialProperties(decoded)
 
-
         if turnOnThermal:
-            if nonlinearThermal:
+            if turnOnNonlinearThermal:
                 K0 = material_properties['K0'].detach().numpy()
                 K1 = material_properties['K1'].detach().numpy()
                 K2 = material_properties['K2'].detach().numpy()
@@ -132,7 +132,7 @@ def run_topopt(
                 init_K = K0
 
                 # Use previous temperature field as initial guess
-                if last_T_full is None:
+                if last_Temp_nodes is None:
                     # First iteration: use average conductivity
                     fe_solver_thermal.mat_prop = [
                         mat_lib.create_material_with_defaults(
@@ -140,33 +140,33 @@ def run_topopt(
                             thermal_conductivity=init_K[i].item())
                         for i in range(num_elems)]
                     fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
-                    T_full = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
+                    Temp_nodes = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
                 else:
-                    T_full = last_T_full.copy()
+                    Temp_nodes = last_Temp_nodes.copy()
 
                 for picard_iter in range(max_picard_iter):
                     edofMat = fe_solver_thermal.mesh.edofMat
-                    T_elem = np.mean(T_full[edofMat], axis=1)
-                    K_elem = bezierInterpolation(T_elem, K0, K1, K2, K3)
+                    Temp_elem = np.mean(Temp_nodes[edofMat], axis=1)
+                    K_elem = bezierInterpolation(Temp_elem, K0, K1, K2, K3)
                     fe_solver_thermal.mat_prop = [
                         mat_lib.create_material_with_defaults(
                             name=f"K{i+1}",
                             thermal_conductivity=K_elem[i].item())
                         for i in range(num_elems)]
                     fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
-                    T_new_full = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
-                    norm_diff = np.linalg.norm(T_new_full - T_full)
+                    Temp_nodes_new = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
+                    norm_diff = np.linalg.norm(Temp_nodes_new - Temp_nodes)
                     if norm_diff < picard_tol:
-                        T_full = T_new_full
+                        Temp_nodes = Temp_nodes_new
                         print(f"Converged in {picard_iter+1} iterations with norm: {norm_diff:.6e}")
                         break
-                    T_full = T_new_full
+                    Temp_nodes = Temp_nodes_new
                 else:
                     print(f"Max Picard iterations reached with norm: {norm_diff:.6e}")
 
-                last_T_full = T_full.copy()  # Save for next optimization iteration
+                last_Temp_nodes = Temp_nodes.copy()  # Save for next optimization iteration
                 edofMat = fe_solver_thermal.mesh.edofMat
-                T = np.mean(T_full[edofMat], axis=1)
+                Temp_elem = np.mean(Temp_nodes[edofMat], axis=1)
             else:
                 thermalConductivity = material_properties['K0']
                 thermalConductivity_elem = thermalConductivity.detach().numpy()
@@ -176,14 +176,14 @@ def run_topopt(
                         thermal_conductivity=thermalConductivity_elem[i].item())
                     for i in range(num_elems)]
                 fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
-                T_full = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
+                Temp_nodes = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
                 edofMat = fe_solver_thermal.mesh.edofMat
-                T = np.mean(T_full[edofMat], axis=1)
+                Temp_elem = np.mean(Temp_nodes[edofMat], axis=1)
         else:
-            T = np.ones(num_elems) * 50.0
+            Temp_elem = np.ones(num_elems) * 50.0
 
-        E = matEncoder.getMaterialPropertyAtTemperature("E", zPts, T)
-        Y = matEncoder.getMaterialPropertyAtTemperature("Y", zPts, T)
+        E = matEncoder.getMaterialPropertyAtTemperature("E", zPts, Temp_elem)
+        Y = matEncoder.getMaterialPropertyAtTemperature("Y", zPts, Temp_elem)
 
         fe_solver_structural.mat_prop = [
             mat_lib.create_material_with_defaults(
@@ -200,10 +200,10 @@ def run_topopt(
         fe_solver_structural.postprocess()
 
         obj, grad_obj = compute_mmto_objective_and_gradient(
-            to_params, uvw, T, zeta, fe_solver_structural, KETemplate, matEncoder)
+            to_params, uvw, Temp_elem, zeta, fe_solver_structural, KETemplate, matEncoder)
 
         cons, grad_cons = compute_mmto_constraint_and_gradient(
-            to_params, uvw, T, zeta, fe_solver_structural, KETemplate, matEncoder)
+            to_params, uvw, Temp_elem, zeta, fe_solver_structural, KETemplate, matEncoder)
 
         if obj0 is None:
             obj0 = obj
@@ -304,64 +304,11 @@ def run_topopt(
     material_properties = matEncoder.getMaterialProperties(decoded)
     closest_index = matEncoder.getClosestRealMaterialIndex(zPts)
 
-
-    if turnOnThermal:
-        if nonlinearThermal:
-            K0 = material_properties['K0'].detach().numpy()
-            K1 = material_properties['K1'].detach().numpy()
-            K2 = material_properties['K2'].detach().numpy()
-            K3 = material_properties['K3'].detach().numpy()
-            picard_tol = 1e-4
-            max_picard_iter = 50
-            init_K=K0
-            fe_solver_thermal.mat_prop = [
-                mat_lib.create_material_with_defaults(
-                    name=f"K{i+1}",
-                    thermal_conductivity=init_K[i].item())
-                for i in range(num_elems)]
-            fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
-            T_full = fe_solver_thermal.solve(xDesign)
-            for picard_iter in range(max_picard_iter):
-                edofMat = fe_solver_thermal.mesh.edofMat
-                T_elem = np.mean(T_full[edofMat], axis=1)
-                K_elem = bezierInterpolation(T_elem, K0, K1, K2, K3)
-                fe_solver_thermal.mat_prop = [
-                    mat_lib.create_material_with_defaults(
-                        name=f"K{i+1}",
-                        thermal_conductivity=K_elem[i].item())
-                    for i in range(num_elems)]
-                fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
-                T_new_full = fe_solver_thermal.solve(xDesign)
-                norm_diff = np.linalg.norm(T_new_full - T_full)
-                if norm_diff < picard_tol:
-                    T_full = T_new_full
-                    break
-                T_full = T_new_full
-            else:
-                print(f"Max Picard iterations reached with norm: {norm_diff:.6f}")
-            edofMat = fe_solver_thermal.mesh.edofMat
-            T = np.mean(T_full[edofMat], axis=1)
-        else:
-            thermalConductivity = material_properties['K0']
-            thermalConductivity_elem = thermalConductivity.detach().numpy()
-            fe_solver_thermal.mat_prop = [
-                mat_lib.create_material_with_defaults(
-                    name=f"K{i+1}",
-                    thermal_conductivity=thermalConductivity_elem[i].item())
-                for i in range(num_elems)]
-            fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
-            T_full = fe_solver_thermal.solve(xDesign)
-            edofMat = fe_solver_thermal.mesh.edofMat
-            T = np.mean(T_full[edofMat], axis=1)
-    else:
-        T = np.ones(num_elems) * 20.0
-
-    E = matEncoder.getMaterialPropertyAtTemperature("E", zPts, T)
-    Y = matEncoder.getMaterialPropertyAtTemperature("Y", zPts, T)
+    E = matEncoder.getMaterialPropertyAtTemperature("E", zPts, Temp_elem)
+    Y = matEncoder.getMaterialPropertyAtTemperature("Y", zPts, Temp_elem)
     T_Limit = matEncoder.getValuesAtLatentPoints("T_Limit", zPts)
-   
-    isTemperatureWithinLimits = (T <= T_Limit.flatten()) | (xDesign < 0.5)
 
+    isTemperatureWithinLimits = (Temp_elem <= T_Limit.flatten()) | (xDesign < 0.5)
     print(f"Number of elements exceeding T_Limit: {np.sum(~isTemperatureWithinLimits)} out of {num_elems}")
 
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
@@ -372,7 +319,7 @@ def run_topopt(
     fe_solver_structural.plot_elem_field(closest_index)
    
     # Plot Temperature
-    fe_solver_structural.plot_elem_field(T, title='Temperature', colormap='plasma')
+    fe_solver_structural.plot_elem_field(Temp_elem, title='Temperature', colormap='plasma')
    
 
     # Plot Is Within Limits
@@ -385,18 +332,18 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    # TO Problems examples:
+    # Temperature Dependent TO Problems (see MMTO_TempDependent_examples.py for details):
     
-    # LBracket_ComplianceMass
-    # LBracket_ComplianceMassCost
-    # LBracket_ComplianceMassCriticality 
-    # LBracket_Pnormstress_ComplianceMass
-    # LBracket_Mass_ComplianceSafetyFactor
+    # 1. LBracket_Compliance_Mass (LBracket design, Minimize Compliance with Mass constraints)
+    # 2. LBracket_Compliance_MassCost (LBracket design, Minimize Compliance with Mass and Cost constraints)
+    # 3. LBracket_Compliance_MassCriticality (LBracket design, Minimize Compliance with Mass and Criticality constraints)
+    # 4. LBracket_Pnormstress_ComplianceMass (LBracket design, Minimize P-norm Stress with Compliance and Mass constraints)
+    # 5. LBracket_Mass_ComplianceSafetyFactor (LBracket design, Minimize Mass with Compliance and Safety Factor constraints)
 
-    to_problem = MMTOTempDependentExamples.LBracket_Pnormstress_ComplianceMass
+    to_problem = MMTOTempDependentExamples.LBracket_Compliance_Mass
 
     run_topopt(
         to_problem=to_problem,
-        nonlinearThermal=False,
-        use_pretrained_vae=True,
+        turnOnNonlinearThermal=False,
+        use_pretrained_vae=False,
     )

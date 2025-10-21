@@ -335,7 +335,7 @@ class MaterialEncoder:
         plt.text(zRealPts[i, 0] + 0.1, zRealPts[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
     plt.xlabel('$z_1$')
     plt.ylabel('$z_2$')
-    plt.legend(fontsize=10)
+    #plt.legend(fontsize=10)
     plt.xlim(-4, 4)
     plt.ylim(-4, 4)
     plt.grid(True)
