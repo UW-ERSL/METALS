@@ -314,13 +314,13 @@ if __name__ == "__main__":
     # 1. Bridge_Compliance_MassCost (Benchmark Bridge design, Minimize Compliance with Mass and Cost constraints)
     # 2. LBracketTopLoad_Compliance_Mass (L-Bracket with Top Load, Minimize Compliance with Mass constraint)
     # 3. LBracketTopLoad_Compliance_MassCost (L-Bracket with Top Load, Minimize Compliance with Mass and Cost constraints)
-    # 4. LBracketTopLoad_Compliance_MassCriticality (L-Bracket with Top Load, Minimize Compliance with Mass Criticality constraints)
-    # 5. LBracketTopLoad_Stress_Compliance (L-Bracket with Top Load, Minimize Stress with Compliance constraints)
-    # 6. LBracketTopLoad_Mass_StressSafetyFactorCompliance (L-Bracket with Top Load, Minimize Mass with Stress Safety Factor and Compliance constraints)
+    # 4. LBracketTopLoad_Compliance_MassCriticality (L-Bracket with Top Load, Minimize Compliance with Mass and Criticality constraints)
+    # 5. LBracketTopLoad_Stress_Mass (L-Bracket with Top Load, Minimize Stress with Mass constraint)
+    # 6. LBracketTopLoad_Mass_StressSFCompliance (L-Bracket with Top Load, Minimize Mass with Stress Safety Factor and Compliance constraints)
     # 7. BliskSection_Compliance_MassCost (Blisk Section design, Minimize Compliance with Mass and Cost constraints)
     # 8. BliskSection_Mass_ComplianceCriticality (Blisk Section design, Minimize Mass Compliance with Cost and Safety Factor constraints)
 
-    to_problem = MMTOExamples.LBracketTopLoad_Stress_Compliance
+    to_problem = MMTOExamples.LBracketTopLoad_Stress_Mass
 
 
     run_topopt(

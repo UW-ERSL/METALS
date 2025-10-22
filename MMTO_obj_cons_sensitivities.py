@@ -79,16 +79,16 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
 
     max_vm = np.max(vm_elems)
     # Note that we are using the relaxed von Mises below
-    pNormMax = 6
-    vm_pnorm = np.sum(vm_elems ** pNormMax) ** (1 / pNormMax)
-    T1 *= (1 / pNormMax) * (np.sum(vm_elems ** pNormMax) ** (1 / pNormMax - 1))
+    pNormExponent = 6
+    vm_pnorm = np.sum(vm_elems ** pNormExponent) ** (1 / pNormExponent)
+    T1 *= (1 / pNormExponent) * (np.sum(vm_elems ** pNormExponent) ** (1 / pNormExponent - 1))
 
     # Now compute the rhs of adjoint eqn 
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):  # assemble  g vector
         edof = mesh.edofMat[e]
         g[edof] += g_elem[e]
-    g *= -(1 / pNormMax) * (np.sum(vm_elems ** pNormMax) ** (1 / pNormMax - 1))
+    g *= -(1 / pNormExponent) * (np.sum(vm_elems ** pNormExponent) ** (1 / pNormExponent - 1))
 
     # Solve the adjoint	
     adjointSol = linear_solvers.solve(
@@ -201,16 +201,16 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
 
     max_sf = np.max(sf_elems)
     # Note that we are using the relaxed von Mises below
-    pNormMax = 6
-    sf_pnorm = np.sum(sf_elems ** pNormMax) ** (1 / pNormMax)
-    T1 *= (1 / pNormMax) * (np.sum(sf_elems ** pNormMax) ** (1 / pNormMax - 1))
+    pNormExponent = 6
+    sf_pnorm = np.sum(sf_elems ** pNormExponent) ** (1 / pNormExponent)
+    T1 *= (1 / pNormExponent) * (np.sum(sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
 
     # Now compute the rhs of adjoint eqn 
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):  # assemble  g vector
         edof = mesh.edofMat[e]
         g[edof] += g_elem[e]
-    g *= -(1 / pNormMax) * (np.sum(sf_elems ** pNormMax) ** (1 / pNormMax - 1))
+    g *= -(1 / pNormExponent) * (np.sum(sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
 
     # Solve the adjoint	
     adjointSol = linear_solvers.solve(
@@ -324,37 +324,28 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         vm_pnorm, grad_vm_density, max_vm = compute_pnorm_stress_and_sensitivity(
             sol, x, fe_solver, EDesign, KETemplate, MaterialModel.SIMP)
         
-        d_sigma_vm_dE = np.zeros(num_elems)
-        q = 1
-        for e in range(num_elems):
-            d_sigma_vm_dE[e] = d_relaxed_von_mises_dE(
-                fe_solver.stressComponents[e], x[e].item(), q) / EDesign[e].item()
-        # Get per-element von Mises 
-        sigma_vm = np.zeros(num_elems)
-        
-        for e in range(num_elems):
-            stress = fe_solver.stressComponents[e]
-            sxx, syy, szz, syz, sxz, sxy = stress
-            sigma_vm[e] = np.sqrt(0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2) +
-                3 * (syz ** 2 + sxz ** 2 + sxy ** 2)) * (zetaTensor[0:num_elems][e].item() ** q)
-        pNormStress = 6
-        sum_p = np.sum(sigma_vm ** pNormStress)
-        outer = (sum_p) ** (1.0 / pNormStress - 1)
-        grad_vm_z = np.zeros(2*num_elems)
+        sigma_vm = fe_solver.vonMisesStress
+        d_sigma_vm_dE = sigma_vm / EDesign
+        pNormExponent = 6
+        outer = (np.sum(sigma_vm ** pNormExponent)) ** (1.0 / pNormExponent - 1)
+
         # Backward for dE/dz 
         zetaTensor.grad = None
         ETensor.backward(torch.ones_like(ETensor), retain_graph=True)
         dE_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, -1)
-        zetaTensor.grad = None
 
-        for e in range(num_elems):
-            d_sigma_dz = d_sigma_vm_dE[e] * dE_dz[e]
-            grad_vm_z[0:num_elems] += (pNormStress * (max_vm ** (pNormStress - 1))) * d_sigma_dz[0] 
-            grad_vm_z[num_elems:2*num_elems] += (pNormStress * (max_vm ** (pNormStress - 1))) * d_sigma_dz[1]
-        grad_vm_z = (1.0 / pNormStress) * outer * grad_vm_z
+       
+        d_sigma_dz_0 = d_sigma_vm_dE * dE_dz[:,0]
+        d_sigma_dz_1 = d_sigma_vm_dE * dE_dz[:,1]
+        grad_vm_z = np.zeros(2*num_elems) 
+        grad_vm_z[0:num_elems] = (pNormExponent * (sigma_vm ** (pNormExponent - 1))) * d_sigma_dz_0
+        grad_vm_z[num_elems:] = (pNormExponent * (sigma_vm ** (pNormExponent - 1))) * d_sigma_dz_1
+
+        grad_vm_z = (1.0 / pNormExponent) * outer * grad_vm_z
         grad_pnorm_stress = np.zeros_like(zeta)
         grad_pnorm_stress[0:num_elems] = grad_vm_density
         grad_pnorm_stress[num_elems:] = grad_vm_z
+
         return vm_pnorm, grad_pnorm_stress
     
     elif objectiveType == TO_QOI.MASS:
