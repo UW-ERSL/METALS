@@ -332,7 +332,7 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    # Temperature Dependent TO Problems (see MMTO_TempDependent_examples.py for details):
+    # Temperature dependent Multi-material TO Problems (see MMTO_TempDependent_examples.py for details):
     
     # 1. LBracket_Compliance_Mass (LBracket design, Minimize Compliance with Mass constraints)
     # 2. LBracket_Compliance_MassCost (LBracket design, Minimize Compliance with Mass and Cost constraints)
@@ -344,7 +344,7 @@ if __name__ == "__main__":
 
     run_topopt(
         to_problem=to_problem,
-        turnOnNonlinearThermal=False,
-        use_penalization=False,
-        use_pretrained_vae=True,
+        turnOnNonlinearThermal=False,# if set to False, linear thermal analysis is performed, else nonlinear thermal analysis is performed
+        use_penalization=False, # if set to False, penalization is not applied, else apply progressive penalization to encourage real materials
+        use_pretrained_vae=True, # if set to False, the VAE is trained using to_params.MaterialsExcelFile, else use pre-trained VAE from file
     )

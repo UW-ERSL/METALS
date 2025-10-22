@@ -336,8 +336,8 @@ class MaterialEncoder:
     plt.xlabel('$z_1$')
     plt.ylabel('$z_2$')
     #plt.legend(fontsize=10)
-    plt.xlim(-4, 4)
-    plt.ylim(-4, 4)
+    plt.xlim(-5, 5)
+    plt.ylim(-5, 5)
     plt.grid(True)
     plt.show()
 

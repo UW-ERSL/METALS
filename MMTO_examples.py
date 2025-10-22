@@ -3,13 +3,13 @@ from MMTO_structural_examples import *
 from MMTO_thermal_examples import *
 from PyTOImports import  *
 
-class VAEParams:
+class VAEParams: #default VAE parameters
     klFactor = 5e-6
-    learningRate = 2e-4
-    numEpochs = 100000
+    learningRate = 2e-6
+    numEpochs = 150000 # max epochs
     vae_hiddenDim = 500
-    latentDim = 2
-    maxAttributeErrorPercent = 0.0001
+    latentDim = 2 # hard coded for now
+    maxAttributeErrorPercent = 0.001 # termination criteria for VAE training
 
 class MMTOExamples(enum.Enum):
     Bridge_Compliance_MassCost = enum.auto()
@@ -21,7 +21,8 @@ class MMTOExamples(enum.Enum):
     LBracketTopLoad_Mass_StressSF = enum.auto()
 
     BliskSection_Compliance_MassCost = enum.auto()
-    BliskSection_Mass_ComplianceCriticality = enum.auto()
+    BliskSection_Compliance_MassCriticality = enum.auto()
+    BliskSection_Compliance_StressSFMassCriticality = enum.auto()
 
 
 def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
@@ -43,15 +44,11 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.XSymmetry = True 
         to_params.EXtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.MaterialsExcelFile = './DataConstantTemperature/Bridge3Materials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridge.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
-        #to_params.RelativeFilterRadius = 1.5
-        vae_params.klFactor = 5e-6
-        vae_params.learningRate = 2e-5
-        vae_params.numEpochs = 100000
-        vae_params.vae_hiddenDim = 500
-      
+     
+
     elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_Mass:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 1e4
@@ -62,10 +59,6 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints = [(TO_QOI.MASS, None, 60)] 
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 100000
-        vae_params.vae_hiddenDim=500
 
     elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.LBracket
@@ -77,10 +70,6 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints = [(TO_QOI.MASS, None, 60),(TO_QOI.COST, None, 100)] 
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 100000
-        vae_params.vae_hiddenDim=500
 
     elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_MassCriticality:
         structural_problem = MMTOStructuralExamples.LBracket
@@ -91,11 +80,8 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 160),(TO_QOI.CRITICALITY, None, 0.5)] 
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 150000
-        vae_params.vae_hiddenDim=500   
+        to_params.Constraints = [(TO_QOI.MASS, None, 75),(TO_QOI.MAX_CRITICALITY, None, 0.5)] 
+
 
     elif to_problem == MMTOExamples.LBracketTopLoad_Stress_Mass:
         structural_problem = MMTOStructuralExamples.LBracket
@@ -107,26 +93,19 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints = [ (TO_QOI.MASS, None, 40)] 
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 150000
-        vae_params.vae_hiddenDim=500
+
     
     elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressSF:
         structural_problem = MMTOStructuralExamples.LBracket
-        kwargs['topload'] = 1e4
+        kwargs['topload'] = 1.5e5
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2)] 
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 150000
-        vae_params.vae_hiddenDim=500
-       
+        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,1.5)] 
+
     elif to_problem == MMTOExamples.BliskSection_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.BliskSection
         to_params.Comment  = "Large DOF"
@@ -135,27 +114,46 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None,  30), (TO_QOI.COST, None, 25)]
-        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
-        vae_params.klFactor=5e-5
-        vae_params.learningRate=8e-6
-        vae_params.numEpochs=150000
-        vae_params.vae_hiddenDim=500
-        
-    elif to_problem == MMTOExamples.BliskSection_Mass_ComplianceCriticality:
+        to_params.MaterialsExcelFile = './DataConstantTemperature/20MaterialsTeledyne.xlsx'
+
+        # for large number of materials and attributes, we need to train the VAE longer
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 750
+        vae_params.numEpochs = 200000
+    
+
+    elif to_problem == MMTOExamples.BliskSection_Compliance_MassCriticality:
         structural_problem = MMTOStructuralExamples.BliskSection
         to_params.Comment  = "Large DOF"
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = False
         to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
-        to_params.Objective = (TO_QOI.MASS, None)
-        to_params.Constraints = [(TO_QOI.COMPLIANCE, None,10), 
-                                 (TO_QOI.CRITICALITY, None,0.5)]
-        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
-        vae_params.klFactor=5e-5
-        vae_params.learningRate=2e-4
-        vae_params.numEpochs=150000
-        vae_params.vae_hiddenDim=500
-        
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.MASS, None,25), 
+                                 (TO_QOI.MEAN_CRITICALITY, None,0.5)]
+        to_params.MaterialsExcelFile = './DataConstantTemperature/20MaterialsTeledyne.xlsx'
+
+        # for large number of materials and attributes, we need to train the VAE longer
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 750
+        vae_params.numEpochs = 200000
+    
+    elif to_problem == MMTOExamples.BliskSection_Compliance_StressSFMassCriticality:
+        structural_problem = MMTOStructuralExamples.BliskSection
+        to_params.Comment  = "Large DOF"
+        to_params.KeepFixedElems = True
+        to_params.RemoveHangingElems = False
+        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.STRESS_SAFETY_FACTOR, None,1.5), 
+                                 (TO_QOI.MASS, None,25), 
+                                 (TO_QOI.MEAN_CRITICALITY, None,0.5)]
+        to_params.MaterialsExcelFile = './DataConstantTemperature/20MaterialsTeledyne.xlsx'
+
+        # for large number of materials and attributes, we need to train the VAE longer
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 750
+        vae_params.numEpochs = 200000
 
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
@@ -172,7 +170,8 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
 
 
     if to_problem == MMTOExamples.BliskSection_Compliance_MassCost or \
-        to_problem == MMTOExamples.BliskSection_Mass_ComplianceCriticality:
+        to_problem == MMTOExamples.BliskSection_Compliance_MassCriticality or \
+        to_problem == MMTOExamples.BliskSection_Compliance_StressSFMassCriticality: 
         centerPt = [0,0,0]
         axis = [0,0,1]
         outerRadius1 = 0.558

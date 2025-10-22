@@ -26,8 +26,8 @@ def run_topopt(
     use_pretrained_vae=False,
     use_penalization=False,
     snap_to_real_material=False,
-    rel_conv_tol= 1e-7,
-    maxIterations=100,
+    rel_conv_tol = 1e-7,
+    maxIterations = 100,
     z0_init_method = Z0InitMethod.ORIGIN,  
     gamma_init = 1e-7, # Gamma parameters for penalization
     gamma_max = 1000,
@@ -103,10 +103,9 @@ def run_topopt(
     iterationCount = 0
     obj0 = None # will get updated in the first iteration
     gamma = gamma_init
-    objPrev = 1e20
 
     def MMTO_optimization_function(zeta):
-        nonlocal iterationCount, obj0, gamma, zRealPoints, objPrev
+        nonlocal iterationCount, obj0, gamma, zRealPoints
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
@@ -138,7 +137,6 @@ def run_topopt(
     
         if (obj0 is None): # For the first iteration
             obj0 = obj
-           
         
         obj = obj / obj0  # Normalize objective
         grad_obj = grad_obj / obj0
@@ -185,7 +183,6 @@ def run_topopt(
             penalty.backward(retain_graph=True)
             gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
         
-
             if False: # Apply filter to grad_obj for the penalty term
                 gradMeanDistance[0:num_elems] = (H * gradMeanDistance[0:num_elems]) / Hs
                 gradMeanDistance[num_elems:2*num_elems] = (H * gradMeanDistance[num_elems:2*num_elems]) / Hs
@@ -311,22 +308,31 @@ def run_topopt(
 
 if __name__ == "__main__":
     
-    # TO Problems examples (see MMTO_examples.py for details):
+    # Temperature independent Mult-Material TO Problems :
     
-    # 1. Bridge_Compliance_MassCost (Benchmark Bridge design, Minimize Compliance with Mass and Cost constraints)
+    # Example 1 uses 3 materials, 4 attributes from './DataConstantTemperature/3MaterialsBridge.xlsx'
+    # Examples 2-6 use 3 materials, 5 attributes from './DataConstantTemperature/3Materials.xlsx'
+    # Examples 7-9 use 20 materials, 5 attributes from './DataConstantTemperature/20MaterialsTeledyne.xlsx'
+
+    # See MMTO_examples.py for additional details
+
+    # 1. Bridge_Compliance_MassCost (Benchmark Bridge, Minimize Compliance with Mass and Cost constraints)
+
     # 2. LBracketTopLoad_Compliance_Mass (L-Bracket with Top Load, Minimize Compliance with Mass constraint)
     # 3. LBracketTopLoad_Compliance_MassCost (L-Bracket with Top Load, Minimize Compliance with Mass and Cost constraints)
     # 4. LBracketTopLoad_Compliance_MassCriticality (L-Bracket with Top Load, Minimize Compliance with Mass and Criticality constraints)
     # 5. LBracketTopLoad_Stress_Mass (L-Bracket with Top Load, Minimize Stress with Mass constraint)
-    # 6. LBracketTopLoad_Mass_StressSF (L-Bracket with Top Load, Minimize Mass with Stress Safety Factor and Compliance constraints)
-    # 7. BliskSection_Compliance_MassCost (Blisk Section design, Minimize Compliance with Mass and Cost constraints)
-    # 8. BliskSection_Mass_ComplianceCriticality (Blisk Section design, Minimize Mass Compliance with Cost and Safety Factor constraints)
+    # 6. LBracketTopLoad_Mass_StressSF (L-Bracket with Top Load, Minimize Mass with Stress Safety Factor constraint)
+    
+    # 7. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
+    # 8. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
+    # 9. BliskSection_Mass_StressSFCriticality (Blisk Section, Minimize Mass with Stress Safety Factor and Criticality constraints)
 
-    to_problem = MMTOExamples.LBracketTopLoad_Stress_Mass
+    to_problem = MMTOExamples.BliskSection_Compliance_MassCost
 
 
     run_topopt(
         to_problem=to_problem,
-        use_penalization=False,
-        use_pretrained_vae=True,
+        use_penalization=True, # if True, apply progressive penalization to encourage real materials, else not
+        use_pretrained_vae=True, # if True, use pre-trained VAE from file, else train VAE using to_params.MaterialsExcelFile 
     )

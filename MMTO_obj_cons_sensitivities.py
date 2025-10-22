@@ -127,34 +127,18 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
 
 
     if isinstance(fe_solver.mat_prop, list):
+        Y = YDesign
         E = EDesign
-        yield_strengths = YDesign
         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
         D_list = []
         for Ei, nui in zip(E, nu):
-            D = Ei / ((1 + nui) * (1 - 2 * nui)) * np.array([
-                [1 - nui, nui, nui, 0, 0, 0],
-                [nui, 1 - nui, nui, 0, 0, 0],
-                [nui, nui, 1 - nui, 0, 0, 0],
-                [0, 0, 0, (1 - 2 * nui) / 2, 0, 0],
-                [0, 0, 0, 0, (1 - 2 * nui) / 2, 0],
-                [0, 0, 0, 0, 0, (1 - 2 * nui) / 2]
-            ])
+            D = hex_element_stiffness.isotropic_constitutive_matrix(Ei, nui)
             D_list.append(D)
         D = np.stack(D_list)
     else:
-        print("Using single material model for p-norm stress sensitivity.")
         E = fe_solver.mat_prop.youngs_modulus
         nu = fe_solver.mat_prop.poissons_ratio
         D = hex_element_stiffness.isotropic_constitutive_matrix(E, nu)
-        D = E / ((1 + nu) * (1 - 2 * nu)) * np.array([
-            [1 - nu, nu, nu, 0, 0, 0],
-            [nu, 1 - nu, nu, 0, 0, 0],
-            [nu, nu, 1 - nu, 0, 0, 0],
-            [0, 0, 0, (1 - 2 * nu) / 2, 0, 0],
-            [0, 0, 0, 0, (1 - 2 * nu) / 2, 0],
-            [0, 0, 0, 0, 0, (1 - 2 * nu) / 2]
-        ])
     gradN = (1 / 8) * np.array([
         [-1, 1, 1, -1, -1, 1, 1, -1],
         [-1, -1, 1, 1, -1, -1, 1, 1],
@@ -181,13 +165,13 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     else:
         F = D @ B
     g_elem = np.zeros((nelems, 24))
-    sf_elems = np.zeros(nelems)
+    inv_sf_elems = np.zeros(nelems)
     T1 = np.zeros(nelems)
     T2 = np.zeros(nelems)
 
     for e in range(nelems):
-        sf_elems[e] = fe_solver.vonMisesStress[e]/yield_strengths[e]
-        T1[e] = pSIMP * (x[e] ** (pSIMP - 1)) * sf_elems[e]
+        inv_sf_elems[e] = fe_solver.vonMisesStress[e]/Y[e]
+        T1[e] = pSIMP * (x[e] ** (pSIMP - 1)) * inv_sf_elems[e]
 
         stress_elem = fe_solver.stressComponents[e]
         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
@@ -197,20 +181,21 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
                (sigma11 - sigma33) * (F[0] - F[2]) +
                (sigma22 - sigma33) * (F[1] - F[2]) +
                6 * sigma12 * F[3] + 6 * sigma13 * F[4] + 6 * sigma23 * F[5]) / np.sqrt(2)
-        g_elem[e] = pSIMP * qStress * sf_elems[e] ** (pSIMP * qStress - 2) * g_e
+        g_elem[e] = pSIMP * qStress * inv_sf_elems[e] ** (pSIMP * qStress - 2) * g_e/Y[e]
 
-    max_sf = np.max(sf_elems)
+    max_inv_sf = np.max(inv_sf_elems)
+    
     # Note that we are using the relaxed von Mises below
     pNormExponent = 6
-    sf_pnorm = np.sum(sf_elems ** pNormExponent) ** (1 / pNormExponent)
-    T1 *= (1 / pNormExponent) * (np.sum(sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
+    inv_sf_pnorm = np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent)
+    T1 *= (1 / pNormExponent) * (np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
 
     # Now compute the rhs of adjoint eqn 
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):  # assemble  g vector
         edof = mesh.edofMat[e]
         g[edof] += g_elem[e]
-    g *= -(1 / pNormExponent) * (np.sum(sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
+    g *= -(1 / pNormExponent) * (np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
 
     # Solve the adjoint	
     adjointSol = linear_solvers.solve(
@@ -228,52 +213,9 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     ce = (np.dot(adjointSol[dofMat].reshape(num_elems, nRows), KETemplate) * sol[dofMat].reshape(num_elems, nRows)).sum(1)*EDesign
 
     T2 = get_structural_material_model_sensitivity(x, material_model) * ce
-    sf_pnorm_sensitivity = T1 + T2
-
-    return sf_pnorm, sf_pnorm_sensitivity, max_sf
-
-def d_relaxed_von_mises_dE(stress, x, q=2):
-    """
-    Compute derivative of relaxed von Mises stress with respect to Young's modulus E for a single element.
-    stress: (6,) array-like [sxx, syy, szz, syz, sxz, sxy] (unrelaxed)
-    x: density variable for the element
-    q: stress relaxation exponent (default 1)
-    Returns: scalar d(sigma_vm_relaxed)/dE
-    """
-    sxx, syy, szz, syz, sxz, sxy = stress
-    # Relaxed stress
-    factor = x**q
-    sxx_r = factor * sxx
-    syy_r = factor * syy
-    szz_r = factor * szz
-    syz_r = factor * syz
-    sxz_r = factor * sxz
-    sxy_r = factor * sxy
-    sigma_vm_relaxed = np.sqrt(
-        0.5 * ((sxx_r - syy_r) ** 2 + (syy_r - szz_r) ** 2 + (szz_r - sxx_r) ** 2) +
-        3 * (syz_r ** 2 + sxz_r ** 2 + sxy_r ** 2)
-    )
-    if sigma_vm_relaxed == 0:
-        return 0.0
-    # Partial derivatives w.r.t. each relaxed stress component
-    d_vm_dsxx = (2 * sxx_r - syy_r - szz_r) / (2 * sigma_vm_relaxed)
-    d_vm_dsyy = (2 * syy_r - sxx_r - szz_r) / (2 * sigma_vm_relaxed)
-    d_vm_dszz = (2 * szz_r - sxx_r - syy_r) / (2 * sigma_vm_relaxed)
-    d_vm_dsyz = 3 * syz_r / sigma_vm_relaxed
-    d_vm_dsxz = 3 * sxz_r / sigma_vm_relaxed
-    d_vm_dsxy = 3 * sxy_r / sigma_vm_relaxed
-    # Chain rule: d(sigma_vm_relaxed)/dE = sum_i d(sigma_vm_relaxed)/d(sigma_i) * d(sigma_i)/dE
-    # For linear elasticity, stress is proportional to E, so d(sigma_i)/dE = stress_i / E
-    d_vm_dE = (
-        d_vm_dsxx * sxx +
-        d_vm_dsyy * syy +
-        d_vm_dszz * szz +
-        d_vm_dsyz * syz +
-        d_vm_dsxz * sxz +
-        d_vm_dsxy * sxy
-    ) * factor
-    return d_vm_dE
-
+    inv_sf_pnorm_sensitivity = T1 + T2
+    
+    return inv_sf_pnorm, inv_sf_pnorm_sensitivity, max_inv_sf
 
 def compute_volume_constraint_and_gradient(x: np.ndarray, volfracUpper: float) -> tuple:
     volConstraint = ((np.mean(x)/volfracUpper) - 1.0)
@@ -282,7 +224,6 @@ def compute_volume_constraint_and_gradient(x: np.ndarray, volfracUpper: float) -
 
 
 # --- Main Objective/Constraint Functions ---
-
 def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETemplate, matEncoder):
     """
     Compute objective value and its gradient for METALS LSR.
@@ -435,13 +376,25 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             grad_cons_cost = zetaTensor.grad.detach().numpy()
             c[m, 0] = cons_cost
             dc[m, :] = grad_cons_cost
-        elif constraintType == TO_QOI.CRITICALITY:
+        elif constraintType == TO_QOI.MAX_CRITICALITY:
             decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(2,-1).T)
             criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
             pseudodensity = zetaTensor[0:fe_solver.mesh.num_elems]
             wtCriticality = torch.einsum('m,m->m', criticality, pseudodensity)
-            maxCriticality = torch.max(wtCriticality)
+            maxCriticality = torch.max(criticality)
             criticalityConstraint = ((maxCriticality / constraintLimit) - 1.0)
+            criticalityConstraint.backward(retain_graph=True)
+            cons_criticality = criticalityConstraint.detach().numpy()
+            grad_cons_criticality = zetaTensor.grad.detach().numpy()
+            c[m, 0] = cons_criticality
+            dc[m, :] = grad_cons_criticality
+        elif constraintType == TO_QOI.MEAN_CRITICALITY:
+            decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(2,-1).T)
+            criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
+            pseudodensity = zetaTensor[0:fe_solver.mesh.num_elems]
+            wtCriticality = torch.einsum('m,m->m', criticality, pseudodensity)
+            meanCriticality = torch.sum(wtCriticality)/torch.sum(pseudodensity)
+            criticalityConstraint = ((meanCriticality / constraintLimit) - 1.0)
             criticalityConstraint.backward(retain_graph=True)
             cons_criticality = criticalityConstraint.detach().numpy()
             grad_cons_criticality = zetaTensor.grad.detach().numpy()
@@ -450,15 +403,11 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
         elif constraintType == TO_QOI.STRESS_SAFETY_FACTOR:
             decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(2,-1).T)
             material_properties = matEncoder.getMaterialProperties(decoded)
-            youngsModulus = material_properties['Youngs_Modulus']
-            yieldStrength = material_properties['Yield_Strength']
-            mass_density = material_properties['Density']
-            YDesign= yieldStrength.detach().numpy()
-            EDesign = youngsModulus.detach().numpy()
-            DensDesign = mass_density.detach().numpy()
-            
-          
-            inv_sf_pnorm, grad_inv_sf_density = compute_pnorm_safety_factor_and_sensitivity(
+            ETensor = material_properties['Youngs_Modulus']
+            YTensor = material_properties['Yield_Strength']
+            YDesign= YTensor.detach().numpy()
+            EDesign = ETensor.detach().numpy()
+            inv_sf_pnorm, grad_inv_sf_density,_ = compute_pnorm_safety_factor_and_sensitivity(
                 sol, x, fe_solver,EDesign,YDesign, KETemplate, MaterialModel.SIMP)
             # Safety factor constraint value
             safety_factor = constraintLimit
@@ -467,46 +416,36 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
 
         
             # 2. Compute latent variable part of gradient (chain rule)
-            p = to_params.PNormExponent
-            d_sigma_vm_dE = np.zeros(num_elems)
-            for e in range(num_elems):
-                # Divide by decoded youngs modulus for that element
-                d_sigma_vm_dE[e] = d_relaxed_von_mises_dE(
-                    fe_solver.stressComponents[e], x[e].item(), q=2) / youngsModulus[e].item()
+            pNormExponent = 6
+            sigma_vm = fe_solver.vonMisesStress
+            d_sigma_vm_dE = sigma_vm / EDesign
             # Get per-element von Mises and yield strength
-            sigma_vm = np.zeros(num_elems)
-            for e in range(num_elems):
-                stress = fe_solver.stressComponents[e]
-                sxx, syy, szz, syz, sxz, sxy = stress
-                sigma_vm[e] = np.sqrt(0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2) +
-                    3 * (syz ** 2 + sxz ** 2 + sxy ** 2)) * (zetaTensor[0:num_elems][e].item() ** 1)
-            Y = np.array([mat.yield_strength for mat in fe_solver.mat_prop])
+            Y = YDesign
             S = sigma_vm
             inv_sf_elem = S / Y
-            sum_p = np.sum(inv_sf_elem ** p)
-            outer = (sum_p) ** (1.0 / p - 1)
-            grad_z = np.zeros(2*num_elems)
+            outer = (np.sum(inv_sf_elem ** pNormExponent)) ** (1.0 / pNormExponent - 1)
+            grad_inv_sf_z = np.zeros(2*num_elems)
             # Backward for dE/dz and dY/dz
             zetaTensor.grad = None
-            youngsModulus.backward(torch.ones_like(youngsModulus), retain_graph=True)
+            ETensor.backward(torch.ones_like(ETensor), retain_graph=True)
             dE_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, -1)
             zetaTensor.grad = None
-            yieldStrength.backward(torch.ones_like(yieldStrength), retain_graph=True)
+            YTensor.backward(torch.ones_like(YTensor), retain_graph=True)
             dY_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, -1)
             zetaTensor.grad = None
-            for e in range(num_elems):
-                d_sigma_dz = d_sigma_vm_dE[e] * dE_dz[e]
-                dYdz = dY_dz[e]
-                bracket = (d_sigma_dz * Y[e] - dYdz * S[e]) / (Y[e] ** 2) 
-                grad_z[0:num_elems] += p * (inv_sf_elem[e] ** (p - 1)) * bracket[0]
-                grad_z[num_elems:] += p * (inv_sf_elem[e] ** (p - 1)) * bracket[1]
-            grad_z = (1.0 / p) * outer * grad_z
+            d_sigma_dz_0 = d_sigma_vm_dE * dE_dz[:,0]
+            d_sigma_dz_1 = d_sigma_vm_dE * dE_dz[:,1]
+            d_inv_sf_dz_0 = (d_sigma_dz_0 * Y - dY_dz[:,0]*sigma_vm) / (Y ** 2)
+            d_inv_sf_dz_1 = (d_sigma_dz_1 * Y - dY_dz[:,1]*sigma_vm) / (Y ** 2)
+            grad_inv_sf_z[0:num_elems] = (pNormExponent * (inv_sf_elem ** (pNormExponent - 1))) * d_inv_sf_dz_0
+            grad_inv_sf_z[num_elems:] = (pNormExponent * (inv_sf_elem ** (pNormExponent - 1))) * d_inv_sf_dz_1
+            grad_inv_sf_z = (1.0 / pNormExponent) * outer * grad_inv_sf_z
 
             # 3. Assemble full gradient for constraint
-            grad_safety = np.zeros_like(zeta)
-            grad_safety[:num_elems] = grad_inv_sf_density
-            grad_safety[num_elems:] = grad_z
-            dc[m, :] = grad_safety
+            grad_inv_safety = np.zeros_like(zeta)
+            grad_inv_safety[:num_elems] = grad_inv_sf_density
+            grad_inv_safety[num_elems:] = grad_inv_sf_z
+            dc[m, :] = grad_inv_safety
 
         else:
             raise NotImplementedError(f"Constraint {constraintType} is not implemented yet.")

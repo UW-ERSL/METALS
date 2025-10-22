@@ -234,26 +234,21 @@ def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 0, radialForce =0,
   constraint_rhs = np.zeros(3*len(fixed_nodes) + len(sliding_nodes_1) + len(sliding_nodes_2))
 
   total_mesh_volume = np.prod(mesh.elem_size) * mesh.num_elems # * 0.0283168 # ft3 to m3
-  print("total mesh volume in m3",total_mesh_volume)
 
   mat_prop=mat_lib.create_material_with_defaults(name=f"Test Material", youngs_modulus=youngs_modulus,
                       poissons_ratio=poissons_ratio)
   material_density = mat_prop.mass_density
   total_mass = material_density * total_mesh_volume
-  print("total mass in kg",total_mass)
-
-
+  
   elem_body_force = None
   if (abs(rpm) > 0):
     elem_body_force = np.zeros(3*mesh.num_elems)
-    print("Applying centrifugal force at ",rpm," rpm")
     omega = 2*np.pi*rpm/60
     for e in range(mesh.num_elems):
       center = mesh.elem_centers[e]
       # Add centrifugal force to each element in xy plane
       elem_body_force[3*e:3*e+2] = (material_density*np.prod(mesh.elem_size)) * omega**2 *  center[:2]
 
-    print("total body force ",np.linalg.norm(elem_body_force))
 
   axis = [0,0,1] # z-axis
   centerPt = [0,0,0] # center of the blisk section
