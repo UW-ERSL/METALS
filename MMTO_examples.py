@@ -18,7 +18,7 @@ class MMTOExamples(enum.Enum):
     LBracketTopLoad_Compliance_MassCost = enum.auto()
     LBracketTopLoad_Compliance_MassCriticality = enum.auto()
     LBracketTopLoad_Stress_Mass = enum.auto()
-    LBracketTopLoad_Mass_StressSFCompliance = enum.auto()
+    LBracketTopLoad_Mass_StressSF = enum.auto()
 
     BliskSection_Compliance_MassCost = enum.auto()
     BliskSection_Mass_ComplianceCriticality = enum.auto()
@@ -112,7 +112,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         vae_params.numEpochs= 150000
         vae_params.vae_hiddenDim=500
     
-    elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressSFCompliance:
+    elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressSF:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 1e4
         kwargs['midload'] = 0
@@ -121,7 +121,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2), (TO_QOI.COMPLIANCE, None, 400)] 
+        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None,2)] 
         vae_params.klFactor=5e-6
         vae_params.learningRate=2e-6
         vae_params.numEpochs= 150000

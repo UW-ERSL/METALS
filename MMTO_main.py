@@ -24,6 +24,7 @@ def run_topopt(
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=False,
+    use_penalization=False,
     snap_to_real_material=False,
     rel_conv_tol= 1e-7,
     maxIterations=100,
@@ -173,24 +174,25 @@ def run_topopt(
         history["objective"].append(obj)
         history["constraints"].append(cons.flatten().copy())
     
-        # penalation is applied
-        d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
-        min_i = torch.min(d_ij, dim=1).values
-        min_i = min_i * xDesign # only penalize if element is present
-        meanDistance = torch.mean(min_i)
-        penalty = gamma * meanDistance
-        zetaTensor.grad = None
-        penalty.backward(retain_graph=True)
-        gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
-    
+        if (use_penalization):
+            # penalation is applied
+            d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
+            min_i = torch.min(d_ij, dim=1).values
+            min_i = min_i * xDesign # only penalize if element is present
+            meanDistance = torch.mean(min_i)
+            penalty = gamma * meanDistance
+            zetaTensor.grad = None
+            penalty.backward(retain_graph=True)
+            gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
+        
 
-        if False: # Apply filter to grad_obj for the penalty term
-            gradMeanDistance[0:num_elems] = (H * gradMeanDistance[0:num_elems]) / Hs
-            gradMeanDistance[num_elems:2*num_elems] = (H * gradMeanDistance[num_elems:2*num_elems]) / Hs
-             
-        grad_obj[num_elems:,0] += gradMeanDistance
-        obj = obj + penalty.item()
-        gamma = min(gamma*gamma_factor, gamma_max)
+            if False: # Apply filter to grad_obj for the penalty term
+                gradMeanDistance[0:num_elems] = (H * gradMeanDistance[0:num_elems]) / Hs
+                gradMeanDistance[num_elems:2*num_elems] = (H * gradMeanDistance[num_elems:2*num_elems]) / Hs
+                
+            grad_obj[num_elems:,0] += gradMeanDistance
+            obj = obj + penalty.item()
+            gamma = min(gamma*gamma_factor, gamma_max)
 
         iterationCount += 1
         return obj, grad_obj, cons, grad_cons
@@ -316,7 +318,7 @@ if __name__ == "__main__":
     # 3. LBracketTopLoad_Compliance_MassCost (L-Bracket with Top Load, Minimize Compliance with Mass and Cost constraints)
     # 4. LBracketTopLoad_Compliance_MassCriticality (L-Bracket with Top Load, Minimize Compliance with Mass and Criticality constraints)
     # 5. LBracketTopLoad_Stress_Mass (L-Bracket with Top Load, Minimize Stress with Mass constraint)
-    # 6. LBracketTopLoad_Mass_StressSFCompliance (L-Bracket with Top Load, Minimize Mass with Stress Safety Factor and Compliance constraints)
+    # 6. LBracketTopLoad_Mass_StressSF (L-Bracket with Top Load, Minimize Mass with Stress Safety Factor and Compliance constraints)
     # 7. BliskSection_Compliance_MassCost (Blisk Section design, Minimize Compliance with Mass and Cost constraints)
     # 8. BliskSection_Mass_ComplianceCriticality (Blisk Section design, Minimize Mass Compliance with Cost and Safety Factor constraints)
 
@@ -325,5 +327,6 @@ if __name__ == "__main__":
 
     run_topopt(
         to_problem=to_problem,
+        use_penalization=False,
         use_pretrained_vae=True,
     )

@@ -21,17 +21,17 @@ class Z0InitMethod(Enum):
 # The main code for MMTO topology optimization
 def run_topopt(
     to_problem,
-    nIterationsWithoutPenalization=50,
-    nIterationsWithPenalization=50,
+    nIterations=100,
     turnOnThermal=True,
     turnOnNonlinearThermal=False,
+    use_penalization=False,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
     z0_init_method=Z0InitMethod.ORIGIN,
     rel_conv_tol=1e-10,
-    gamma_init=1e-3,
-    gamma_max=0.1,
+    gamma_init=1e-7,
+    gamma_max=1000,
     gamma_factor=1.5):
 
     mesh_structural, mesh_thermal, mat_prop_struct, mat_prop_thermal, \
@@ -236,7 +236,7 @@ def run_topopt(
         for idx, val in enumerate(cons.flatten()):
             print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
 
-        if iterationCount > nIterationsWithoutPenalization:
+        if (use_penalization):
             d_ij = torch.cdist(zPts, zRealTorch, p=2) + 1e-12
             min_i = torch.min(d_ij, dim=1).values
             min_i = min_i * xDesign
@@ -286,7 +286,7 @@ def run_topopt(
     nVariables = num_design_var
     nConstraints = len(to_params.Constraints)
     tStart = time.time()
-    maxMMAIterations = nIterationsWithoutPenalization + nIterationsWithPenalization
+    maxMMAIterations = nIterations
 
     optResults = runMMA(nVariables, nConstraints, MMTO_optimization_function, zeta0.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
@@ -340,10 +340,11 @@ if __name__ == "__main__":
     # 4. LBracket_Pnormstress_ComplianceMass (LBracket design, Minimize P-norm Stress with Compliance and Mass constraints)
     # 5. LBracket_Mass_ComplianceSafetyFactor (LBracket design, Minimize Mass with Compliance and Safety Factor constraints)
 
-    to_problem = MMTOTempDependentExamples.LBracket_Compliance_Mass
+    to_problem = MMTOTempDependentExamples.LBracket_Compliance_MassCriticality
 
     run_topopt(
         to_problem=to_problem,
         turnOnNonlinearThermal=False,
+        use_penalization=False,
         use_pretrained_vae=True,
     )
