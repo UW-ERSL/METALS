@@ -14,13 +14,12 @@ class VAEParams:
 class MMTOTempDependentExamples(enum.Enum):
     LBracket_Compliance_Mass = enum.auto()
     LBracket_Compliance_MassCost = enum.auto()
-    LBracket_Compliance_MassCriticality = enum.auto()
-    LBracket_Pnormstress_ComplianceMass = enum.auto()
-    LBracket_Mass_ComplianceSafetyFactor = enum.auto()
+    LBracket_Stress_MassCompliance = enum.auto()
+
 
     BliskSection_Compliance_MassCost = enum.auto()
-    BliskSection_Stress_MassCriticality = enum.auto()
-    BliskSection_Mass_StressSFCriticality = enum.auto()
+    BliskSection_Stress_MassComplianceCriticality = enum.auto()
+
 def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
 
@@ -57,19 +56,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.COST, None, 200)]
 
-    elif to_problem == MMTOTempDependentExamples.LBracket_Compliance_MassCriticality:
-        structural_problem=MMTOStructuralExamples.LBracket
-        thermal_problem=MMTOThermalExamples.LBracketThermal
-        kwargs['topload'] = 1e4 
-        kwargs['midload'] = 0
-        to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
-        to_params.Objective=(TO_QOI.COMPLIANCE, None)
-        to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[(TO_QOI.MASS, None, 150), (TO_QOI.MEAN_CRITICALITY, None, 0.5)]
-
-    elif to_problem == MMTOTempDependentExamples.LBracket_Pnormstress_ComplianceMass:
+    elif to_problem == MMTOTempDependentExamples.LBracket_Stress_MassCompliance:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
         kwargs['topload'] = 1e4 
@@ -78,19 +65,9 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.MaterialsExcelFile = './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
         to_params.Objective=(TO_QOI.PNORM_STRESS, None)
         to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[(TO_QOI.MASS, None, 100), (TO_QOI.COMPLIANCE, None, 10000)]
-    elif to_problem == MMTOTempDependentExamples.LBracket_Mass_ComplianceSafetyFactor:
-        structural_problem=MMTOStructuralExamples.LBracket
-        thermal_problem=MMTOThermalExamples.LBracketThermal
-        kwargs['topload'] = 1e4  
-        kwargs['midload'] = 0
-        to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile =  './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
-        to_params.Objective=(TO_QOI.MASS, None) 
-        to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[ (TO_QOI.STRESS_SAFETY_FACTOR, None,2), (TO_QOI.COMPLIANCE, None, 9e-4)] 
+        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.COMPLIANCE, None, 25)]
+
 
     elif to_problem == MMTOTempDependentExamples.BliskSection_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.BliskSection
@@ -108,15 +85,15 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.klFactor = 5e-7
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
-    elif to_problem == MMTOTempDependentExamples.BliskSection_Stress_MassCriticality:
+    elif to_problem == MMTOTempDependentExamples.BliskSection_Stress_MassComplianceCriticality:
         structural_problem = MMTOStructuralExamples.BliskSection
         thermal_problem=MMTOThermalExamples.BliskSection
         to_params.Comment  = "Large DOF"
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = False
-        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
+        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
         to_params.Objective = (TO_QOI.PNORM_STRESS, None)
-        to_params.Constraints = [(TO_QOI.MASS, None,  100), (TO_QOI.MEAN_CRITICALITY, None, 3.5)]
+        to_params.Constraints = [(TO_QOI.MASS, None,  40), (TO_QOI.COMPLIANCE, None, 100), (TO_QOI.MEAN_CRITICALITY, None, 3.5)]
         to_params.MaterialsExcelFile = './DataVaryingTemperature/6MaterialsTempDependent.xlsx'
 
         # for large number of materials and attributes, we need to train the VAE longer
@@ -147,7 +124,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
 
 
     if to_problem == MMTOTempDependentExamples.BliskSection_Compliance_MassCost or \
-        to_problem == MMTOTempDependentExamples.BliskSection_Stress_MassCriticality:
+        to_problem == MMTOTempDependentExamples.BliskSection_Stress_MassComplianceCriticality:
         centerPt = [0,0,0]
         axis = [0,0,1]
         outerRadius1 = 0.558

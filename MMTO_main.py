@@ -72,7 +72,7 @@ def run_topopt(
 
     zRealPoints = matEncoder.training_latents
     
-    if (False): # optionally plot latent space contours
+    if (True): # optionally plot latent space contours
         matEncoder.plotLSRContours("Youngs_Modulus")
         matEncoder.plotLSRContours("Density")
         matEncoder.plotLSRContours("Cost")
@@ -329,7 +329,7 @@ if __name__ == "__main__":
     # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    to_problem = MMTOExamples.BliskSection_Stress_Mass
+    to_problem = MMTOExamples.Bridge_Compliance_MassCost
 
 
     run_topopt(

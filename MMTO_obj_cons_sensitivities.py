@@ -250,6 +250,7 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
         dJ_dEDesign = np.asarray((x ** penal) * ce)
         dJ_dEDesign_tensor = torch.tensor(dJ_dEDesign)
+        zetaTensor.grad = None
         youngsModulus.backward(dJ_dEDesign_tensor)
         dJ_dzeta = zetaTensor.grad.detach().numpy()
         grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzeta[num_elems:].flatten()))
@@ -294,6 +295,7 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         #print("Mass density min:", mass_density.min().item(), "max:", mass_density.max().item())
         pseudodensity = zetaTensor[0:num_elems]
         elemVolume =  fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
+        zetaTensor.grad = None
         totalMass = torch.einsum('m,m->m', mass_density, pseudodensity).sum()*elemVolume 
         totalMass.backward(retain_graph=True)
         obj_mass = totalMass.detach().numpy()
@@ -353,7 +355,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             pseudodensity = zetaTensor[0:num_elems]
             elemVolume =  fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
             totalMass = torch.einsum('m,m->m', mass_density, pseudodensity).sum()*elemVolume 
-
+            zetaTensor.grad = None
             massConstraint = ((totalMass / constraintLimit) - 1.0)
             massConstraint.backward(retain_graph=True)
             cons_mass = massConstraint.detach().numpy()
@@ -370,6 +372,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             elemVolume = fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
             totalCost = torch.einsum('m,m,m->m', mass_density, costperunitmass, pseudodensity).sum()*elemVolume
             costConstraint = ((totalCost /constraintLimit) - 1.0)
+            zetaTensor.grad = None
             costConstraint.backward(retain_graph=True)
             cons_cost = costConstraint.detach().numpy()
             grad_cons_cost = zetaTensor.grad.detach().numpy()
@@ -380,6 +383,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
             maxCriticality = torch.max(criticality)
             criticalityConstraint = ((maxCriticality / constraintLimit) - 1.0)
+            zetaTensor.grad = None
             criticalityConstraint.backward(retain_graph=True)
             cons_criticality = criticalityConstraint.detach().numpy()
             grad_cons_criticality = zetaTensor.grad.detach().numpy()
@@ -390,6 +394,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
             meanCriticality = torch.mean(criticality)
             criticalityConstraint = ((meanCriticality / constraintLimit) - 1.0)
+            zetaTensor.grad = None
             criticalityConstraint.backward(retain_graph=True)
             cons_criticality = criticalityConstraint.detach().numpy()
             grad_cons_criticality = zetaTensor.grad.detach().numpy()

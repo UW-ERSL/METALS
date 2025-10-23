@@ -55,9 +55,10 @@ def run_topopt(
         matEncoder.loadAutoencoderFromFile(saveNet)
     else:
         print(f"Training autoencoder and saving to: {saveNet}")
+        time_start = time.time()
         matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate)
-    
-    matEncoder.printEncodingErrors()
+        time_end = time.time()
+        print(f"Autoencoder training completed in {time_end - time_start:.2f} seconds.")
 
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
@@ -328,25 +329,24 @@ def run_topopt(
 if __name__ == "__main__":
     
     # Temperature dependent Multi-material TO Problems (see MMTO_TempDependent_examples.py for details):
-    # Example 1-4 (13000 DOF) use 3 materials, 16 attributes from './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
-    # Examples 6-9 (137000 DOF) use 6 materials, 16 attributes from './DataVaryingTemperature/6MaterialsTempDependent.xlsx'
+    # Example 1-3 (13000 DOF) use 3 materials, 16 attributes from './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
+    # Examples 4-6 (137000 DOF) use 6 materials, 16 attributes from './DataVaryingTemperature/6MaterialsTempDependent.xlsx'
 
 
     # 1. LBracket_Compliance_Mass (LBracket, Minimize Compliance with Mass constraints)
     # 2. LBracket_Compliance_MassCriticality (LBracket, Minimize Compliance with Mass and Criticality constraints)
-    # 3. LBracket_Pnormstress_MassCriticality (LBracket, Minimize P-norm Stress with Compliance and Mass constraints)
-    # 4. LBracket_Mass_ComplianceSafetyFactor (LBracket, Minimize Mass with Compliance and Safety Factor constraints)
+    # 3. LBracket_Stress_MassCompliance (LBracket, Minimize P-norm Stress with Compliance and Mass constraints)
+    
+    # 4. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
+    # 5. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
+    # 6. BliskSection_Stress_MassComplianceCriticality (Blisk Section, Minimize Stress with Mass and Compliance constraints)
 
-    # 5. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
-    # 6. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
-    # 7. BliskSection_Mass_StressSFCriticality (Blisk Section, Minimize Mass with Stress Safety Factor and Criticality constraints)
-
-    to_problem = MMTOTempDependentExamples.BliskSection_Stress_MassCriticality
+    to_problem = MMTOTempDependentExamples.LBracket_Stress_MassCompliance
 
     run_topopt(
         to_problem=to_problem,
         turnOnThermal=True,# if True, thermal analysis is performed, else no thermal analysis is performed
-        turnOnNonlinearThermal=False,# if True, non-linear thermal analysis is performed, else linear thermal analysis is performed
+        turnOnNonlinearThermal=True,# if True, non-linear thermal analysis is performed, else linear thermal analysis is performed
         use_penalization=True, # if True, penalization is applied to encourage convergence to real materials
         use_pretrained_vae=True, # if True, use pre-trained VAE from file, else the VAE is trained using to_params.MaterialsExcelFile 
     )
