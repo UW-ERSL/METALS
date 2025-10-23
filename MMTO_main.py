@@ -64,15 +64,15 @@ def run_topopt(
         matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate, vae_params.maxAttributeErrorPercent)
         time_end = time.time()
         print(f"Autoencoder training time: {time_end - time_start:.2f} seconds")
-        matEncoder.printEncodingErrors()
-
         
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
+    matEncoder.printEncodingErrors()
+
     zRealPoints = matEncoder.training_latents
     
-    if (not use_pretrained_vae): # optionally plot latent space contours
+    if (False): # optionally plot latent space contours
         matEncoder.plotLSRContours("Youngs_Modulus")
         matEncoder.plotLSRContours("Density")
         matEncoder.plotLSRContours("Cost")
@@ -92,6 +92,8 @@ def run_topopt(
     KETemplate = hex_element_stiffness.hex8_stiffness_matrix_structural(
             mat_prop_struct.youngs_modulus, mat_prop_struct.poissons_ratio, mesh_structural.elem_size)
     
+    num_dof = fe_solver_structural.bc.num_dofs
+    print(f"Number of DOF: {num_dof}")
     num_elems = mesh_structural.num_elems
     num_design_var = num_elems + num_elems * 2
 
@@ -310,9 +312,9 @@ if __name__ == "__main__":
     
     # Temperature independent Mult-Material TO Problems :
     
-    # Example 1 uses 3 materials, 4 attributes from './DataConstantTemperature/3MaterialsBridge.xlsx'
-    # Examples 2-6 use 3 materials, 5 attributes from './DataConstantTemperature/3Materials.xlsx'
-    # Examples 7-9 use 20 materials, 5 attributes from './DataConstantTemperature/20MaterialsTeledyne.xlsx'
+    # Example 1 (30000 DOF) uses 3 materials, 4 attributes from './DataConstantTemperature/3MaterialsBridge.xlsx'
+    # Examples 2-5 (13000 DOF) use 3 materials, 5 attributes from './DataConstantTemperature/3Materials.xlsx'
+    # Examples 6-9 (137000 DOF) use 20 materials, 5 attributes from './DataConstantTemperature/20MaterialsTeledyne.xlsx'
 
     # See MMTO_examples.py for additional details
 
@@ -322,13 +324,12 @@ if __name__ == "__main__":
     # 3. LBracketTopLoad_Compliance_MassCost (L-Bracket with Top Load, Minimize Compliance with Mass and Cost constraints)
     # 4. LBracketTopLoad_Compliance_MassCriticality (L-Bracket with Top Load, Minimize Compliance with Mass and Criticality constraints)
     # 5. LBracketTopLoad_Stress_Mass (L-Bracket with Top Load, Minimize Stress with Mass constraint)
-    # 6. LBracketTopLoad_Mass_StressSF (L-Bracket with Top Load, Minimize Mass with Stress Safety Factor constraint)
+   
+    # 6. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
+    # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
+    # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    # 7. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
-    # 8. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
-    # 9. BliskSection_Mass_StressSFCriticality (Blisk Section, Minimize Mass with Stress Safety Factor and Criticality constraints)
-
-    to_problem = MMTOExamples.BliskSection_Compliance_MassCost
+    to_problem = MMTOExamples.BliskSection_Stress_Mass
 
 
     run_topopt(

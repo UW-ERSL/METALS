@@ -78,18 +78,18 @@ class MaterialEncoder:
       self.attribute_means = attribute_means
       self.attribute_stds = attribute_stds
 
-      # Calculate sigma/mean for each attribute
-      sigma_mean_ratios = {}
-      for i, name in enumerate(attribute_names):
-          sigma = attribute_stds[i]
-          mean = attribute_means[i]
-          sigma_mean_ratios[name] = sigma / mean if mean != 0 else float('inf')
+      # # Calculate sigma/mean for each attribute
+      # sigma_mean_ratios = {}
+      # for i, name in enumerate(attribute_names):
+      #     sigma = attribute_stds[i]
+      #     mean = attribute_means[i]
+      #     sigma_mean_ratios[name] = sigma / mean if mean != 0 else float('inf')
 
-      # Print the name and sigma/mean for each attribute
-      print("Attribute Name       Sigma/Mean for Normalized Data")
-      print("-" * 40)
-      for name, ratio in sigma_mean_ratios.items():
-          print(f"{name:<20} {ratio:.6f}")
+      # # Print the name and sigma/mean for each attribute
+      # print("Attribute Name       Sigma/Mean for Normalized Data")
+      # print("-" * 40)
+      # for name, ratio in sigma_mean_ratios.items():
+      #     print(f"{name:<20} {ratio:.6f}")
   
   def largestEncodingErrorPercent(self):
       """

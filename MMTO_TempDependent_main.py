@@ -24,7 +24,7 @@ def run_topopt(
     nIterations=100,
     turnOnThermal=True,
     turnOnNonlinearThermal=False,
-    use_penalization=False,
+    use_penalization=True,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
@@ -44,7 +44,6 @@ def run_topopt(
     matEncoder = MaterialEncoder(vae_params)
     matEncoder.readExcel(to_params.MaterialsExcelFile)
 
-    numAttributes = matEncoder.nAttributes
 
     if saveNet is None:
         base, _ = os.path.splitext(to_params.MaterialsExcelFile)
@@ -55,9 +54,10 @@ def run_topopt(
         print(f"Loading pre-trained autoencoder from file: {saveNet}")
         matEncoder.loadAutoencoderFromFile(saveNet)
     else:
-        print(f"Training autoencoder from scratch and saving to: {saveNet}")
+        print(f"Training autoencoder and saving to: {saveNet}")
         matEncoder.trainAutoencoder(vae_params.numEpochs, vae_params.klFactor, saveNet, vae_params.learningRate)
-        matEncoder.printEncodingErrors()
+    
+    matEncoder.printEncodingErrors()
 
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
@@ -67,7 +67,8 @@ def run_topopt(
     if True:
         matEncoder.plotTemperatureVsMaterialProperty("E", semilogy=True)
         matEncoder.plotTemperatureVsMaterialProperty("Y", semilogy=True)
-    if False:
+        matEncoder.plotTemperatureVsMaterialProperty("K", semilogy=True)
+    if True:
         matEncoder.plotLSRContours("E0")
         matEncoder.plotLSRContours("E1")
 
@@ -121,6 +122,8 @@ def run_topopt(
         decoded = matEncoder.vaeNet.decoder(zPts)
         material_properties = matEncoder.getMaterialProperties(decoded)
 
+        fe_solver_thermal.mesh.setPseudoDensity(xDesign.detach().cpu().numpy()) # important for plotting over mesh
+        fe_solver_structural.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
         if turnOnThermal:
             if turnOnNonlinearThermal:
                 K0 = material_properties['K0'].detach().numpy()
@@ -195,7 +198,7 @@ def run_topopt(
             for i in range(num_elems)
         ]
         fe_solver_structural.set_structural_material(fe_solver_structural.mat_prop)
-
+        
         uvw = fe_solver_structural.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
         fe_solver_structural.postprocess()
 
@@ -215,6 +218,9 @@ def run_topopt(
 
         obj = obj / obj0
         grad_obj = grad_obj / obj0
+        if (to_params.ElemsToKeep is not None):
+            grad_obj[to_params.ElemsToKeep] = min(grad_obj) # also retain elements that are in the keep list
+
 
         grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
         grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
@@ -245,7 +251,7 @@ def run_topopt(
             penalty.backward(retain_graph=True)
             grad_obj[num_elems:, 0] += zetaTensor.grad[num_elems:].detach().numpy()
             obj = obj + penalty.item()
-            if False:
+            if False: # don't filter penalization gradient
                 grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
                 grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
             gamma = min(gamma * gamma_factor, gamma_max)
@@ -300,51 +306,47 @@ def run_topopt(
     zDesign = zetaOptimal[num_elems:]
     zDesignTensor = torch.tensor(zDesign).float()
     zPts = zDesignTensor.view(2, -1).T
-    decoded = matEncoder.vaeNet.decoder(zPts)
-    material_properties = matEncoder.getMaterialProperties(decoded)
+
+    fe_solver_thermal.mesh.setPseudoDensity(xDesign) # important for plotting over mesh
+    fe_solver_structural.mesh.setPseudoDensity(xDesign)
     closest_index = matEncoder.getClosestRealMaterialIndex(zPts)
 
     E = matEncoder.getMaterialPropertyAtTemperature("E", zPts, Temp_elem)
     Y = matEncoder.getMaterialPropertyAtTemperature("Y", zPts, Temp_elem)
-    T_Limit = matEncoder.getValuesAtLatentPoints("T_Limit", zPts)
+    Temp_Limit = matEncoder.getValuesAtLatentPoints("Temp_Limit", zPts)
 
-    isTemperatureWithinLimits = (Temp_elem <= T_Limit.flatten()) | (xDesign < 0.5)
+    isTemperatureWithinLimits = (Temp_elem <= Temp_Limit.flatten()) | (xDesign < 0.9)
     print(f"Number of elements exceeding Temp Limit: {np.sum(~isTemperatureWithinLimits)} out of {num_elems}")
 
-    fe_solver_structural.mesh.setPseudoDensity(xDesign)
-    fe_solver_structural.solve(xDesign)
-    fe_solver_structural.postprocess()
-
-    # Plot closest_index
-    fe_solver_structural.plot_elem_field(closest_index)
-   
-    # Plot Temperature
-    fe_solver_structural.plot_elem_field(Temp_elem, title='Temperature', colormap='plasma')
-   
-
-    # Plot Is Within Limits
-    fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Is Within Limits', colormap='RdYlGn')
-    
-    # Plot Young's Modulus
-    fe_solver_structural.plot_elem_field(E, title='Young\'s Modulus', colormap='plasma')
+    fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Is Within Limits', colormap='RdYlGn')  # Is Within Limits
+    fe_solver_structural.plot_elem_field(E, title='Young\'s Modulus', colormap='plasma')  # Plot Young's Modulus
+    fe_solver_structural.plot_elem_field(closest_index) # closest real material index
+    fe_solver_structural.plot_elem_field(Temp_elem, title='Temperature', colormap='plasma') # Plot Temperature
 
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zDesign.reshape(2, -1).T, xDesign=xDesign)
 
 if __name__ == "__main__":
     
     # Temperature dependent Multi-material TO Problems (see MMTO_TempDependent_examples.py for details):
-    
-    # 1. LBracket_Compliance_Mass (LBracket design, Minimize Compliance with Mass constraints)
-    # 2. LBracket_Compliance_MassCost (LBracket design, Minimize Compliance with Mass and Cost constraints)
-    # 3. LBracket_Compliance_MassCriticality (LBracket design, Minimize Compliance with Mass and Criticality constraints)
-    # 4. LBracket_Pnormstress_ComplianceMass (LBracket design, Minimize P-norm Stress with Compliance and Mass constraints)
-    # 5. LBracket_Mass_ComplianceSafetyFactor (LBracket design, Minimize Mass with Compliance and Safety Factor constraints)
+    # Example 1-4 (13000 DOF) use 3 materials, 16 attributes from './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
+    # Examples 6-9 (137000 DOF) use 6 materials, 16 attributes from './DataVaryingTemperature/6MaterialsTempDependent.xlsx'
 
-    to_problem = MMTOTempDependentExamples.LBracket_Compliance_MassCriticality
+
+    # 1. LBracket_Compliance_Mass (LBracket, Minimize Compliance with Mass constraints)
+    # 2. LBracket_Compliance_MassCriticality (LBracket, Minimize Compliance with Mass and Criticality constraints)
+    # 3. LBracket_Pnormstress_MassCriticality (LBracket, Minimize P-norm Stress with Compliance and Mass constraints)
+    # 4. LBracket_Mass_ComplianceSafetyFactor (LBracket, Minimize Mass with Compliance and Safety Factor constraints)
+
+    # 5. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
+    # 6. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
+    # 7. BliskSection_Mass_StressSFCriticality (Blisk Section, Minimize Mass with Stress Safety Factor and Criticality constraints)
+
+    to_problem = MMTOTempDependentExamples.BliskSection_Stress_MassCriticality
 
     run_topopt(
         to_problem=to_problem,
-        turnOnNonlinearThermal=False,# if set to False, linear thermal analysis is performed, else nonlinear thermal analysis is performed
-        use_penalization=False, # if set to False, penalization is not applied, else apply progressive penalization to encourage real materials
-        use_pretrained_vae=True, # if set to False, the VAE is trained using to_params.MaterialsExcelFile, else use pre-trained VAE from file
+        turnOnThermal=True,# if True, thermal analysis is performed, else no thermal analysis is performed
+        turnOnNonlinearThermal=False,# if True, non-linear thermal analysis is performed, else linear thermal analysis is performed
+        use_penalization=True, # if True, penalization is applied to encourage convergence to real materials
+        use_pretrained_vae=True, # if True, use pre-trained VAE from file, else the VAE is trained using to_params.MaterialsExcelFile 
     )

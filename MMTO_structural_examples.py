@@ -164,7 +164,8 @@ def createLBracketProblem(nDOFDesired: int = 10000, topload = 1000,midload = 0):
 
   # ----------------------------------------
 
-def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 0, radialForce =0, downwardForce = 10000 , youngs_modulus = 1, poissons_ratio = 0.3): 
+def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 2000, radialForce = 0, downwardForce = 500 , 
+                              youngs_modulus = 1, poissons_ratio = 0.3): 
  
   # Read the STL model, create a mesh of desired size, and a structural problem is posed on it.
   stl_file = os.path.join(script_dir, './Models/BliskModel/BliskSection.STL')
@@ -240,26 +241,29 @@ def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 0, radialForce =0,
   material_density = mat_prop.mass_density
   total_mass = material_density * total_mesh_volume
   
+  axis = [0,0,1] # z-axis
+  centerPt = [0,0,0] # center of the blisk section
+  outerRadius = 0.5
+  tipRadius = 1.
   elem_body_force = None
   if (abs(rpm) > 0):
     elem_body_force = np.zeros(3*mesh.num_elems)
     omega = 2*np.pi*rpm/60
     for e in range(mesh.num_elems):
       center = mesh.elem_centers[e]
-      # Add centrifugal force to each element in xy plane
-      elem_body_force[3*e:3*e+2] = (material_density*np.prod(mesh.elem_size)) * omega**2 *  center[:2]
+      if np.linalg.norm(center[:2]) > outerRadius:
+        # Add centrifugal force to each element in xy plane
+        elem_body_force[3*e:3*e+2] = (material_density*np.prod(mesh.elem_size)) * omega**2 *  center[:2]
 
 
-  axis = [0,0,1] # z-axis
-  centerPt = [0,0,0] # center of the blisk section
-  outerRadius = 0.565
+  
   load_nodes = mesh.get_nodes_within_annular_region(centerPt,axis,outerRadius-mesh.elem_size[0]*0.707,
-                                                    outerRadius+mesh.elem_size[0]*0.707)  
+                                                    outerRadius+mesh.elem_size[0]*0.707,)  
   
   mesh.node_indices[load_nodes, 3] = 2 # for plotting
   boundaryForce = np.zeros(3*mesh.num_nodes) 
  
-  print("Applying radial force of ",radialForce," N on ", len(load_nodes), " nodes on outer circumference")
+  #print("Applying additional force on ", len(load_nodes), " nodes on outer circumference")
   # Apply radial force on each node on the circumference 
   for node in load_nodes:
     node_pos = mesh.node_xyz[node,:2] # get x,y coordinates
@@ -270,8 +274,6 @@ def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 0, radialForce =0,
     boundaryForce[3*node] = radialForce/len(load_nodes) * radial_dir[0]  
     boundaryForce[3*node + 1] = radialForce/len(load_nodes) * radial_dir[1]
     boundaryForce[3*node + 2] = downwardForce/len(load_nodes)
-  
-  print("Total applied radial force ",np.sum(boundaryForce[0::3]),np.sum(boundaryForce[1::3]))
   
 
   mesh.node_indices[sliding_nodes_1, 3] = 1 # for plotting

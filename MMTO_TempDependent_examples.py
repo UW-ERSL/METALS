@@ -5,11 +5,11 @@ from PyTOImports import  *
 
 class VAEParams:
     klFactor = 5e-6
-    learningRate = 2e-4
-    numEpochs = 100000
+    learningRate = 2e-6
+    numEpochs = 150000 # max epochs
     vae_hiddenDim = 500
-    latentDim = 2
-    maxAttributeErrorPercent = 0.0001
+    latentDim = 2 # hard coded for now
+    maxAttributeErrorPercent = 0.001 # termination criteria for VAE training
 
 class MMTOTempDependentExamples(enum.Enum):
     LBracket_Compliance_Mass = enum.auto()
@@ -18,7 +18,9 @@ class MMTOTempDependentExamples(enum.Enum):
     LBracket_Pnormstress_ComplianceMass = enum.auto()
     LBracket_Mass_ComplianceSafetyFactor = enum.auto()
 
-
+    BliskSection_Compliance_MassCost = enum.auto()
+    BliskSection_Stress_MassCriticality = enum.auto()
+    BliskSection_Mass_StressSFCriticality = enum.auto()
 def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
 
@@ -42,12 +44,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.Objective=(TO_QOI.COMPLIANCE, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[(TO_QOI.MASS, None, 60)]
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 150000
-        vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
+        to_params.Constraints=[(TO_QOI.MASS, None, 150)]
     elif to_problem == MMTOTempDependentExamples.LBracket_Compliance_MassCost:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
@@ -59,11 +56,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.COST, None, 200)]
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 100000
-        vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
+
     elif to_problem == MMTOTempDependentExamples.LBracket_Compliance_MassCriticality:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
@@ -74,12 +67,8 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.Objective=(TO_QOI.COMPLIANCE, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.CRITICALITY, None, 0.2)]
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 100000
-        vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
+        to_params.Constraints=[(TO_QOI.MASS, None, 150), (TO_QOI.MEAN_CRITICALITY, None, 0.5)]
+
     elif to_problem == MMTOTempDependentExamples.LBracket_Pnormstress_ComplianceMass:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
@@ -90,12 +79,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.Objective=(TO_QOI.PNORM_STRESS, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.COMPLIANCE, None, 3)]
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 100000
-        vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported
+        to_params.Constraints=[(TO_QOI.MASS, None, 100), (TO_QOI.COMPLIANCE, None, 10000)]
     elif to_problem == MMTOTempDependentExamples.LBracket_Mass_ComplianceSafetyFactor:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
@@ -105,16 +89,41 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.MaterialsExcelFile =  './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
         to_params.Objective=(TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
-        to_params.T0=500
-        to_params.E0=1
-        to_params.Y0=1
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[ (TO_QOI.STRESS_SAFETY_FACTOR, None,2), (TO_QOI.COMPLIANCE, None, 9e-4)] 
-        vae_params.klFactor=5e-6
-        vae_params.learningRate=2e-6
-        vae_params.numEpochs= 100000
-        vae_params.vae_hiddenDim=500
-        vae_params.latentDim=2 # don't change this. Only 2D latent space is supported 
+
+    elif to_problem == MMTOTempDependentExamples.BliskSection_Compliance_MassCost:
+        structural_problem = MMTOStructuralExamples.BliskSection
+        thermal_problem=MMTOThermalExamples.BliskSection
+        to_params.Comment  = "Large DOF"
+        to_params.KeepFixedElems = True
+        to_params.RemoveHangingElems = False
+        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.MASS, None,  100), (TO_QOI.COST, None, 100)]
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/6MaterialsTempDependent.xlsx'
+
+        # for large number of materials and attributes, we need to train the VAE longer
+        vae_params.learningRate = 2e-5
+        vae_params.klFactor = 5e-7
+        vae_params.vae_hiddenDim = 500
+        vae_params.numEpochs = 200000
+    elif to_problem == MMTOTempDependentExamples.BliskSection_Stress_MassCriticality:
+        structural_problem = MMTOStructuralExamples.BliskSection
+        thermal_problem=MMTOThermalExamples.BliskSection
+        to_params.Comment  = "Large DOF"
+        to_params.KeepFixedElems = True
+        to_params.RemoveHangingElems = False
+        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
+        to_params.Objective = (TO_QOI.PNORM_STRESS, None)
+        to_params.Constraints = [(TO_QOI.MASS, None,  100), (TO_QOI.MEAN_CRITICALITY, None, 3.5)]
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/6MaterialsTempDependent.xlsx'
+
+        # for large number of materials and attributes, we need to train the VAE longer
+        vae_params.learningRate = 2e-5
+        vae_params.klFactor = 5e-7
+        vae_params.vae_hiddenDim = 500
+        vae_params.numEpochs = 200000
     
 
     else:
@@ -123,9 +132,8 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
     mesh, mat_prop, bc, elem_body_force = getMMTOStructuralProblem(structural_problem, nDOFDesired = to_params.nDOFDesired, **kwargs)
 
     if 'thermal_problem' in locals() and thermal_problem is not None:
-        print("Setting up thermal + structural TO problem")
         mesh_thermal, mat_prop_thermal, bc_thermal = getMMTOThermalProblem(thermal_problem, nDOFDesired=to_params.nDOFDesired, **kwargs)
-        return mesh, mesh_thermal, mat_prop, mat_prop_thermal, bc, bc_thermal, elem_body_force, to_params, vae_params
+        
     else:
         mesh_thermal, mat_prop_thermal, bc_thermal = None, None, None
     
@@ -138,16 +146,14 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.ElemsToKeep = find_elements_with_fixedDOF(mesh, bc,nDOFPerNode=3)
 
 
-    if to_problem == MMTOTempDependentExamples.BliskSectionComplianceMassCost or \
-        to_problem == MMTOTempDependentExamples.BliskSectionMassComplianceCostSafetyFactor:
+    if to_problem == MMTOTempDependentExamples.BliskSection_Compliance_MassCost or \
+        to_problem == MMTOTempDependentExamples.BliskSection_Stress_MassCriticality:
         centerPt = [0,0,0]
         axis = [0,0,1]
         outerRadius1 = 0.558
         outerRadius2 = 1
         bladeElements = mesh.get_elems_within_annular_region(centerPt,axis,outerRadius1,outerRadius2)
         to_params.ElemsToKeep = np.union1d(to_params.ElemsToKeep, bladeElements)
-        print(f"Number of elements in the blade region = {len(bladeElements)}")
 
-
-    return mesh, mesh_thermal,mat_prop, bc, elem_body_force, to_params, vae_params
-
+    return mesh, mesh_thermal, mat_prop, mat_prop_thermal, bc, bc_thermal, elem_body_force, to_params, vae_params
+    

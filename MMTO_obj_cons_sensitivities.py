@@ -181,10 +181,9 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
                (sigma11 - sigma33) * (F[0] - F[2]) +
                (sigma22 - sigma33) * (F[1] - F[2]) +
                6 * sigma12 * F[3] + 6 * sigma13 * F[4] + 6 * sigma23 * F[5]) / np.sqrt(2)
-        g_elem[e] = pSIMP * qStress * inv_sf_elems[e] ** (pSIMP * qStress - 2) * g_e/Y[e]
+        g_elem[e] = pSIMP * qStress * inv_sf_elems[e] ** (pSIMP * qStress - 2) * g_e
 
     max_inv_sf = np.max(inv_sf_elems)
-    
     # Note that we are using the relaxed von Mises below
     pNormExponent = 6
     inv_sf_pnorm = np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent)
@@ -214,7 +213,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
 
     T2 = get_structural_material_model_sensitivity(x, material_model) * ce
     inv_sf_pnorm_sensitivity = T1 + T2
-    
+
     return inv_sf_pnorm, inv_sf_pnorm_sensitivity, max_inv_sf
 
 def compute_volume_constraint_and_gradient(x: np.ndarray, volfracUpper: float) -> tuple:
@@ -285,7 +284,7 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         grad_vm_z = (1.0 / pNormExponent) * outer * grad_vm_z
         grad_pnorm_stress = np.zeros_like(zeta)
         grad_pnorm_stress[0:num_elems] = grad_vm_density
-        grad_pnorm_stress[num_elems:] = grad_vm_z
+        grad_pnorm_stress[num_elems:] = 0.1*grad_vm_z
 
         return vm_pnorm, grad_pnorm_stress
     
@@ -379,8 +378,6 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
         elif constraintType == TO_QOI.MAX_CRITICALITY:
             decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(2,-1).T)
             criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
-            pseudodensity = zetaTensor[0:fe_solver.mesh.num_elems]
-            wtCriticality = torch.einsum('m,m->m', criticality, pseudodensity)
             maxCriticality = torch.max(criticality)
             criticalityConstraint = ((maxCriticality / constraintLimit) - 1.0)
             criticalityConstraint.backward(retain_graph=True)
@@ -391,9 +388,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
         elif constraintType == TO_QOI.MEAN_CRITICALITY:
             decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(2,-1).T)
             criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
-            pseudodensity = zetaTensor[0:fe_solver.mesh.num_elems]
-            wtCriticality = torch.einsum('m,m->m', criticality, pseudodensity)
-            meanCriticality = torch.sum(wtCriticality)/torch.sum(pseudodensity)
+            meanCriticality = torch.mean(criticality)
             criticalityConstraint = ((meanCriticality / constraintLimit) - 1.0)
             criticalityConstraint.backward(retain_graph=True)
             cons_criticality = criticalityConstraint.detach().numpy()
@@ -414,7 +409,6 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             safety_constraint = inv_sf_pnorm - (1.0 / safety_factor)
             c[m, 0] = safety_constraint
 
-        
             # 2. Compute latent variable part of gradient (chain rule)
             pNormExponent = 6
             sigma_vm = fe_solver.vonMisesStress
@@ -423,7 +417,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             Y = YDesign
             S = sigma_vm
             inv_sf_elem = S / Y
-            outer = (np.sum(inv_sf_elem ** pNormExponent)) ** (1.0 / pNormExponent - 1)
+            outer = (np.sum(sigma_vm ** pNormExponent)) ** (1.0 / pNormExponent - 1)
             grad_inv_sf_z = np.zeros(2*num_elems)
             # Backward for dE/dz and dY/dz
             zetaTensor.grad = None
@@ -435,8 +429,8 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             zetaTensor.grad = None
             d_sigma_dz_0 = d_sigma_vm_dE * dE_dz[:,0]
             d_sigma_dz_1 = d_sigma_vm_dE * dE_dz[:,1]
-            d_inv_sf_dz_0 = (d_sigma_dz_0 * Y - dY_dz[:,0]*sigma_vm) / (Y ** 2)
-            d_inv_sf_dz_1 = (d_sigma_dz_1 * Y - dY_dz[:,1]*sigma_vm) / (Y ** 2)
+            d_inv_sf_dz_0 = (d_sigma_dz_0 * Y - (sigma_vm / (Y ** 2)) * dY_dz[:,0])
+            d_inv_sf_dz_1 = (d_sigma_dz_1 * Y - (sigma_vm / (Y ** 2)) * dY_dz[:,1])
             grad_inv_sf_z[0:num_elems] = (pNormExponent * (inv_sf_elem ** (pNormExponent - 1))) * d_inv_sf_dz_0
             grad_inv_sf_z[num_elems:] = (pNormExponent * (inv_sf_elem ** (pNormExponent - 1))) * d_inv_sf_dz_1
             grad_inv_sf_z = (1.0 / pNormExponent) * outer * grad_inv_sf_z

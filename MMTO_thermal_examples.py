@@ -8,7 +8,7 @@ import pyvista as pv
 class MMTOThermalExamples(enum.Enum):
     EdgeCantilever = enum.auto()
     EdgeCantilever_TempBC = enum.auto()  # Edge cantilever with temperature boundary conditions
-    BliskBlade = enum.auto()  # Blisk blade thermal problem
+    BliskSection = enum.auto()  # Blisk section thermal problem
     LBracketThermal = enum.auto()
     # Add more as needed
 
@@ -19,7 +19,7 @@ def getMMTOThermalProblem(problem: MMTOThermalExamples,nDOFDesired: int = 20000,
     """
     if problem == MMTOThermalExamples.EdgeCantilever:
         return createEdgeCantileverThermalProblem(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
-    elif problem == MMTOThermalExamples.BliskBlade:
+    elif problem == MMTOThermalExamples.BliskSection:
         return createBliskBladeThermalProblem_TempBC(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
     elif problem == MMTOThermalExamples.EdgeCantilever_TempBC:
         return createEdgeCantileverThermalProblem_TempBC(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
@@ -118,15 +118,15 @@ def createEdgeCantileverThermalProblem_TempBC(mesh=None, nDOFDesired: int = 5000
 
     return mesh, mat_prop, bc
 def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000, 
-                                          thermal_conductivity=1.0, temp_tip=275.0, temp_bottom=50.0):
+                                          thermal_conductivity=1.0, temp_tip=800.0, temp_bottom=50.0):
     """
     Creates a thermal blisk blade problem with prescribed temperatures at the tip and bottom.
     Uses mesh from the structural blisk blade example if provided.
     """
     # If mesh is not provided, create it using the structural example
     if mesh is None:
-        from MMTO_structural_examples import createBliskSectionWithBlade
-        mesh, _, _, _ = createBliskSectionWithBlade(nDOFDesired=nDOFDesired)
+        from MMTO_structural_examples import createBliskSectionProblem
+        mesh, _, _, _ = createBliskSectionProblem(nDOFDesired=nDOFDesired)
         mesh.createEdofMatThermal()
     else:
         if not hasattr(mesh, 'edofMat') or mesh.edofMat is None:
@@ -143,7 +143,7 @@ def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000,
     x_min = np.min(vertices[:, 0])
     x_max = np.max(vertices[:, 0])
     tol = 1e-8 * (x_max - x_min)
-    print(f"X min: {x_min}, X max: {x_max}, Tolerance: {tol}")
+
     # Bottom nodes: x == x_min
     bottom_nodes = np.where(np.isclose(vertices[:, 0], x_min, atol=tol))[0]
     # Tip nodes: x == x_max
