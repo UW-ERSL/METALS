@@ -25,13 +25,13 @@ def run_topopt(
     saveNet=None,
     use_pretrained_vae=False,
     use_penalization=False,
-    snap_to_real_material=False,
+    snap_to_real_material=True,
     rel_conv_tol = 1e-7,
     maxIterations = 100,
     z0_init_method = Z0InitMethod.ORIGIN,  
-    gamma_init = 1e-7, # Gamma parameters for penalization
-    gamma_max = 1000,
-    gamma_factor = 1.5):
+    gamma_init = 1e-3, # penalization
+    gamma_max = 100,
+    gamma_factor =1.1):
     
     history = {
         "objective": [],
@@ -72,7 +72,7 @@ def run_topopt(
 
     zRealPoints = matEncoder.training_latents
     
-    if (True): # optionally plot latent space contours
+    if (False): # optionally plot latent space contours
         matEncoder.plotLSRContours("Youngs_Modulus")
         matEncoder.plotLSRContours("Density")
         matEncoder.plotLSRContours("Cost")
@@ -175,16 +175,16 @@ def run_topopt(
         history["constraints"].append(cons.flatten().copy())
     
         if (use_penalization):
-            # penalation is applied
-            d_ij = torch.sqrt(torch.cdist(zPoints, zRealPoints, p=2))
+            d_ij = torch.cdist(zPoints, zRealPoints)
             min_i = torch.min(d_ij, dim=1).values
-            min_i = min_i * xDesign # only penalize if element is present
-            meanDistance = torch.mean(min_i)
-            penalty = gamma * meanDistance
+            min_i = min_i * xDesign # only relevant if element is present
+            nActiveElems = np.ceil(torch.sum((xDesign).float()).item())
+            avgClosestDistance = torch.sum(min_i) / nActiveElems   
+            maxClosestDistance = torch.max(min_i).item()
+            penalty = gamma * avgClosestDistance
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
             gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
-        
             if False: # Apply filter to grad_obj for the penalty term
                 gradMeanDistance[0:num_elems] = (H * gradMeanDistance[0:num_elems]) / Hs
                 gradMeanDistance[num_elems:2*num_elems] = (H * gradMeanDistance[num_elems:2*num_elems]) / Hs
@@ -261,6 +261,7 @@ def run_topopt(
         print("After snapping:")
         print(50 * "-")
         MMTO_optimization_function(zetaOptimal)
+        zOptimalPts = zSnappedPts
     
     decoded = matEncoder.vaeNet.decoder(zOptimalPts)
     material_properties = matEncoder.getMaterialProperties(decoded)
@@ -329,11 +330,12 @@ if __name__ == "__main__":
     # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    to_problem = MMTOExamples.Bridge_Compliance_MassCost
+    to_problem = MMTOExamples.LBracketTopLoad_Compliance_MassCost
 
 
     run_topopt(
         to_problem=to_problem,
         use_penalization=True, # if True, apply progressive penalization to encourage real materials, else not
-        use_pretrained_vae=True, # if True, use pre-trained VAE from file, else train VAE using to_params.MaterialsExcelFile 
+        use_pretrained_vae=True, # if True, use pre-trained VAE from file, else train VAE using to_params.MaterialsExcelFile
+        snap_to_real_material=True, # if True, snap final design to closest real material
     )

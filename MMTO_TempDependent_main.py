@@ -30,9 +30,9 @@ def run_topopt(
     use_pretrained_vae=True,
     z0_init_method=Z0InitMethod.ORIGIN,
     rel_conv_tol=1e-10,
-    gamma_init=1e-7,
-    gamma_max=1000,
-    gamma_factor=1.5):
+    gamma_init=1e-3,
+    gamma_max=100,
+    gamma_factor=1.1):
 
     mesh_structural, mesh_thermal, mat_prop_struct, mat_prop_thermal, \
     bc_struct, bc_thermal, elem_body_force, to_params, vae_params = \
@@ -244,10 +244,13 @@ def run_topopt(
             print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
 
         if (use_penalization):
-            d_ij = torch.cdist(zPts, zRealTorch, p=2) + 1e-12
+            d_ij = torch.cdist(zPts, zRealTorch, p=2) 
             min_i = torch.min(d_ij, dim=1).values
             min_i = min_i * xDesign
-            penalty = gamma * torch.mean(min_i) 
+            nActiveElems = np.ceil(torch.sum((xDesign).float()).item())
+            maxClosestDistance = torch.max(min_i)
+            avgClosestDistance = torch.sum(min_i) / nActiveElems 
+            penalty = gamma * avgClosestDistance
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
             grad_obj[num_elems:, 0] += zetaTensor.grad[num_elems:].detach().numpy()
@@ -255,7 +258,9 @@ def run_topopt(
             if False: # don't filter penalization gradient
                 grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
                 grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
-            gamma = min(gamma * gamma_factor, gamma_max)
+
+            gamma = min(gamma*gamma_factor, gamma_max)
+
 
         iterationCount += 1
         return obj, grad_obj, cons, grad_cons
@@ -334,14 +339,14 @@ if __name__ == "__main__":
 
 
     # 1. LBracket_Compliance_Mass (LBracket, Minimize Compliance with Mass constraints)
-    # 2. LBracket_Compliance_MassCriticality (LBracket, Minimize Compliance with Mass and Criticality constraints)
+    # 2. LBracket_Compliance_MassCost (LBracket, Minimize Compliance with Mass and Cost constraints)
     # 3. LBracket_Stress_MassCompliance (LBracket, Minimize P-norm Stress with Compliance and Mass constraints)
     
     # 4. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
     # 5. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 6. BliskSection_Stress_MassComplianceCriticality (Blisk Section, Minimize Stress with Mass and Compliance constraints)
 
-    to_problem = MMTOTempDependentExamples.LBracket_Stress_MassCompliance
+    to_problem = MMTOTempDependentExamples.BliskSection_Stress_MassComplianceCriticality
 
     run_topopt(
         to_problem=to_problem,

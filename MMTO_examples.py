@@ -18,6 +18,9 @@ class MMTOExamples(enum.Enum):
     LBracketTopLoad_Compliance_MassCost = enum.auto()
     LBracketTopLoad_Compliance_MassCriticality = enum.auto()
     LBracketTopLoad_Stress_Mass = enum.auto()
+    LBracketTopLoad_Mass_StressSF = enum.auto()
+
+    EdgeCantilever_Compliance_MassCost = enum.auto()
     
     BliskSection_Compliance_MassCost = enum.auto()
     BliskSection_Compliance_MassCriticality = enum.auto()
@@ -41,12 +44,13 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         structural_problem = MMTOStructuralExamples.Bridge
         to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint"
         to_params.XSymmetry = True 
-        to_params.EXtrudeZ = True
+        to_params.ExtrudeZ = True
+        to_params.RelativeFilterRadius = 3
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridge.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
-     
+ 
 
     elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_Mass:
         structural_problem = MMTOStructuralExamples.LBracket
@@ -64,6 +68,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         kwargs['topload'] = 1e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
+        to_params.RelativeFilterRadius = 1.5
         to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
         to_params.ExtrudeZ = True
@@ -93,6 +98,26 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints = [ (TO_QOI.MASS, None, 40)] 
 
+
+    elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressSF:
+        structural_problem = MMTOStructuralExamples.LBracket
+        kwargs['topload'] = 1e4
+        kwargs['midload'] = 0
+        to_params.Comment  = "Stress Safety Factor"
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
+        to_params.Objective = (TO_QOI.MASS, None) 
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [ (TO_QOI.STRESS_SAFETY_FACTOR, None, 2)] 
+
+    elif to_problem == MMTOExamples.EdgeCantilever_Compliance_MassCost:
+        structural_problem = MMTOStructuralExamples.EdgeCantilever
+        to_params.Comment  = "Stress Safety Factor"
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
+        to_params.Objective = (TO_QOI.COMPLIANCE, None) 
+        to_params.YSymmetry = True
+        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [ (TO_QOI.MASS, None, 10), (TO_QOI.COST, None, 60)  ] 
 
     elif to_problem == MMTOExamples.BliskSection_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.BliskSection
@@ -165,7 +190,6 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         bladeElements = mesh.get_elems_within_annular_region(centerPt,axis,outerRadius1,outerRadius2)
         to_params.ElemsToKeep = np.union1d(to_params.ElemsToKeep, bladeElements)
         print(f"Number of elements in the blade region = {len(bladeElements)}")
-
 
     return mesh,mat_prop, bc, elem_body_force, to_params, vae_params
 
