@@ -10,7 +10,10 @@ class MMTOStructuralExamples(enum.Enum):
 	BliskWithBladeMass = enum.auto()
 	BliskSection= enum.auto()
 	Bridge = enum.auto()
+	BridgeHalf = enum.auto()
+	BridgeSaitou = enum.auto()
 	LBracket = enum.auto()
+	CantileverBenchmark = enum.auto()
 
   
 def getMMTOStructuralProblem(problem: MMTOStructuralExamples,nDOFDesired: int = 20000, **kwargs):
@@ -39,6 +42,13 @@ def getMMTOStructuralProblem(problem: MMTOStructuralExamples,nDOFDesired: int = 
   
   elif problem == MMTOStructuralExamples.LBracket:
     return createLBracketProblem(nDOFDesired=nDOFDesired,**kwargs)
+  
+  elif problem == MMTOStructuralExamples.BridgeHalf:
+    return createBridgeProblemHalf(nDOFDesired=nDOFDesired,**kwargs)
+  elif problem == MMTOStructuralExamples.BridgeSaitou:
+    return createBridgeProblemSaitou(nDOFDesired=nDOFDesired,**kwargs)
+  elif problem == MMTOStructuralExamples.CantileverBenchmark:
+    return createCantileverBenchmarkProblem(nDOFDesired=nDOFDesired,**kwargs)
   else:
     raise ValueError("Invalid structural example name.")
 
@@ -289,6 +299,70 @@ def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 2000, radialForce 
   # ----------------------------------------
 def createBridgeProblem(nDOFDesired: None):
     # Define grid size and element size
+    nelx, nely, nelz = 200, 100, 1
+    Lx, Ly, Lz = 200.0, 100.0, 1.0  # Example physical dimensions (adjust as needed)
+    mesh = hex_mesher.HexMesher()
+    mesh.grid_mesh(num_elems=(nelx, nely, nelz),
+                   elem_size=(Lx/nelx, Ly/nely, Lz/nelz))
+    mesh.createEdofMatStructural()
+
+    node_pts = mesh.node_xyz
+    bridge_length = np.max(node_pts[:, 0]) - np.min(node_pts[:, 0])
+
+    # Fix left bottom edge (all 3 DOFs fixed)
+    left_bottom_nodes = np.where((np.abs(node_pts[:, 0] - np.min(node_pts[:, 0])) < mesh.elem_size[0]/2) &
+                                 (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+   
+    left_bottom_dofs = np.array([3 * left_bottom_nodes,
+                                 3 * left_bottom_nodes + 1,
+                                 3 * left_bottom_nodes + 2]).flatten().astype(int)
+
+    # Fix right bottom edge (only y and z fixed, x free)
+    right_bottom_nodes = np.where((np.abs(node_pts[:, 0] - np.max(node_pts[:, 0])) < mesh.elem_size[0]/2) &
+                                  (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+
+    right_bottom_dofs = np.array([3 * right_bottom_nodes + 1,  # y DOF
+                                  3 * right_bottom_nodes + 2]).flatten().astype(int)
+
+    # Combine fixed DOFs
+    fixed_dofs = np.union1d(left_bottom_dofs, right_bottom_dofs)
+    dirichlet_values = 0 * np.ones_like(fixed_dofs, dtype=float)
+    mesh.node_indices[left_bottom_nodes, 3] = 1  # for plotting
+    mesh.node_indices[right_bottom_nodes, 3] = 1  # for plotting
+
+    # Apply edge loads
+    force = np.zeros(3 * mesh.num_nodes)
+
+    # Load at 1/3rd the length of the bridge
+    load_nodes_1 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + bridge_length / 4)) < mesh.elem_size[0] / 2) &
+                            (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+    
+    force[3 * load_nodes_1 + 1] = -1 / len(load_nodes_1)  # y direction
+    mesh.node_indices[load_nodes_1, 3] = 2  # for plotting
+
+    # Load at 1/2 the length of the bridge
+    load_nodes_2 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + bridge_length / 2)) < mesh.elem_size[0] / 2) &
+                            (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+    force[3 * load_nodes_2 + 1] = -2 / len(load_nodes_2)  # y direction
+    
+    mesh.node_indices[load_nodes_2, 3] = 2  # for plotting
+
+    # Load at 2/3rd the length of the bridge
+    load_nodes_3 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + 3 * bridge_length / 4)) < mesh.elem_size[0] / 2) &
+                            (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+    force[3 * load_nodes_3 + 1] = -1 / len(load_nodes_3)  # y direction
+    mesh.node_indices[load_nodes_3, 3] = 2  # for plotting
+
+    # Define material properties
+    # Note that we are creating a template material with unit Young's modulus so that it can be scaled later.
+    mat_prop = mat_lib.create_material_with_defaults("CustomMaterial", youngs_modulus=1.0, poissons_ratio=0.3, mass_density=1.0)
+
+    # Create boundary conditions
+    bc = bound_cond.BC(force=force, fixed_dofs=fixed_dofs, dirichlet_values=dirichlet_values)
+    elem_body_force = None  
+    return mesh, mat_prop, bc, elem_body_force
+def createBridgeProblemSaitou(nDOFDesired: None):
+    # Define grid size and element size
     nelx, nely, nelz = 100, 50, 1
     Lx, Ly, Lz = 100.0, 50.0, 1.0  # Example physical dimensions (adjust as needed)
     mesh = hex_mesher.HexMesher()
@@ -324,7 +398,7 @@ def createBridgeProblem(nDOFDesired: None):
     force = np.zeros(3 * mesh.num_nodes)
 
     # Load at 1/3rd the length of the bridge
-    load_nodes_1 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + bridge_length / 3)) < mesh.elem_size[0] / 2) &
+    load_nodes_1 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + bridge_length / 4)) < mesh.elem_size[0] / 2) &
                             (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
     
     force[3 * load_nodes_1 + 1] = -1 / len(load_nodes_1)  # y direction
@@ -338,7 +412,7 @@ def createBridgeProblem(nDOFDesired: None):
     mesh.node_indices[load_nodes_2, 3] = 2  # for plotting
 
     # Load at 2/3rd the length of the bridge
-    load_nodes_3 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + 2 * bridge_length / 3)) < mesh.elem_size[0] / 2) &
+    load_nodes_3 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + 3 * bridge_length / 4)) < mesh.elem_size[0] / 2) &
                             (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
     force[3 * load_nodes_3 + 1] = -1 / len(load_nodes_3)  # y direction
     mesh.node_indices[load_nodes_3, 3] = 2  # for plotting
@@ -351,3 +425,109 @@ def createBridgeProblem(nDOFDesired: None):
     bc = bound_cond.BC(force=force, fixed_dofs=fixed_dofs, dirichlet_values=dirichlet_values)
     elem_body_force = None  
     return mesh, mat_prop, bc, elem_body_force
+def createBridgeProblemHalf(nDOFDesired: None):
+    # Define grid size and element size
+    nelx, nely, nelz = 100, 100, 1
+    Lx, Ly, Lz = 100.0, 100, 1.0  # Example physical dimensions (adjust as needed)
+    mesh = hex_mesher.HexMesher()
+    mesh.grid_mesh(num_elems=(nelx, nely, nelz),
+                   elem_size=(Lx/nelx, Ly/nely, Lz/nelz))
+    mesh.createEdofMatStructural()
+
+    node_pts = mesh.node_xyz
+    bridge_length = np.max(node_pts[:, 0]) - np.min(node_pts[:, 0])
+
+    # Fix left bottom edge (only y and z fixed)
+    left_bottom_nodes = np.where((np.abs(node_pts[:, 0] - np.min(node_pts[:, 0])) < mesh.elem_size[0]/2) &
+                                 (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+   
+    left_bottom_dofs = np.array([
+                                 3 * left_bottom_nodes + 1,
+                                 3 * left_bottom_nodes + 2]).flatten().astype(int)
+
+    # Fix right  edge (only x and z fixed, y free)
+    right_edge_nodes = np.where((np.abs(node_pts[:, 0] - np.max(node_pts[:, 0])) < mesh.elem_size[0]/2))[0]
+
+    right_edge_dofs = np.array([3 * right_edge_nodes,  # x DOF
+                                3 * right_edge_nodes + 2]).flatten().astype(int)
+
+    # Combine fixed DOFs
+    fixed_dofs = np.union1d(left_bottom_dofs, right_edge_dofs)
+    dirichlet_values = 0 * np.ones_like(fixed_dofs, dtype=float)
+    mesh.node_indices[left_bottom_nodes, 3] = 1  # for plotting
+    mesh.node_indices[right_edge_nodes, 3] = 1  # for plotting
+
+    # Apply edge loads
+    force = np.zeros(3 * mesh.num_nodes)
+
+    # Load at 1/2 the length of the bridge
+    load_nodes_1 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + bridge_length / 2)) < mesh.elem_size[0] / 2) &
+                            (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+    
+    force[3 * load_nodes_1 + 1] = -1 / len(load_nodes_1)  # y direction
+    mesh.node_indices[load_nodes_1, 3] = 2  # for plotting
+
+    # Load at the length of the bridge
+    load_nodes_2 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + bridge_length)) < mesh.elem_size[0] / 2) &
+                            (np.abs(node_pts[:, 1] - np.min(node_pts[:, 1])) < mesh.elem_size[1]/2))[0]
+    force[3 * load_nodes_2 + 1] = -2 / len(load_nodes_2)  # y direction
+    
+    mesh.node_indices[load_nodes_2, 3] = 2  # for plotting
+
+
+    # Define material properties
+    # Note that we are creating a template material with unit Young's modulus so that it can be scaled later.
+    mat_prop = mat_lib.create_material_with_defaults("CustomMaterial", youngs_modulus=1.0, poissons_ratio=0.3, mass_density=1.0)
+
+    # Create boundary conditions
+    bc = bound_cond.BC(force=force, fixed_dofs=fixed_dofs, dirichlet_values=dirichlet_values)
+    elem_body_force = None  
+    return mesh, mat_prop, bc, elem_body_force
+
+def createCantileverBenchmarkProblem(nDOFDesired: None):
+    # Define grid size and element size
+    nelx, nely, nelz = 120, 80, 1
+    Lx, Ly, Lz = 120.0, 80, 1.0  # Example physical dimensions (adjust as needed)
+    mesh = hex_mesher.HexMesher()
+    mesh.grid_mesh(num_elems=(nelx, nely, nelz),
+                   elem_size=(Lx/nelx, Ly/nely, Lz/nelz))
+    mesh.createEdofMatStructural()
+
+    node_pts = mesh.node_xyz
+    cantilever_length = np.max(node_pts[:, 0]) - np.min(node_pts[:, 0])
+    cantilever_height = np.max(node_pts[:, 1]) - np.min(node_pts[:, 1])
+    # Fix left bottom edge (only y and z fixed)
+    left_edge_nodes = np.where((np.abs(node_pts[:, 0] - np.min(node_pts[:, 0])) < mesh.elem_size[0]/2))[0]
+
+    left_edge_dofs = np.array([  3*left_edge_nodes,
+                                 3 * left_edge_nodes + 1,
+                                 3 * left_edge_nodes + 2]).flatten().astype(int)
+
+
+    # Combine fixed DOFs
+    fixed_dofs = left_edge_dofs
+    dirichlet_values = 0 * np.ones_like(fixed_dofs, dtype=float)
+    mesh.node_indices[left_edge_nodes, 3] = 1  # for plotting
+
+    # Apply edge loads
+    force = np.zeros(3 * mesh.num_nodes)
+
+    # Load at midpoint of right edge of the cantilever
+    load_nodes_1 = np.where((np.abs(node_pts[:, 0] - (np.min(node_pts[:, 0]) + cantilever_length)) < mesh.elem_size[0] / 2) &
+                            (np.abs(node_pts[:, 1] - (np.min(node_pts[:, 1]) + cantilever_height / 2)) < mesh.elem_size[1]/2))[0]
+    
+    force[3 * load_nodes_1 + 1] = -1 / len(load_nodes_1)  # y direction
+    mesh.node_indices[load_nodes_1, 3] = 2  # for plotting
+
+
+
+
+    # Define material properties
+    # Note that we are creating a template material with unit Young's modulus so that it can be scaled later.
+    mat_prop = mat_lib.create_material_with_defaults("CustomMaterial", youngs_modulus=1.0, poissons_ratio=0.3, mass_density=1.0)
+
+    # Create boundary conditions
+    bc = bound_cond.BC(force=force, fixed_dofs=fixed_dofs, dirichlet_values=dirichlet_values)
+    elem_body_force = None  
+    return mesh, mat_prop, bc, elem_body_force
+   
