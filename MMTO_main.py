@@ -82,6 +82,13 @@ def run_topopt(
     # Set up the FEA solver
     solver = linear_solvers.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
+    DIRECT_SOLVER_DOF_CUTOFF = 500000  # threshold for switching to deflation solver
+    if (to_params.nDOFDesired > DIRECT_SOLVER_DOF_CUTOFF):# Typically PARDISO, but DPCG for large DOF problems
+        solver = linear_solvers.Solvers.DPCG
+        nGroups =  min(dsolver.maxGroups,max(dsolver.minGroups,round(3*mesh_structural.num_nodes/dsolver.dofPerGroup)))
+        dsolver.create_deflation_groups(mesh_structural, nGroups)
+        dsolver.create_deflation_matrix(mesh_structural)
+        dsolver.W = dsolver.W[bc_struct.free_dofs, :]
     fe_solver_structural = hex_structural_fea.HexStructuralFEA(
         mesh=mesh_structural,
         mat_prop=mat_prop_struct,
@@ -90,7 +97,7 @@ def run_topopt(
         dsolver=dsolver,
         rtol=1e-8,
         elem_body_force=elem_body_force)
-    
+   
     KETemplate = hex_element_stiffness.hex8_stiffness_matrix_structural(
             mat_prop_struct.youngs_modulus, mat_prop_struct.poissons_ratio, mesh_structural.elem_size)
     
