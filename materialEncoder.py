@@ -324,23 +324,77 @@ class MaterialEncoder:
     grad = grad.T.reshape(-1)
     return penalty.detach().numpy(), grad
   
-  def plotLSR(self, zRealPts, zDesignPts = None,xDesign=None):
+  # def plotLSR(self, zRealPts, zDesignPts = None,xDesign=None):
+
+  #   if zDesignPts is not None and xDesign is not None:
+  #     mask = xDesign > 0.5
+  #     if np.any(mask):
+  #       plt.scatter(zDesignPts[mask, 0], zDesignPts[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+  #   plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=0.4)
+  #   for i, label in enumerate(self.materialNames):
+  #       plt.text(zRealPts[i, 0] + 0.1, zRealPts[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
+  #   plt.xlabel('$z_1$')
+  #   plt.ylabel('$z_2$')
+  #   #plt.legend(fontsize=10)
+  #   plt.xlim(-1.7, 1.45)
+  #   plt.ylim(-1.5, 1.1)
+  #   plt.grid(True)
+  #   plt.show()
+  # def plotLSR(self, zRealPts, zDesignPts = None,xDesign=None):
+
+  #   big_font = 20
+  #   label_font = 24
+  #   tick_font = 22
+  #   if zDesignPts is not None and xDesign is not None:
+  #     mask = xDesign > 0.5
+  #     if np.any(mask):
+  #       plt.scatter(zDesignPts[mask, 0], zDesignPts[mask, 1], c='red', marker='o', s=80, label='Optimized Materials', alpha=0.2)
+  #   plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=400, label='Real Materials', alpha=0.7)
+  #   for i, label in enumerate(self.materialNames):
+  #       plt.text(zRealPts[i, 0] + 0.1, zRealPts[i, 1], str(label), fontsize=big_font, color='black', ha='center', va='bottom')
+  #   plt.xlabel('$z_1$', fontsize=label_font, fontweight='bold')
+  #   plt.ylabel('$z_2$', fontsize=label_font, fontweight='bold')
+  #   plt.xlim(-1.7, 1.45)
+  #   plt.ylim(-1.5, 1.1)
+  #   plt.grid(True)
+  #   plt.xticks(fontsize=tick_font, fontweight='bold')
+  #   plt.yticks(fontsize=tick_font, fontweight='bold')
+  #   plt.title("Latent Space Representation", fontsize=label_font, fontweight='bold')
+  #   plt.legend(fontsize=big_font, loc='best')
+  #   plt.show()
+  def plotLSR(self, zRealPts, zDesignPts = None, xDesign=None):
+    big_font = 22
+    label_font = 24
+    tick_font = 22
+
+    # Manual label offsets for specific materials
+    label_offsets = {
+        "7075 Al": (0.05, -0.15),            # slightly below (y - 3 units)
+        "Inconel 718": (0.1, -0.1),      # right by 3 units, down by 1 unit
+        "Ti-6%Al-4%V": (0, -0.15),        # down by 3 units
+        "Ti Grade 4": (0, -0.1),         # down by 2 units
+        "7068 Al": (-0.1, 0),            # down by 2 units
+    }
 
     if zDesignPts is not None and xDesign is not None:
       mask = xDesign > 0.5
       if np.any(mask):
-        plt.scatter(zDesignPts[mask, 0], zDesignPts[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-    plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=0.4)
+        plt.scatter(zDesignPts[mask, 0], zDesignPts[mask, 1], c='red', marker='o', s=80, label='Optimized Materials', alpha=0.5)
+    plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=400, label='Real Materials', alpha=0.4)
     for i, label in enumerate(self.materialNames):
-        plt.text(zRealPts[i, 0] + 0.1, zRealPts[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
-    plt.xlabel('$z_1$')
-    plt.ylabel('$z_2$')
-    #plt.legend(fontsize=10)
-    plt.xlim(-5, 5)
-    plt.ylim(-5, 5)
+        dx, dy = label_offsets.get(label, (0.1, 0))  # default offset is (0.1, 0)
+        plt.text(zRealPts[i, 0] + dx, zRealPts[i, 1] + dy, str(label),
+                 fontsize=big_font, color='black', ha='center', va='bottom', fontweight='bold')
+    plt.xlabel('$z_1$', fontsize=label_font, fontweight='bold')
+    plt.ylabel('$z_2$', fontsize=label_font, fontweight='bold')
+    plt.xlim(-1.7, 1.45)
+    plt.ylim(-1.5, 1.1)
     plt.grid(True)
+    plt.xticks(fontsize=tick_font, fontweight='bold')
+    plt.yticks(fontsize=tick_font, fontweight='bold')
+    plt.title("Latent Space Representation", fontsize=label_font, fontweight='bold')
+    plt.legend(fontsize=big_font, loc='best')
     plt.show()
-
   def plotLSRContours(self, attributeName, title=""):
     attributeId = list(self.materialAttributes.keys()).index(attributeName)
     zReal = self.training_latents

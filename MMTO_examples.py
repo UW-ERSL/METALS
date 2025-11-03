@@ -13,9 +13,11 @@ class VAEParams: #default VAE parameters
 
 class MMTOExamples(enum.Enum):
     Bridge_Compliance_MassCost = enum.auto()
+    Bridge_Compliance_Mass = enum.auto()
     Bridge_Compliance_MassCost_Saitou = enum.auto()
     BridgeHalf_Compliance_MassCost = enum.auto()
     CantileverBenchmark_Compliance_Mass = enum.auto()
+    MBBBeam_Compliance_Mass = enum.auto()
     LBracketTopLoad_Compliance_Mass = enum.auto()
     LBracketTopLoad_Compliance_MassCost = enum.auto()
     LBracketTopLoad_Compliance_MassCriticality = enum.auto()
@@ -27,6 +29,13 @@ class MMTOExamples(enum.Enum):
     BliskSection_Compliance_MassCost = enum.auto()
     BliskSection_Compliance_MassCriticality = enum.auto()
     BliskSection_Stress_Mass = enum.auto()
+
+    CenterCantilever_Compliance_Mass = enum.auto()
+    CenterCantilever_Compliance_Mass_Cost = enum.auto()
+    Table_Compliance_Mass = enum.auto()
+    Table_Compliance_Mass_Cost = enum.auto()
+    GEGrabCAD_Compliance_Mass = enum.auto()
+    GEGrabCAD_Compliance_Mass_Cost = enum.auto()
 
 
 def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
@@ -51,7 +60,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridgev2.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
-        to_params.Constraints = [(TO_QOI.MASS, None, 0.4*20000), (TO_QOI.COST, None, 0.3*20000)]
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.3*20000), (TO_QOI.COST, None, 0.4*20000)]
     elif to_problem == MMTOExamples.Bridge_Compliance_MassCost_Saitou:
         structural_problem = MMTOStructuralExamples.BridgeSaitou
         to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint - Saitou Bridge Model"
@@ -72,6 +81,16 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridgev2.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*10000), (TO_QOI.COST, None, 0.3*10000)]
+    elif to_problem == MMTOExamples.Bridge_Compliance_Mass:
+        structural_problem = MMTOStructuralExamples.Bridge
+        to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint"
+        to_params.XSymmetry = True 
+        to_params.ExtrudeZ = True
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridgev2.xlsx'
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.3*20000)]
     elif to_problem == MMTOExamples.CantileverBenchmark_Compliance_Mass:
         structural_problem = MMTOStructuralExamples.CantileverBenchmark
         to_params.Comment  = "Cantilever Benchmark with Mass and Cost Constraint"
@@ -83,6 +102,16 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.MaterialsExcelFile = './DataConstantTemperature/5MaterialsCantilever.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.3*9600)]
+    elif to_problem == MMTOExamples.MBBBeam_Compliance_Mass:
+        structural_problem = MMTOStructuralExamples.MBBBeam
+        to_params.Comment  = "MBB Beam with Mass Constraint"
+        to_params.XSymmetry = True 
+        to_params.ExtrudeZ = True
+        to_params.RelativeFilterRadius = 6
+        to_params.nDOFDesired = 30000 if nDOFDesired is None else nDOFDesired
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridgev2.xlsx'
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.3*19200)]
     elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_Mass:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 1e4
@@ -196,7 +225,80 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 750
         vae_params.numEpochs = 200000
+    elif to_problem == MMTOExamples.CenterCantilever_Compliance_Mass:
+        structural_problem = MMTOStructuralExamples.CenterCantilever
+        to_params.Comment  = "Center Cantilever with Mass Constraint"
+        to_params.YSymmetry = True
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 30000 if nDOFDesired is None else nDOFDesired
+        to_params.MaterialsExcelFile = './DataConstantTemperature/5MaterialsCantilever.xlsx'
+        mesh, mat_prop, bc, elem_body_force = getMMTOStructuralProblem(structural_problem, nDOFDesired = to_params.nDOFDesired, **kwargs)
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        print("Number of elements in the mesh =", mesh.num_elems)
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.3*mesh.num_elems)]
 
+
+    elif to_problem == MMTOExamples.CenterCantilever_Compliance_Mass_Cost:
+        structural_problem = MMTOStructuralExamples.CenterCantilever
+        to_params.Comment  = "Center Cantilever with Mass Constraint"
+        to_params.YSymmetry = True
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 30000 if nDOFDesired is None else nDOFDesired
+        to_params.MaterialsExcelFile = './DataConstantTemperature/8Materials.xlsx'
+        mesh, mat_prop, bc, elem_body_force = getMMTOStructuralProblem(structural_problem, nDOFDesired = to_params.nDOFDesired, **kwargs)
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        print("Number of elements in the mesh =", mesh.num_elems)
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.3*mesh.num_elems), (TO_QOI.COST, None, 0.4*mesh.num_elems)]
+    elif to_problem == MMTOExamples.Table_Compliance_Mass:
+        structural_problem = MMTOStructuralExamples.Table
+        to_params.Comment  = "Table with Mass Constraint"
+        to_params.XSymmetry = True 
+        to_params.YSymmetry = True
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 30000 if nDOFDesired is None else nDOFDesired
+        to_params.MaterialsExcelFile = './DataConstantTemperature/8Materials.xlsx'
+        mesh, mat_prop, bc, elem_body_force = getMMTOStructuralProblem(structural_problem, nDOFDesired = to_params.nDOFDesired, **kwargs)
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.05*mesh.num_elems)]
+    elif to_problem == MMTOExamples.Table_Compliance_Mass_Cost:
+        structural_problem = MMTOStructuralExamples.Table
+        to_params.Comment  = "Table with Mass and Cost Constraint"
+        to_params.XSymmetry = True 
+        to_params.YSymmetry = True
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 30000 if nDOFDesired is None else nDOFDesired
+        to_params.MaterialsExcelFile = './DataConstantTemperature/8Materials.xlsx'
+        mesh, mat_prop, bc, elem_body_force = getMMTOStructuralProblem(structural_problem, nDOFDesired = to_params.nDOFDesired, **kwargs)
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.MASS, None, 0.15*mesh.num_elems), (TO_QOI.COST, None, 0.2*mesh.num_elems)]
+        # for large number of materials and attributes, we need to train the VAE longer
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 750
+        vae_params.numEpochs = 241000
+    elif to_problem == MMTOExamples.GEGrabCAD_Compliance_Mass:
+        structural_problem = MMTOStructuralExamples.GEGrabCAD
+        to_params.Comment  = "GE GrabCAD Model with Mass Constraint"
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 1000000 if nDOFDesired is None else nDOFDesired
+        to_params.MaterialsExcelFile = './DataConstantTemperature/20MaterialsTeledyneSimple.xlsx'
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.MASS, None, 1.5)]
+        to_params.KeepFixedElems = True
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 750
+        vae_params.numEpochs = 250000
+    elif to_problem == MMTOExamples.GEGrabCAD_Compliance_Mass_Cost:
+        structural_problem = MMTOStructuralExamples.GEGrabCAD
+        to_params.Comment  = "GE GrabCAD Model with Mass Constraint"
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
+        to_params.MaterialsExcelFile = './DataConstantTemperature/20MaterialsTeledyneSimple.xlsx'
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.MASS, None, 1.5), (TO_QOI.COST, None, 4.5)]
+        to_params.KeepFixedElems = True        
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 750
+        vae_params.numEpochs = 250000
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     

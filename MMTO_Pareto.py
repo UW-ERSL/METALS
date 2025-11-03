@@ -28,10 +28,11 @@ def run_topopt(
     snap_to_real_material=True,
     rel_conv_tol = 1e-7,
     maxIterations = 100,
-    z0_init_method = Z0InitMethod.ORIGIN,
+    z0_init_method = Z0InitMethod.HEAVIEST,
     gamma_init = 1e-3, # penalization
     gamma_max = 100,#100
-    gamma_factor =1.1):#1.1
+    gamma_factor =1.1,
+    massfrac=None):#1.1
     
     history = {
         "objective": [],
@@ -48,7 +49,8 @@ def run_topopt(
         return
     matEncoder = MaterialEncoder(vae_params)
     matEncoder.readExcel(to_params.MaterialsExcelFile)
-
+    if massfrac is not None:
+        to_params.Constraints = [(TO_QOI.MASS, None, massfrac * mesh_structural.num_elems)]
     # Train the autoencoder or save/load from file
     if saveNet is None:
         base, _ = os.path.splitext(to_params.MaterialsExcelFile)
@@ -264,13 +266,7 @@ def run_topopt(
         print(50 * "-")
         MMTO_optimization_function(zetaOptimal)
         zOptimalPts = zSnappedPts
-    # --- PLACE THIS BLOCK HERE ---
-    results_dir = "GEresultsmassonly1millionDOF"
-    os.makedirs(results_dir, exist_ok=True)
-    np.save(os.path.join(results_dir, "zetaOptimal.npy"), zetaOptimal)
-    np.save(os.path.join(results_dir, "xOptimal.npy"), xOptimal)
-    torch.save(zOptimalPts, os.path.join(results_dir, "zOptimalPts.pt"))
-    # --- END BLOCK ---    
+    
     decoded = matEncoder.vaeNet.decoder(zOptimalPts)
     material_properties = matEncoder.getMaterialProperties(decoded)
     Youngs_Modulus = material_properties['Youngs_Modulus'].detach().cpu().numpy()
@@ -332,30 +328,9 @@ def run_topopt(
             1: '#0505f0',
             2: '#ef0711',
         }
-    elif excel_file == './DataConstantTemperature/20MaterialsTeledyne.xlsx' or excel_file == './DataConstantTemperature/20MaterialsTeledyneSimple.xlsx':
-        material_colors = {
-            0: '#1b1b1b',  # charcoal black
-            1: '#004d00',  # deep forest green
-            2: '#800000',  # dark maroon
-            3: '#ffb6c1',  # light pink
-            4: '#008080',  # teal
-            5: '#b8860b',  # dark goldenrod
-            6: '#2f4f4f',  # dark slate gray
-            7: '#ff4500',  # orange red
-            8: '#6a5acd',  # slate blue
-            9: '#228b22',  # forest green
-            10: '#9932cc', # dark orchid
-            11: '#8b0000', # dark red
-            12: '#e6194b', # vibrant red
-            13: '#3cb44b', # vibrant green
-            14: '#ffe119', # vibrant yellow
-            15: '#4363d8', # vibrant blue
-            16: '#f58231', # vibrant orange
-            17: '#911eb4', # vibrant purple
-            18: '#42d4f4', # vibrant cyan
-            19: '#f032e6', # vibrant magenta
-
-        }
+    elif excel_file == './DataConstantTemperature/20MaterialsTeledyne.xlsx':
+        default_colors = plt.cm.get_cmap('tab20', matEncoder.nMaterials)
+        material_colors = {i: default_colors(i) for i in range(matEncoder.nMaterials)}
     elif excel_file == './DataConstantTemperature/8Materials.xlsx':
         material_colors = {
             0: '#e6194b',  # vibrant red
@@ -442,11 +417,67 @@ if __name__ == "__main__":
     # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    to_problem = MMTOExamples.GEGrabCAD_Compliance_Mass
+    to_problem = MMTOExamples.Table_Compliance_Mass_Cost
+    mass_fracs = [0.05, 0.15, 0.3, 0.45, 0.6, 0.75]
+    pareto_compliance = []
+    pareto_mass = []
 
-    run_topopt(
-        to_problem=to_problem,
-        use_penalization=True, # if True, apply progressive penalization to encourage real materials, else not
-        use_pretrained_vae=True, # if True, use pre-trained VAE from file, else train VAE using to_params.MaterialsExcelFile
-        snap_to_real_material=True, # if True, snap final design to closest real material
-    )
+    for mf in mass_fracs:
+        # Get the problem and mesh
+        mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
+        # Set the mass constraint for this fraction
+        to_params.Constraints = [(TO_QOI.MASS, None, mf * mesh_structural.num_elems)]
+        solver = linear_solvers.Solvers.PARDISO
+        dsolver = deflation.DeflationSolver()
+        fe_solver_structural = hex_structural_fea.HexStructuralFEA(
+            mesh=mesh_structural,
+            mat_prop=mat_prop_struct,
+            bc=bc_struct,
+            solver=solver,
+            dsolver=dsolver,
+            rtol=1e-8,
+            elem_body_force=elem_body_force)
+        
+        # Run optimization
+        result = run_topopt(
+            to_problem=to_problem,
+            timeLimit=7200,
+            saveNet=None,
+            use_pretrained_vae=True,
+            use_penalization=True,
+            snap_to_real_material=True,
+            rel_conv_tol=1e-7,
+            maxIterations=100,
+            z0_init_method=Z0InitMethod.ORIGIN,
+        )
+        
+        # After optimization, get compliance and mass
+        # (Assume run_topopt returns compliance and mass, or you can extract from the solver)
+        # For example, if you have access to fe_solver_structural and xOptimal:
+        # compliance = fe_solver_structural.get_compliance()
+        # used_mass = np.sum(xOptimal)
+        # If not, adapt this to your return values
+
+        # Save Pareto data (replace with actual values from your run_topopt)
+        pareto_compliance.append(compliance)
+        pareto_mass.append(used_mass)
+
+        # Save topology plot
+        save_folder = f"results_massfrac_{mf:.2f}"
+        os.makedirs(save_folder, exist_ok=True)
+        fe_solver_structural.plot_elem_field(
+            material_indices,
+            title=f"Topology_massfrac_{mf:.2f}",
+            colors=rgb_colors,
+            save_path=os.path.join(save_folder, f"topology_massfrac_{mf:.2f}.png")
+        )
+
+    # Plot Pareto curve
+    plt.figure()
+    plt.plot(pareto_mass, pareto_compliance, marker='o')
+    plt.xlabel('Mass')
+    plt.ylabel('Compliance')
+    plt.title('Pareto Curve: Compliance vs. Mass Fraction')
+    plt.grid()
+    plt.savefig("pareto_curve.png")
+    plt.show()
