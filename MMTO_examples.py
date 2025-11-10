@@ -52,6 +52,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridgev2.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*20000), (TO_QOI.COST, None, 0.3*20000)]
+        vae_params.latentDim = 2
     elif to_problem == MMTOExamples.Bridge_Compliance_MassCost_Saitou:
         structural_problem = MMTOStructuralExamples.BridgeSaitou
         to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint - Saitou Bridge Model"
@@ -62,6 +63,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridge.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*5000), (TO_QOI.COST, None, 0.3*5000)]
+        vae_params.latentDim = 2
     elif to_problem == MMTOExamples.BridgeHalf_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.BridgeHalf
         to_params.Comment  = "Benchmark 2.5D with Mass and Cost Constraint - Half Model"
@@ -72,6 +74,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridgev2.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*10000), (TO_QOI.COST, None, 0.3*10000)]
+        vae_params.latentDim = 2
     elif to_problem == MMTOExamples.CantileverBenchmark_Compliance_Mass:
         structural_problem = MMTOStructuralExamples.CantileverBenchmark
         to_params.Comment  = "Cantilever Benchmark with Mass and Cost Constraint"
@@ -83,7 +86,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.MaterialsExcelFile = './DataConstantTemperature/5MaterialsCantilever.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.3*9600)]
-        vae_params.latentDim = 3
+        vae_params.latentDim = 2
     elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_Mass:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 1e4
