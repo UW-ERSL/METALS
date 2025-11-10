@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import time
+import os
 from MMTO_TempDependent_examples import MMTOTempDependentExamples, getMMTOTempDependentProblem
 from materialEncoder import MaterialEncoder
 import matplotlib.pyplot as plt
@@ -18,7 +19,6 @@ class Z0InitMethod(Enum):
     UNIFORM = 'uniform'
 
 
-# The main code for MMTO topology optimization
 def run_topopt(
     to_problem,
     nIterations=100,
@@ -44,7 +44,6 @@ def run_topopt(
     matEncoder = MaterialEncoder(vae_params)
     matEncoder.readExcel(to_params.MaterialsExcelFile)
 
-
     if saveNet is None:
         base, _ = os.path.splitext(to_params.MaterialsExcelFile)
         saveNet = base + ".nt"
@@ -62,7 +61,8 @@ def run_topopt(
 
     with torch.no_grad():
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
-
+    # Print encoding errors for all attributes after training
+    matEncoder.printEncodingErrors()
     zRealTorch = matEncoder.training_latents
 
     if True:
@@ -95,8 +95,10 @@ def run_topopt(
         mat_prop_struct.youngs_modulus, mat_prop_struct.poissons_ratio, mesh_structural.elem_size)
 
     num_elems = mesh_structural.num_elems
-    num_design_var = num_elems + num_elems * 2
+    latentDim = matEncoder.vae_params.latentDim
+    num_design_var = num_elems + num_elems * latentDim
 
+    print(f"Using latent dimension: {latentDim}")
     print("Creating filter...")
     [H, Hs] = createFilters(fe_solver_structural, to_params)
 
@@ -109,8 +111,9 @@ def run_topopt(
         print("Performing linear thermal analysis...")
     else:
         print("Thermal analysis is turned off...")
-    last_Temp_nodes = None # Store last converged temperature field
+    last_Temp_nodes = None
     Temp_elem = None
+
     def MMTO_optimization_function(zeta):
         nonlocal iterationCount, obj0, gamma, zRealTorch, last_Temp_nodes, Temp_elem
         zeta = np.asarray(zeta).flatten()
@@ -118,12 +121,12 @@ def run_topopt(
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
         xDesign = zetaTensor[0:num_elems]
         zD = zetaTensor[num_elems:]
-        zPts = zD.view(2, -1).T
+        zPts = zD.view(latentDim, -1).T
 
         decoded = matEncoder.vaeNet.decoder(zPts)
         material_properties = matEncoder.getMaterialProperties(decoded)
 
-        fe_solver_thermal.mesh.setPseudoDensity(xDesign.detach().cpu().numpy()) # important for plotting over mesh
+        fe_solver_thermal.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
         fe_solver_structural.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
         if turnOnThermal:
             if turnOnNonlinearThermal:
@@ -135,9 +138,7 @@ def run_topopt(
                 max_picard_iter = 50
                 init_K = K0
 
-                # Use previous temperature field as initial guess
                 if last_Temp_nodes is None:
-                    # First iteration: use average conductivity
                     fe_solver_thermal.mat_prop = [
                         mat_lib.create_material_with_defaults(
                             name=f"K{i+1}",
@@ -162,13 +163,12 @@ def run_topopt(
                     norm_diff = np.linalg.norm(Temp_nodes_new - Temp_nodes)
                     if norm_diff < picard_tol:
                         Temp_nodes = Temp_nodes_new
-                        #print(f"Converged in {picard_iter+1} iterations with norm: {norm_diff:.6e}")
                         break
                     Temp_nodes = Temp_nodes_new
                 else:
                     print(f"Max Picard iterations reached with norm: {norm_diff:.6e}")
 
-                last_Temp_nodes = Temp_nodes.copy()  # Save for next optimization iteration
+                last_Temp_nodes = Temp_nodes.copy()
                 edofMat = fe_solver_thermal.mesh.edofMat
                 Temp_elem = np.mean(Temp_nodes[edofMat], axis=1)
             else:
@@ -220,17 +220,18 @@ def run_topopt(
         obj = obj / obj0
         grad_obj = grad_obj / obj0
         if (to_params.ElemsToKeep is not None):
-            grad_obj[to_params.ElemsToKeep] = min(grad_obj) # also retain elements that are in the keep list
-
+            grad_obj[to_params.ElemsToKeep] = min(grad_obj)
 
         grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
-        grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
-        grad_obj[2*num_elems:3*num_elems] = (H * grad_obj[2*num_elems:3*num_elems]) / Hs
+        for i in range(latentDim):
+            grad_obj[num_elems + i*num_elems : num_elems + (i+1)*num_elems] = \
+                (H * grad_obj[num_elems + i*num_elems : num_elems + (i+1)*num_elems]) / Hs
 
         for i in range(grad_cons.shape[0]):
             grad_cons[i, 0:num_elems] = (H * grad_cons[i, 0:num_elems]) / Hs
-            grad_cons[i, num_elems:2*num_elems] = (H * grad_cons[i, num_elems:2*num_elems]) / Hs
-            grad_cons[i, 2*num_elems:3*num_elems] = (H * grad_cons[i, 2*num_elems:3*num_elems]) / Hs
+            for j in range(latentDim):
+                grad_cons[i, num_elems + j*num_elems : num_elems + (j+1)*num_elems] = \
+                    (H * grad_cons[i, num_elems + j*num_elems : num_elems + (j+1)*num_elems]) / Hs
 
         grad_obj = np.array([grad_obj]).reshape((num_design_var, 1))
         cons = np.array(cons).reshape((-1, 1))
@@ -248,19 +249,13 @@ def run_topopt(
             min_i = torch.min(d_ij, dim=1).values
             min_i = min_i * xDesign
             nActiveElems = np.ceil(torch.sum((xDesign).float()).item())
-            maxClosestDistance = torch.max(min_i)
             avgClosestDistance = torch.sum(min_i) / nActiveElems 
             penalty = gamma * avgClosestDistance
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
             grad_obj[num_elems:, 0] += zetaTensor.grad[num_elems:].detach().numpy()
             obj = obj + penalty.item()
-            if False: # don't filter penalization gradient
-                grad_obj[num_elems:2*num_elems, 0] = (H * grad_obj[num_elems:2*num_elems, 0]) / Hs
-                grad_obj[2*num_elems:3*num_elems, 0] = (H * grad_obj[2*num_elems:3*num_elems, 0]) / Hs
-
             gamma = min(gamma*gamma_factor, gamma_max)
-
 
         iterationCount += 1
         return obj, grad_obj, cons, grad_cons
@@ -268,32 +263,31 @@ def run_topopt(
     x0 = 0.5 * np.ones(num_elems)
     x0 = (H * x0) / Hs
 
-    z0 = np.zeros(2 * num_elems)
+    z0 = np.zeros(latentDim * num_elems)
     if z0_init_method == Z0InitMethod.LIGHTEST:
         zLightest = matEncoder.getLightestMaterial()
-        z0[0:num_elems] = zLightest[0]
-        z0[num_elems:2*num_elems] = zLightest[1]
+        for i in range(latentDim):
+            z0[i*num_elems:(i+1)*num_elems] = zLightest[i]
     elif z0_init_method == Z0InitMethod.HEAVIEST:
         zHeaviest = matEncoder.getHeaviestMaterial()
-        z0[0:num_elems] = zHeaviest[0]
-        z0[num_elems:2*num_elems] = zHeaviest[1]
+        for i in range(latentDim):
+            z0[i*num_elems:(i+1)*num_elems] = zHeaviest[i]
     elif z0_init_method == Z0InitMethod.ORIGIN:
-        z0[0:num_elems] = 0.0
-        z0[num_elems:2*num_elems] = 0.0
+        z0[:] = 0.0
     elif z0_init_method == Z0InitMethod.UNIFORM:
-        z0[0:num_elems] = np.random.uniform(-0.5, 0.5, size=num_elems)
-        z0[num_elems:2*num_elems] = np.random.uniform(-0.5, 0.5, size=num_elems)
+        for i in range(latentDim):
+            z0[i*num_elems:(i+1)*num_elems] = np.random.uniform(-0.5, 0.5, size=num_elems)
     else:
         raise ValueError(f"Unknown z0_init_method: {z0_init_method}")
 
-    z0[0:num_elems] = (H * z0[0:num_elems]) / Hs
-    z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) / Hs
+    for i in range(latentDim):
+        z0[i*num_elems:(i+1)*num_elems] = (H * z0[i*num_elems:(i+1)*num_elems]) / Hs
     zeta0 = np.concatenate((x0, z0), axis=0).reshape(-1, 1)
 
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
-    lowerBound[num_elems:3*num_elems] = np.min(zRealTorch.cpu().numpy())
-    upperBound[num_elems:3*num_elems] = np.max(zRealTorch.cpu().numpy())
+    lowerBound[num_elems:num_design_var] = np.min(zRealTorch.cpu().numpy())
+    upperBound[num_elems:num_design_var] = np.max(zRealTorch.cpu().numpy())
 
     nVariables = num_design_var
     nConstraints = len(to_params.Constraints)
@@ -311,9 +305,9 @@ def run_topopt(
     xDesign = zetaOptimal[0:num_elems]
     zDesign = zetaOptimal[num_elems:]
     zDesignTensor = torch.tensor(zDesign).float()
-    zPts = zDesignTensor.view(2, -1).T
+    zPts = zDesignTensor.view(latentDim, -1).T
 
-    fe_solver_thermal.mesh.setPseudoDensity(xDesign) # important for plotting over mesh
+    fe_solver_thermal.mesh.setPseudoDensity(xDesign)
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
     closest_index = matEncoder.getClosestRealMaterialIndex(zPts)
 
@@ -324,34 +318,19 @@ def run_topopt(
     isTemperatureWithinLimits = (Temp_elem <= Temp_Limit.flatten()) | (xDesign < 0.9)
     print(f"Number of elements exceeding Temp Limit: {np.sum(~isTemperatureWithinLimits)} out of {num_elems}")
 
-    fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Is Within Limits', colormap='RdYlGn')  # Is Within Limits
-    fe_solver_structural.plot_elem_field(E, title='Young\'s Modulus', colormap='plasma')  # Plot Young's Modulus
-    fe_solver_structural.plot_elem_field(closest_index) # closest real material index
-    fe_solver_structural.plot_elem_field(Temp_elem, title='Temperature', colormap='plasma') # Plot Temperature
+    fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Is Within Limits', colormap='RdYlGn')
+    fe_solver_structural.plot_elem_field(E, title='Young\'s Modulus', colormap='plasma')
+    fe_solver_structural.plot_elem_field(closest_index)
+    fe_solver_structural.plot_elem_field(Temp_elem, title='Temperature', colormap='plasma')
 
-    matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zDesign.reshape(2, -1).T, xDesign=xDesign)
+    matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    
-    # Temperature dependent Multi-material TO Problems (see MMTO_TempDependent_examples.py for details):
-    # Example 1-3 (13000 DOF) use 3 materials, 16 attributes from './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
-    # Examples 4-6 (137000 DOF) use 6 materials, 16 attributes from './DataVaryingTemperature/6MaterialsTempDependent.xlsx'
-
-
-    # 1. LBracket_Compliance_Mass (LBracket, Minimize Compliance with Mass constraints)
-    # 2. LBracket_Compliance_MassCost (LBracket, Minimize Compliance with Mass and Cost constraints)
-    # 3. LBracket_Stress_MassCompliance (LBracket, Minimize P-norm Stress with Compliance and Mass constraints)
-    
-    # 4. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
-    # 5. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
-    # 6. BliskSection_Stress_MassComplianceCriticality (Blisk Section, Minimize Stress with Mass and Compliance constraints)
-
-    to_problem = MMTOTempDependentExamples.BliskSection_Stress_MassComplianceCriticality
-
+    to_problem = MMTOTempDependentExamples.LBracket_Compliance_MassCost
     run_topopt(
         to_problem=to_problem,
-        turnOnThermal=True,# if True, thermal analysis is performed, else no thermal analysis is performed
-        turnOnNonlinearThermal=True,# if True, non-linear thermal analysis is performed, else linear thermal analysis is performed
-        use_penalization=True, # if True, penalization is applied to encourage convergence to real materials
-        use_pretrained_vae=True, # if True, use pre-trained VAE from file, else the VAE is trained using to_params.MaterialsExcelFile 
+        turnOnThermal=True,
+        turnOnNonlinearThermal=True,
+        use_penalization=True,
+        use_pretrained_vae=False,
     )

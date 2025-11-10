@@ -44,6 +44,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[(TO_QOI.MASS, None, 150)]
+        vae_params.latentDim = 3
     elif to_problem == MMTOTempDependentExamples.LBracket_Compliance_MassCost:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
@@ -55,7 +56,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.COST, None, 200)]
-
+        vae_params.latentDim = 3
     elif to_problem == MMTOTempDependentExamples.LBracket_Stress_MassCompliance:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
@@ -67,7 +68,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.COMPLIANCE, None, 25)]
-
+        vae_params.latentDim = 3
 
     elif to_problem == MMTOTempDependentExamples.BliskSection_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.BliskSection
@@ -85,6 +86,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.klFactor = 5e-7
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
+        vae_params.latentDim = 3
     elif to_problem == MMTOTempDependentExamples.BliskSection_Stress_MassComplianceCriticality:
         structural_problem = MMTOStructuralExamples.BliskSection
         thermal_problem=MMTOThermalExamples.BliskSection
@@ -101,7 +103,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.klFactor = 5e-7
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
-    
+        vae_params.latentDim = 3
 
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
