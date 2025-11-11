@@ -2,20 +2,25 @@ import enum
 from MMTO_structural_examples import *
 from MMTO_thermal_examples import *
 from PyTOImports import  *
+from dataclasses import dataclass, field
 
+@dataclass(slots=True) # avoid accidental modification
 class VAEParams: #default VAE parameters
-    klFactor = 5e-6
-    learningRate = 2e-6
-    numEpochs = 150000 # max epochs
-    vae_hiddenDim = 500
-    latentDim = 2 # hard coded for now
-    maxAttributeErrorPercent = 0.001 # termination criteria for VAE training
+    klFactor: float = 5e-6
+    learningRate: float = 2e-6
+    numEpochs: int = 150000 # max epochs
+    vae_hiddenDim: int = 500
+    latentDim: int = 2 # hard coded for now
+    maxAttributeErrorPercent: float = 0.001 # termination criteria for VAE training
 
 class MMTOExamples(enum.Enum):
     Bridge_Compliance_MassCost = enum.auto()
     Bridge_Compliance_MassCost_Saitou = enum.auto()
     BridgeHalf_Compliance_MassCost = enum.auto()
+
     CantileverBenchmark_Compliance_Mass = enum.auto()
+    CantileverBenchmark_Compliance_VolumeFraction = enum.auto()
+
     LBracketTopLoad_Compliance_Mass = enum.auto()
     LBracketTopLoad_Compliance_MassCost = enum.auto()
     LBracketTopLoad_Compliance_MassCriticality = enum.auto()
@@ -49,7 +54,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.ExtrudeZ = True
         to_params.RelativeFilterRadius = 1.5
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridgev2.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3MaterialsBridge.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.4*20000), (TO_QOI.COST, None, 0.3*20000)]
     elif to_problem == MMTOExamples.Bridge_Compliance_MassCost_Saitou:
@@ -75,14 +80,21 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
     elif to_problem == MMTOExamples.CantileverBenchmark_Compliance_Mass:
         structural_problem = MMTOStructuralExamples.CantileverBenchmark
         to_params.Comment  = "Cantilever Benchmark with Mass and Cost Constraint"
-        to_params.XSymmetry = False 
         to_params.YSymmetry = True
-        to_params.ExtrudeZ = True
         to_params.RelativeFilterRadius = 1.5
         to_params.nDOFDesired = 30000 if nDOFDesired is None else nDOFDesired
         to_params.MaterialsExcelFile = './DataConstantTemperature/5MaterialsCantilever.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.MASS, None, 0.3*9600)]
+    elif to_problem == MMTOExamples.CantileverBenchmark_Compliance_VolumeFraction:
+        structural_problem = MMTOStructuralExamples.CantileverBenchmark
+        to_params.Comment  = "Cantilever Benchmark with Volume Fraction Constraint"
+        to_params.YSymmetry = True
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 30000 if nDOFDesired is None else nDOFDesired
+        to_params.MaterialsExcelFile = './DataConstantTemperature/5MaterialsCantilever.xlsx'
+        to_params.Objective = (TO_QOI.COMPLIANCE, None)
+        to_params.Constraints = [(TO_QOI.VOLUME_FRACTION, None,  1)]
     elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_Mass:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 1e4

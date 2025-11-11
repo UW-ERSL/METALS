@@ -31,7 +31,7 @@ def run_topopt(
     z0_init_method = Z0InitMethod.ORIGIN,  
     gamma_init = 1e-3, # penalization
     gamma_max = 100,#100
-    gamma_factor =1.1):#1.1
+    gamma_factor = 1.1):#1.1
     
     history = {
         "objective": [],
@@ -69,8 +69,8 @@ def run_topopt(
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
     matEncoder.printEncodingErrors()
-    matEncoder.plotLSRContours("Youngs_Modulus", title="Young's Modulus Contours in Latent Space")
-    matEncoder.plotLSRContours("Density", title="Density Contours in Latent Space")
+    # matEncoder.plotLSRContours("Youngs_Modulus", title="Young's Modulus Contours in Latent Space")
+    # matEncoder.plotLSRContours("Density", title="Density Contours in Latent Space")
     # matEncoder.plotLSRContours("Cost", title="Cost Contours in Latent Space")
     zRealPoints = matEncoder.training_latents
     
@@ -98,7 +98,7 @@ def run_topopt(
     print(f"Number of DOF: {num_dof}")
     num_elems = mesh_structural.num_elems
     num_design_var = num_elems + num_elems * 2
-    fe_solver_structural.plot_mesh(plot_bc=True, offsetArrow=True)  
+    #fe_solver_structural.plot_mesh(plot_bc=True, offsetArrow=True)  
     # Create the filter for density and material variables
     print("Creating filter...")
     [H, Hs] = createFilters(fe_solver_structural, to_params)
@@ -113,6 +113,7 @@ def run_topopt(
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
+    
         # Prepare tensors and decode material properties
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
         xDesign = zetaTensor[0:num_elems]
@@ -332,7 +333,7 @@ if __name__ == "__main__":
     # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    to_problem = MMTOExamples.CantileverBenchmark_Compliance_Mass
+    to_problem = MMTOExamples.LBracketTopLoad_Stress_Mass
 
 
     run_topopt(
