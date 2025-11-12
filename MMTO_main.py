@@ -88,7 +88,10 @@ def run_topopt(
     num_dof = fe_solver_structural.bc.num_dofs
     print(f"Number of DOF: {num_dof}")
     num_elems = mesh_structural.num_elems
-    num_design_var = num_elems + num_elems * 2
+    # --- Generalize latent dimension ---
+    latentDim = matEncoder.vae_params.latentDim
+    num_design_var = num_elems + num_elems * latentDim
+    print(f"Using latent dimension: {latentDim}")
     #fe_solver_structural.plot_mesh(plot_bc=True, offsetArrow=True)  
     # Create the filter for density and material variables
     print("Creating filter...")
@@ -407,6 +410,6 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         use_penalization=True,
-        use_pretrained_vae=False,
+        use_pretrained_vae=True,
         snap_to_real_material=True,
     )
