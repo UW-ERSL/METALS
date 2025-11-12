@@ -3,422 +3,414 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from InterpolationFunctions import  bezierInterpolation, bezierInterpolation_torch
-from InterpolationFunctions import  logBezierInterpolation, logBezierInterpolation_torch
+from InterpolationFunctions import bezierInterpolation, bezierInterpolation_torch
+from InterpolationFunctions import logBezierInterpolation, logBezierInterpolation_torch
+from sklearn.decomposition import PCA
 
 class MaterialEncoder:
-  def __init__(self,vae_params):
-    self.nAttributes = 0
-    self.vae_params = vae_params
-    
-  def readExcel(self, excel_file):
-    self.excel_file = excel_file
-    self.preprocessData()  
-    
-    self.nMaterials = self.scaledMaterialData.shape[0]
-    self.nAttributes = self.scaledMaterialData.shape[1]
+    def __init__(self, vae_params):
+        self.nAttributes = 0
+        self.vae_params = vae_params
 
-    self.vaeSettings  = {
-        'encoder': {'inputDim': self.nAttributes, 'hiddenDim': self.vae_params.vae_hiddenDim, 'latentDim': self.vae_params.latentDim},
-        'decoder': {'latentDim': self.vae_params.latentDim, 'hiddenDim': self.vae_params.vae_hiddenDim, 'outputDim': self.nAttributes}
-    }
-    self.vaeNet = VariationalAutoencoder(self.vaeSettings)
+    def readExcel(self, excel_file):
+        self.excel_file = excel_file
+        self.preprocessData()
 
-  def preprocessData(self):
-      df = pd.read_excel(self.excel_file, header=None)
-      # First column: material names, but first cell is "Attribute", second is "Material/Units"
-      # Second column onwards: attribute names (first cell), units (second cell), values (third row onwards)
+        self.nMaterials = self.scaledMaterialData.shape[0]
+        self.nAttributes = self.scaledMaterialData.shape[1]
 
-      # Extract attribute names and units from second column onwards
-      attribute_names = df.iloc[0, 1:].tolist()
-      units = df.iloc[1, 1:].tolist()
-      material_names = df.iloc[2:, 0].tolist()
-      values = df.iloc[2:, 1:].to_numpy(dtype=float)
+        self.vaeSettings = {
+            'encoder': {'inputDim': self.nAttributes, 'hiddenDim': self.vae_params.vae_hiddenDim, 'latentDim': self.vae_params.latentDim},
+            'decoder': {'latentDim': self.vae_params.latentDim, 'hiddenDim': self.vae_params.vae_hiddenDim, 'outputDim': self.nAttributes}
+        }
+        self.vaeNet = VariationalAutoencoder(self.vaeSettings)
 
-      self.rawData = values
+    def preprocessData(self):
+        df = pd.read_excel(self.excel_file, header=None)
+        attribute_names = df.iloc[0, 1:].tolist()
+        units = df.iloc[1, 1:].tolist()
+        material_names = df.iloc[2:, 0].tolist()
+        values = df.iloc[2:, 1:].to_numpy(dtype=float)
 
-      
-      normalizedData = np.zeros_like(values)
-      dataScaleMin = np.zeros(values.shape[1])
-      dataScaleMax = np.zeros(values.shape[1])
+        self.rawData = values
 
-      for i, name in enumerate(attribute_names):
-          col = values[:, i]
-          if name in ['E0', 'E1', 'E2', 'E3', 'Y0', 'Y1', 'Y2', 'Y3']:
-              log_col = np.log10(col)
-              dataScaleMin[i] = log_col.min()
-              dataScaleMax[i] = log_col.max()
-              normalizedData[:, i] = (log_col - dataScaleMin[i]) / (dataScaleMax[i] - dataScaleMin[i] + 1e-12)
-          else:
-              norm_col = col
-              dataScaleMin[i] = norm_col.min()
-              dataScaleMax[i] = norm_col.max()
-              normalizedData[:, i] = (norm_col - dataScaleMin[i]) / (dataScaleMax[i] - dataScaleMin[i] + 1e-12)
+        normalizedData = np.zeros_like(values)
+        dataScaleMin = np.zeros(values.shape[1])
+        dataScaleMax = np.zeros(values.shape[1])
 
-      
-      scaledMaterialData = torch.tensor(normalizedData).float()
+        for i, name in enumerate(attribute_names):
+            col = values[:, i]
+            if name in ['E0', 'E1', 'E2', 'E3', 'Y0', 'Y1', 'Y2', 'Y3']:
+                log_col = np.log10(col)
+                dataScaleMin[i] = log_col.min()
+                dataScaleMax[i] = log_col.max()
+                normalizedData[:, i] = (log_col - dataScaleMin[i]) / (dataScaleMax[i] - dataScaleMin[i] + 1e-12)
+            else:
+                norm_col = col
+                dataScaleMin[i] = norm_col.min()
+                dataScaleMax[i] = norm_col.max()
+                normalizedData[:, i] = (norm_col - dataScaleMin[i]) / (dataScaleMax[i] - dataScaleMin[i] + 1e-12)
 
-      # Build materialAttributes dictionary
-      materialAttributes = {}
-      for i, name in enumerate(attribute_names):
-          materialAttributes[name] = {
-              'idx': i,
-              'unit': units[i],
-              'scaleMin': dataScaleMin[i],
-              'scaleMax': dataScaleMax[i],
-          }
-  
-      self.materialNames = material_names
-      self.scaledMaterialData = scaledMaterialData
-      self.materialAttributes = materialAttributes
+        scaledMaterialData = torch.tensor(normalizedData).float()
 
-      # Compute mean and standard deviation for each attribute
-      attribute_means = normalizedData.mean(axis=0)
-      attribute_stds = normalizedData.std(axis=0)
-      self.attribute_means = attribute_means
-      self.attribute_stds = attribute_stds
+        materialAttributes = {}
+        for i, name in enumerate(attribute_names):
+            materialAttributes[name] = {
+                'idx': i,
+                'unit': units[i],
+                'scaleMin': dataScaleMin[i],
+                'scaleMax': dataScaleMax[i],
+            }
 
-      # # Calculate sigma/mean for each attribute
-      # sigma_mean_ratios = {}
-      # for i, name in enumerate(attribute_names):
-      #     sigma = attribute_stds[i]
-      #     mean = attribute_means[i]
-      #     sigma_mean_ratios[name] = sigma / mean if mean != 0 else float('inf')
+        self.materialNames = material_names
+        self.scaledMaterialData = scaledMaterialData
+        self.materialAttributes = materialAttributes
 
-      # # Print the name and sigma/mean for each attribute
-      # print("Attribute Name       Sigma/Mean for Normalized Data")
-      # print("-" * 40)
-      # for name, ratio in sigma_mean_ratios.items():
-      #     print(f"{name:<20} {ratio:.6f}")
-  
-  def largestEncodingErrorPercent(self):
-      """
-      Returns the largest percent error for any decoded real material attribute
-      compared to the actual Excel sheet values.
-      """
-      # Get real latent points for all materials
-      self.vaeNet.encoder.isTraining = False
-      with torch.no_grad():
-          z_real = self.vaeNet.encoder(self.scaledMaterialData)
-          decoded = self.vaeNet.decoder(z_real)
-          diffMatrix = self.scaledMaterialData - decoded
-          
-          largestErrorPercent = 100.0 * torch.max(torch.abs(diffMatrix)).item()
-      self.vaeNet.encoder.isTraining = True
-      return largestErrorPercent
+        attribute_means = normalizedData.mean(axis=0)
+        attribute_stds = normalizedData.std(axis=0)
+        self.attribute_means = attribute_means
+        self.attribute_stds = attribute_stds
 
-  def printEncodingErrors(self):
-      """
-      Prints a table of maximum percent error for each decoded real material attribute
-      compared to the actual Excel sheet values.
-      """
-      # Get real latent points for all materials
-      with torch.no_grad():
-          z_real = self.vaeNet.encoder(self.scaledMaterialData)
-          decoded = self.vaeNet.decoder(z_real)
-          diffMatrix = self.scaledMaterialData - decoded
+    def largestEncodingErrorPercent(self):
+        self.vaeNet.encoder.isTraining = False
+        with torch.no_grad():
+            z_real = self.vaeNet.encoder(self.scaledMaterialData)
+            decoded = self.vaeNet.decoder(z_real)
+            diffMatrix = self.scaledMaterialData - decoded
 
-      attribute_names = list(self.materialAttributes.keys())  
-      print("-" * 40)
-      print("{:<25} {:>15}".format("Attribute", "Max % Error"))
-      print("-" * 40)
-      col = 0
-      for name in attribute_names:
-          percent_err = 100 * diffMatrix[:, col].abs().numpy()
-          max_percent_err = np.max(percent_err)
-          print("{:<25} {:>15.6f}".format(name, max_percent_err))
-          col += 1
-      print("-" * 40)
+            largestErrorPercent = 100.0 * torch.max(torch.abs(diffMatrix)).item()
+        self.vaeNet.encoder.isTraining = True
+        return largestErrorPercent
 
-  def loadAutoencoderFromFile(self, fileName):
-    self.vaeNet.load_state_dict(torch.load(fileName))
-    self.vaeNet.eval()
+    def printEncodingErrors(self):
+        with torch.no_grad():
+            z_real = self.vaeNet.encoder(self.scaledMaterialData)
+            decoded = self.vaeNet.decoder(z_real)
+            diffMatrix = self.scaledMaterialData - decoded
 
-  def trainAutoencoder(self, numEpochs, klFactor, savedNet, learningRate, maxAttributeErrorPercent=0.0005):
-    opt = torch.optim.AdamW(self.vaeNet.parameters(), learningRate)
-    convgHistory = {'reconLoss':[], 'klLoss':[], 'loss':[]}
-    self.vaeNet.encoder.isTraining = True
-    for epoch in range(numEpochs):
-      opt.zero_grad()
-      predData = self.vaeNet(self.scaledMaterialData)
-      klLoss = klFactor*self.vaeNet.encoder.kl
-      reconLoss =  ((self.scaledMaterialData - predData)**2).sum()
-      loss = reconLoss + klLoss 
-      loss.backward()
-      convgHistory['reconLoss'].append(reconLoss)
-      convgHistory['klLoss'].append(klLoss/klFactor) # save unscaled loss
-      convgHistory['loss'].append(loss)
-      largestErrorPercent = self.largestEncodingErrorPercent()
-      if largestErrorPercent < maxAttributeErrorPercent:
-          print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.3e}'.\
-            format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
-          print("Converged!")
-          break
-      if(epoch%500 == 0):
-        print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.3e}'.\
-            format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
-      opt.step()
-    self.vaeNet.encoder.isTraining = False
-    torch.save(self.vaeNet.state_dict(), savedNet)
-    return convgHistory
+        attribute_names = list(self.materialAttributes.keys())
+        print("-" * 40)
+        print("{:<25} {:>15}".format("Attribute", "Max % Error"))
+        print("-" * 40)
+        col = 0
+        for name in attribute_names:
+            percent_err = 100 * diffMatrix[:, col].abs().numpy()
+            max_percent_err = np.max(percent_err)
+            print("{:<25} {:>15.6f}".format(name, max_percent_err))
+            col += 1
+        print("-" * 40)
 
-  def getMaterialName(self, index):
-      """
-      Returns the material name for a given index.
-      """
-      if 0 <= index < len(self.materialNames):
-          return self.materialNames[index]
-      else:
-          raise IndexError("Index out of range for material names.")
-      
-  def getValuesAtLatentPoints(self, attributeName, zPts):
-      """
-      Returns the attribute values for a given set of latent points.
-      """
-      decoded = self.vaeNet.decoder(zPts)
-      material_properties = self.getMaterialProperties(decoded)
-      return material_properties[attributeName].detach().numpy()  
-  
+    def loadAutoencoderFromFile(self, fileName):
+        self.vaeNet.load_state_dict(torch.load(fileName))
+        self.vaeNet.eval()
 
-  def getMaterialPropertyAtTemperature(self, name,  zPts, T):
-      decoded = self.vaeNet.decoder(zPts)
-      material_properties = self.getMaterialProperties(decoded)
+    def trainAutoencoder(self, numEpochs, klFactor, savedNet, learningRate, maxAttributeErrorPercent=0.0005):
+        opt = torch.optim.AdamW(self.vaeNet.parameters(), learningRate)
+        convgHistory = {'reconLoss': [], 'klLoss': [], 'loss': []}
+        self.vaeNet.encoder.isTraining = True
+        for epoch in range(numEpochs):
+            opt.zero_grad()
+            predData = self.vaeNet(self.scaledMaterialData)
+            klLoss = klFactor * self.vaeNet.encoder.kl
+            reconLoss = ((self.scaledMaterialData - predData) ** 2).sum()
+            loss = reconLoss + klLoss
+            loss.backward()
+            convgHistory['reconLoss'].append(reconLoss)
+            convgHistory['klLoss'].append(klLoss / klFactor)
+            convgHistory['loss'].append(loss)
+            largestErrorPercent = self.largestEncodingErrorPercent()
+            if largestErrorPercent < maxAttributeErrorPercent:
+                print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.3e}'. \
+                      format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
+                print("Converged!")
+                break
+            if (epoch % 500 == 0):
+                print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.3e}'. \
+                      format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
+            opt.step()
+        self.vaeNet.encoder.isTraining = False
+        torch.save(self.vaeNet.state_dict(), savedNet)
+        return convgHistory
 
-      if name in ['E', 'Y']:
-          M0 = material_properties[name + '0'].detach().numpy()
-          M1 = material_properties[name + '1'].detach().numpy()
-          M2 = material_properties[name + '2'].detach().numpy()
-          M3 = material_properties[name + '3'].detach().numpy()
-          M = logBezierInterpolation(T, M0, M1, M2, M3)
-      elif name == 'K':
-          M0 = material_properties[name + '0'].detach().numpy()
-          M1 = material_properties[name + '1'].detach().numpy()
-          M2 = material_properties[name + '2'].detach().numpy()
-          M3 = material_properties[name + '3'].detach().numpy()
-          M = bezierInterpolation(T, M0, M1, M2, M3)
-      return M
-
-  def getMaterialPropertyAtTemperatureTorch(self, name,  zPts, T):
-      decoded = self.vaeNet.decoder(zPts)
-      material_properties = self.getMaterialProperties(decoded)
-
-      if name in ['E', 'Y']:
-          M0 = material_properties[name + '0']
-          M1 = material_properties[name + '1']
-          M2 = material_properties[name + '2']
-          M3 = material_properties[name + '3']
-          M = logBezierInterpolation_torch(T, M0, M1, M2, M3)
-      elif name == 'K':
-          M0 = material_properties[name + '0']
-          M1 = material_properties[name + '1']
-          M2 = material_properties[name + '2']
-          M3 = material_properties[name + '3']
-          M = bezierInterpolation_torch(T, M0, M1, M2, M3)
-      return M
-
-  
-  def getMaterialProperties(self, decoded):
-    """
-    Returns a dictionary of all denormalized and unlogged material properties.
-    Keys are attribute names from materialAttributes.
-    """
-    properties = {}
-    for name, attribute in self.materialAttributes.items():
-        idx = attribute['idx']
-        scaleMax = attribute['scaleMax']
-        scaleMin = attribute['scaleMin']
-        if name in ['E0', 'E1', 'E2', 'E3', 'Y0', 'Y1', 'Y2', 'Y3']:
-            properties[name] = 10**(decoded[:, idx] * (scaleMax - scaleMin) + scaleMin)
+    def getMaterialName(self, index):
+        if 0 <= index < len(self.materialNames):
+            return self.materialNames[index]
         else:
-            properties[name] = (decoded[:, idx] * (scaleMax - scaleMin) + scaleMin)
-    return properties
+            raise IndexError("Index out of range for material names.")
 
-  
-  def getClosestRealMaterialIndex(self, zDesign):
-    # Get the index of the closest real material in latent space to the given design latent vector
-    with torch.no_grad():
-      zReal = self.vaeNet.encoder(self.scaledMaterialData)  
+    def getValuesAtLatentPoints(self, attributeName, zPts):
+        decoded = self.vaeNet.decoder(zPts)
+        material_properties = self.getMaterialProperties(decoded)
+        return material_properties[attributeName].detach().numpy()
 
-    distances = torch.cdist(zDesign, zReal)
-    # For each design, find the closest real material index
-    closest_indices = torch.argmin(distances, dim=1)
-    return closest_indices
- 
- 
-  def getClosestRealMaterialZValues(self, zDesign):
-    # Get the index of the closest real material in latent space to the given design latent vector
-    with torch.no_grad():
-      zReal = self.vaeNet.encoder(self.scaledMaterialData)  
+    def getMaterialPropertyAtTemperature(self, name, zPts, T):
+        decoded = self.vaeNet.decoder(zPts)
+        material_properties = self.getMaterialProperties(decoded)
 
-    distances = torch.cdist(zDesign, zReal)
-    # For each design, find the closest real material index
-    closest_indices = torch.argmin(distances, dim=1)
-    return zReal[closest_indices].detach().numpy()
+        if name in ['E', 'Y']:
+            M0 = material_properties[name + '0'].detach().numpy()
+            M1 = material_properties[name + '1'].detach().numpy()
+            M2 = material_properties[name + '2'].detach().numpy()
+            M3 = material_properties[name + '3'].detach().numpy()
+            M = logBezierInterpolation(T, M0, M1, M2, M3)
+        elif name == 'K':
+            M0 = material_properties[name + '0'].detach().numpy()
+            M1 = material_properties[name + '1'].detach().numpy()
+            M2 = material_properties[name + '2'].detach().numpy()
+            M3 = material_properties[name + '3'].detach().numpy()
+            M = bezierInterpolation(T, M0, M1, M2, M3)
+        return M
 
-  def materialDistance(self, zDesign,xDesign,gamma):
-    # Decode latent vectors to material properties
-    zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
-    decoded_design = self.vaeNet.decoder(zDesign_tensor)
+    def getMaterialPropertyAtTemperatureTorch(self, name, zPts, T):
+        decoded = self.vaeNet.decoder(zPts)
+        material_properties = self.getMaterialProperties(decoded)
 
-    props_real = self.rawData
-    props_design = self.getMaterialProperties(decoded_design)
-    # Convert dictionary of tensors to a single tensor array for props_design
-    props_design = torch.stack([v if isinstance(v, torch.Tensor) else torch.tensor(v) for v in props_design.values()], dim=1)
-    props_real = torch.tensor(props_real) if not isinstance(props_real, torch.Tensor) else props_real
-    
-    # Compute normalized attribute-wise squared differences
-    # props_design: (nDesigns, nAttributes), props_real: (nReal, nAttributes)
-    # Expand dims for broadcasting
-    design_exp = props_design.unsqueeze(1)  # (nDesigns, 1, nAttributes)
-    real_exp = props_real.unsqueeze(0)      # (1, nReal, nAttributes)
+        if name in ['E', 'Y']:
+            M0 = material_properties[name + '0']
+            M1 = material_properties[name + '1']
+            M2 = material_properties[name + '2']
+            M3 = material_properties[name + '3']
+            M = logBezierInterpolation_torch(T, M0, M1, M2, M3)
+        elif name == 'K':
+            M0 = material_properties[name + '0']
+            M1 = material_properties[name + '1']
+            M2 = material_properties[name + '2']
+            M3 = material_properties[name + '3']
+            M = bezierInterpolation_torch(T, M0, M1, M2, M3)
+        return M
 
-    # Normalized squared difference: ((design - real)^2) / (real^2 + 1e-12)
-    norm_diff = ((design_exp - real_exp) ** 2) / (real_exp ** 2 + 1e-12)  # (nDesigns, nReal, nAttributes)
+    def getMaterialProperties(self, decoded):
+        properties = {}
+        for name, attribute in self.materialAttributes.items():
+            idx = attribute['idx']
+            scaleMax = attribute['scaleMax']
+            scaleMin = attribute['scaleMin']
+            if name in ['E0', 'E1', 'E2', 'E3', 'Y0', 'Y1', 'Y2', 'Y3']:
+                properties[name] = 10 ** (decoded[:, idx] * (scaleMax - scaleMin) + scaleMin)
+            else:
+                properties[name] = (decoded[:, idx] * (scaleMax - scaleMin) + scaleMin)
+        return properties
 
-    # Sum over attributes to get net distance
-    net_distance = norm_diff.sum(dim=2)  # (nDesigns, nReal)
-    # Find the minimum distance for each design (over all real materials)
-    # Use standard min instead of p-norm to aggregate distances across real materials
-    # net_distance: (nDesigns, nReal)
-    min_distances, _ = torch.min(net_distance, dim=1)
+    def getClosestRealMaterialIndex(self, zDesign):
+        with torch.no_grad():
+            zReal = self.vaeNet.encoder(self.scaledMaterialData)
 
-    penalty = gamma * torch.mean(min_distances * xDesign)
-    # Compute gradient of penalty w.r.t. zDesign
-    penalty.backward()
-    grad = zDesign_tensor.grad.detach().numpy()
-    grad = grad.T.reshape(-1)
-    return penalty.detach().numpy(), grad
+        distances = torch.cdist(zDesign, zReal)
+        closest_indices = torch.argmin(distances, dim=1)
+        return closest_indices
 
-  def materialAttributeDistance(self, attributeName, zDesign, xDesign, gamma):
-    attributeId = list(self.materialAttributes.keys()).index(attributeName)
-    # Decode latent vectors to material properties
-    zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
-    decoded_design = self.vaeNet.decoder(zDesign_tensor)
+    def getClosestRealMaterialZValues(self, zDesign):
+        with torch.no_grad():
+            zReal = self.vaeNet.encoder(self.scaledMaterialData)
 
-    props_real = self.rawData
-    props_design = self.getMaterialProperties(decoded_design)
-    # Convert dictionary of tensors to a single tensor array for props_design
-    props_design = torch.stack([v if isinstance(v, torch.Tensor) else torch.tensor(v) for v in props_design.values()], dim=1)
-    props_real = torch.tensor(props_real) if not isinstance(props_real, torch.Tensor) else props_real
-    
-    # Compute normalized attribute-wise squared differences
-    # props_design: (nDesigns, nAttributes), props_real: (nReal, nAttributes)
-    # Expand dims for broadcasting
-    design_exp = props_design[:, attributeId].unsqueeze(1)  # (nDesigns, 1)
-    real_exp = props_real[:, attributeId].unsqueeze(0)      # (1, nReal)
+        distances = torch.cdist(zDesign, zReal)
+        closest_indices = torch.argmin(distances, dim=1)
+        return zReal[closest_indices].detach().numpy()
 
-    # Normalized squared difference: ((design - real)^2) / (real^2 + 1e-12)
-    norm_diff = ((design_exp - real_exp) ** 2) / (real_exp ** 2 + 1e-12)  # (nDesigns, nReal)
+    def materialDistance(self, zDesign, xDesign, gamma):
+        zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
+        decoded_design = self.vaeNet.decoder(zDesign_tensor)
 
-    # Sum over attributes to get net distance
-    net_distance = norm_diff  # (nDesigns, nReal)
-    # Find the minimum distance for each design (over all real materials)
-    # Use standard min instead of p-norm to aggregate distances across real materials
-    # net_distance: (nDesigns, nReal)
-    min_distances, _ = torch.min(net_distance, dim=1)
+        props_real = self.rawData
+        props_design = self.getMaterialProperties(decoded_design)
+        props_design = torch.stack([v if isinstance(v, torch.Tensor) else torch.tensor(v) for v in props_design.values()], dim=1)
+        props_real = torch.tensor(props_real) if not isinstance(props_real, torch.Tensor) else props_real
 
-    penalty = gamma * torch.mean(min_distances * xDesign)
-    # Compute gradient of penalty w.r.t. zDesign
-    penalty.backward()
-    grad = zDesign_tensor.grad.detach().numpy()
-    grad = grad.T.reshape(-1)
-    return penalty.detach().numpy(), grad
-  
-  def plotLSR(self, zRealPts, zDesignPts = None,xDesign=None):
+        design_exp = props_design.unsqueeze(1)
+        real_exp = props_real.unsqueeze(0)
 
-    if zDesignPts is not None and xDesign is not None:
-      mask = xDesign > 0.5
-      if np.any(mask):
-        plt.scatter(zDesignPts[mask, 0], zDesignPts[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
-    plt.scatter(zRealPts[:, 0], zRealPts[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=0.4)
-    for i, label in enumerate(self.materialNames):
-        plt.text(zRealPts[i, 0] + 0.1, zRealPts[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
-    plt.xlabel('$z_1$')
-    plt.ylabel('$z_2$')
-    #plt.legend(fontsize=10)
-    plt.xlim(-5, 5)
-    plt.ylim(-5, 5)
-    plt.grid(True)
-    plt.show()
+        norm_diff = ((design_exp - real_exp) ** 2) / (real_exp ** 2 + 1e-12)
 
-  def plotLSRContours(self, attributeName, title=""):
-    attributeId = list(self.materialAttributes.keys()).index(attributeName)
-    zReal = self.training_latents
-    n_points = 50
-    z1 = np.linspace(-5, 5, n_points)
-    z2 = np.linspace(-5, 5, n_points)
-    Z1, Z2 = np.meshgrid(z1, z2)
-    Z_grid = np.stack([Z1.ravel(), Z2.ravel()], axis=1)
-    QOI = []
-    with torch.no_grad():
-        for z in Z_grid:
-            z_tensor = torch.tensor(z, dtype=torch.float32).unsqueeze(0)
-            decoded = self.vaeNet.decoder(z_tensor)
-            decodedValues = self.getMaterialProperties(decoded)
-            QOI.append(decodedValues[list(decodedValues.keys())[attributeId]].item())
-    QOI = np.array(QOI).reshape(Z1.shape)
-    plt.figure(figsize=(7.5, 6))
-    contour = plt.contourf(Z1, Z2, QOI, levels=30, cmap='viridis')
-    units = self.materialAttributes[list(self.materialAttributes.keys())[attributeId]]['unit']
-    plt.colorbar(contour, label=list(self.materialAttributes.keys())[attributeId] + " (" + units + ")")
-    plt.scatter(zReal[:, 0], zReal[:, 1], c='black', marker='*', s=200,  alpha=1.0)
-    for i, label in enumerate(self.materialNames):
-        plt.text(zReal[i, 0] + 0.1, zReal[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
-    plt.xlabel('$z_1$')
-    plt.ylabel('$z_2$')
-    plt.title(title)
-    plt.show()
+        net_distance = norm_diff.sum(dim=2)
+        min_distances, _ = torch.min(net_distance, dim=1)
 
+        penalty = gamma * torch.mean(min_distances * xDesign)
+        penalty.backward()
+        grad = zDesign_tensor.grad.detach().numpy()
+        grad = grad.T.reshape(-1)
+        return penalty.detach().numpy(), grad
 
-  def plotTemperatureVsMaterialProperty(self,attrName,semilogy=False):
-    """Plot temperature vs material property for the given mesh."""
-    # Extract material properties from the mesh
-    
-    zRealPts = self.vaeNet.encoder.z
-    plt.figure()
-    T = np.linspace(0, 1250, 300)
-    markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_']
-    for i in range(zRealPts.shape[0]):
-      zPt = zRealPts[i, :].view(1, 2)
-      M = self.getMaterialPropertyAtTemperature(attrName, zPt, T)
-      marker = markers[i % len(markers)]  # Cycle through markers
-      if semilogy:
-        plt.semilogy(T, M, label=self.materialNames[i], marker=marker, markevery=30)
-      else:
-        plt.plot(T, M, label=self.materialNames[i], marker=marker, markevery=30)
-     
-    plt.xlabel("Temperature (C)")
-    plt.ylabel(f"{attrName}")
-    plt.title(f"Temperature vs {attrName}")
-    plt.legend(self.materialNames)
-    plt.grid()
-    plt.show()
+    def materialAttributeDistance(self, attributeName, zDesign, xDesign, gamma):
+        attributeId = list(self.materialAttributes.keys()).index(attributeName)
+        zDesign_tensor = torch.tensor(zDesign, dtype=torch.float32, requires_grad=True)
+        decoded_design = self.vaeNet.decoder(zDesign_tensor)
 
+        props_real = self.rawData
+        props_design = self.getMaterialProperties(decoded_design)
+        props_design = torch.stack([v if isinstance(v, torch.Tensor) else torch.tensor(v) for v in props_design.values()], dim=1)
+        props_real = torch.tensor(props_real) if not isinstance(props_real, torch.Tensor) else props_real
 
-  def getHeaviestMaterial(self):
-    # Get real latent points for all materials
-    with torch.no_grad():
-        z_real = self.vaeNet.encoder(self.scaledMaterialData)
-        decoded = self.vaeNet.decoder(z_real)
-        decoded_properties = self.getMaterialProperties(decoded)
+        design_exp = props_design[:, attributeId].unsqueeze(1)
+        real_exp = props_real[:, attributeId].unsqueeze(0)
 
-    # Find the index of the heaviest material
-    density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
-    heaviest_idx = np.argmax(density_values)
-    heaviest_z = z_real[heaviest_idx].detach().cpu().numpy()
-    return heaviest_z
-  
-  def getLightestMaterial(self):
-    # Get real latent points for all materials
-    with torch.no_grad():
-      z_real = self.vaeNet.encoder(self.scaledMaterialData)
-      decoded = self.vaeNet.decoder(z_real)
-      decoded_properties = self.getMaterialProperties(decoded)
+        norm_diff = ((design_exp - real_exp) ** 2) / (real_exp ** 2 + 1e-12)
 
-    # Find the index of the lightest material
-    density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
-    lightest_idx = np.argmin(density_values)
-    lightest_z = z_real[lightest_idx].detach().cpu().numpy()
-    return lightest_z
+        net_distance = norm_diff
+        min_distances, _ = torch.min(net_distance, dim=1)
+
+        penalty = gamma * torch.mean(min_distances * xDesign)
+        penalty.backward()
+        grad = zDesign_tensor.grad.detach().numpy()
+        grad = grad.T.reshape(-1)
+        return penalty.detach().numpy(), grad
+
+    def plotLSR(self, zRealPts, zDesignPts=None, xDesign=None):
+        zRealPts = np.asarray(zRealPts)
+        if zDesignPts is not None:
+            zDesignPts = np.asarray(zDesignPts)
+        latentDim = zRealPts.shape[1]
+
+        # PCA projection only for latentDim > 3
+        if latentDim > 3:
+            pca = PCA(n_components=2)
+            zRealPts_2d = pca.fit_transform(zRealPts)
+            zDesignPts_2d = pca.transform(zDesignPts) if zDesignPts is not None else None
+
+            plt.figure()
+            plt.title(f"Latent Space (PCA projection from {latentDim}D)")
+            if zDesignPts_2d is not None and xDesign is not None:
+                mask = np.asarray(xDesign) > 0.5
+                if np.any(mask):
+                    plt.scatter(zDesignPts_2d[mask, 0], zDesignPts_2d[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+            plt.scatter(zRealPts_2d[:, 0], zRealPts_2d[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=0.4)
+            for i, label in enumerate(self.materialNames):
+                plt.text(zRealPts_2d[i, 0] + 0.1, zRealPts_2d[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
+            plt.xlabel('$z_1$')
+            plt.ylabel('$z_2$')
+            plt.xlim(-5, 5)
+            plt.ylim(-5, 5)
+            plt.grid(True)
+            plt.legend()
+            plt.show()
+
+        # 3D plot for latentDim == 3
+        elif latentDim == 3:
+            from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            if zDesignPts is not None and xDesign is not None:
+                mask = np.asarray(xDesign) > 0.5
+                if np.any(mask):
+                    ax.scatter(zDesignPts[mask, 0], zDesignPts[mask, 1], zDesignPts[mask, 2],
+                               c='red', marker='o', s=20, label='Optimized Materials', alpha=0.6)
+            ax.scatter(zRealPts[:, 0], zRealPts[:, 1], zRealPts[:, 2],
+                       c='black', marker='*', s=200, label='Real Materials', alpha=0.6)
+            for i, label in enumerate(self.materialNames):
+                ax.text(zRealPts[i, 0] + 0.1, zRealPts[i, 1], zRealPts[i, 2], str(label),
+                        fontsize=10, color='black')
+            ax.set_xlabel('$z_1$')
+            ax.set_ylabel('$z_2$')
+            ax.set_zlabel('$z_3$')
+            ax.set_xlim(-5, 5)
+            ax.set_ylim(-5, 5)
+            ax.set_zlim(-5, 5)
+            plt.legend()
+            plt.show()
+
+        # 2D plot for latentDim <= 2
+        else:
+            zRealPts_2d = zRealPts
+            zDesignPts_2d = zDesignPts
+            plt.figure()
+            if zDesignPts_2d is not None and xDesign is not None:
+                mask = np.asarray(xDesign) > 0.5
+                if np.any(mask):
+                    plt.scatter(zDesignPts_2d[mask, 0], zDesignPts_2d[mask, 1], c='red', marker='o', s=20, label='Optimized Materials', alpha=0.2)
+            plt.scatter(zRealPts_2d[:, 0], zRealPts_2d[:, 1], c='black', marker='*', s=200, label='Real Materials', alpha=0.4)
+            for i, label in enumerate(self.materialNames):
+                plt.text(zRealPts_2d[i, 0] + 0.1, zRealPts_2d[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
+            plt.xlabel('$z_1$')
+            plt.ylabel('$z_2$')
+            plt.xlim(-5, 5)
+            plt.ylim(-5, 5)
+            plt.grid(True)
+            plt.legend()
+            plt.show()
+
+    def plotLSRContours(self, attributeName, title=""):
+        attributeId = list(self.materialAttributes.keys()).index(attributeName)
+        zReal = self.training_latents
+        latentDim = zReal.shape[1]
+        n_points = 50
 
 
+        if latentDim > 2:
+            # Use PCA to project latent space to 2D grid for contour plotting
+            pca = PCA(n_components=2)
+            zReal_2d = pca.fit_transform(zReal)
+            # Create grid in PCA space
+            z1 = np.linspace(-5, 5, n_points)
+            z2 = np.linspace(-5, 5, n_points)
+            Z1, Z2 = np.meshgrid(z1, z2)
+            Z_grid_2d = np.stack([Z1.ravel(), Z2.ravel()], axis=1)
+            # Inverse transform grid to latent space
+            Z_grid_full = pca.inverse_transform(Z_grid_2d)
+        else:
+            zReal_2d = zReal
+            z1 = np.linspace(-5, 5, n_points)
+            z2 = np.linspace(-5, 5, n_points)
+            Z1, Z2 = np.meshgrid(z1, z2)
+            Z_grid_full = np.stack([Z1.ravel(), Z2.ravel()], axis=1)
+
+        QOI = []
+        with torch.no_grad():
+            for z in Z_grid_full:
+                z_tensor = torch.tensor(z, dtype=torch.float32).unsqueeze(0)
+                decoded = self.vaeNet.decoder(z_tensor)
+                decodedValues = self.getMaterialProperties(decoded)
+                QOI.append(decodedValues[list(decodedValues.keys())[attributeId]].item())
+        QOI = np.array(QOI).reshape(Z1.shape)
+        plt.figure(figsize=(7.5, 6))
+        contour = plt.contourf(Z1, Z2, QOI, levels=30, cmap='viridis')
+        units = self.materialAttributes[list(self.materialAttributes.keys())[attributeId]]['unit']
+        plt.colorbar(contour, label=list(self.materialAttributes.keys())[attributeId] + " (" + units + ")")
+        plt.scatter(zReal_2d[:, 0], zReal_2d[:, 1], c='black', marker='*', s=200, alpha=1.0)
+        for i, label in enumerate(self.materialNames):
+            plt.text(zReal_2d[i, 0] + 0.1, zReal_2d[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
+        plt.xlabel('$z_1$')
+        plt.ylabel('$z_2$')
+        plt.title(title)
+        plt.show()
+
+    def plotTemperatureVsMaterialProperty(self, attrName, semilogy=False):
+        zRealPts = self.vaeNet.encoder.z
+        plt.figure()
+        T = np.linspace(0, 1250, 300)
+        markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_']
+        for i in range(zRealPts.shape[0]):
+            zPt = zRealPts[i, :].view(1, -1)
+            M = self.getMaterialPropertyAtTemperature(attrName, zPt, T)
+            marker = markers[i % len(markers)]
+            if semilogy:
+                plt.semilogy(T, M, label=self.materialNames[i], marker=marker, markevery=30)
+            else:
+                plt.plot(T, M, label=self.materialNames[i], marker=marker, markevery=30)
+
+        plt.xlabel("Temperature (C)")
+        plt.ylabel(f"{attrName}")
+        plt.title(f"Temperature vs {attrName}")
+        plt.legend(self.materialNames)
+        plt.grid()
+        plt.show()
+
+    def getHeaviestMaterial(self):
+        with torch.no_grad():
+            z_real = self.vaeNet.encoder(self.scaledMaterialData)
+            decoded = self.vaeNet.decoder(z_real)
+            decoded_properties = self.getMaterialProperties(decoded)
+
+        density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
+        heaviest_idx = np.argmax(density_values)
+        heaviest_z = z_real[heaviest_idx].detach().cpu().numpy()
+        return heaviest_z
+
+    def getLightestMaterial(self):
+        with torch.no_grad():
+            z_real = self.vaeNet.encoder(self.scaledMaterialData)
+            decoded = self.vaeNet.decoder(z_real)
+            decoded_properties = self.getMaterialProperties(decoded)
+
+        density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
+        lightest_idx = np.argmin(density_values)
+        lightest_z = z_real[lightest_idx].detach().cpu().numpy()
+        return lightest_z

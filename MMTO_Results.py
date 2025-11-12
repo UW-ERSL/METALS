@@ -19,6 +19,7 @@ class Z0InitMethod(Enum):
     UNIFORM = 'uniform'
 
 
+# The main code for MMTO topology optimization
 def run_topopt(
     to_problem,
     timeLimit=7200,
@@ -31,22 +32,36 @@ def run_topopt(
     z0_init_method = Z0InitMethod.ORIGIN,  
     gamma_init = 1e-3, # penalization
     gamma_max = 100,#100
-    gamma_factor = 1.1):#1.1
+    gamma_factor =1.1):#1.1
     
     history = {
         "objective": [],
         "constraints": []
     }
 
-    mesh_structural, mat_prop_struct, bc_struct,\
-        elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
 
-    if to_params.MaterialsExcelFile is None:
+    # --- Get the TO problem
+    mesh_structural, mat_prop_struct, bc_struct,\
+          elem_body_force, to_params, vae_params = getMMTOProblem(to_problem)
+    # Format filter size for folder name (replace . with 'pt')
+    filter_size = to_params.RelativeFilterRadius
+    filter_size_str = str(filter_size).replace('.', 'pt')
+
+    # Get init method name
+    init_method_str = str(z0_init_method.name) if isinstance(z0_init_method, Enum) else str(z0_init_method)
+
+    # Build results directory name
+    results_dir_name = f"{to_problem.name}_{init_method_str}_{filter_size_str}"
+    results_dir = os.path.join(os.getcwd(), results_dir_name)
+    os.makedirs(results_dir, exist_ok=True)
+    # --- Read the materials excel file ---
+    if to_params.MaterialsExcelFile  is None:
         print("Please provide a valid MaterialsExcelFile in to_params.")
         return
     matEncoder = MaterialEncoder(vae_params)
     matEncoder.readExcel(to_params.MaterialsExcelFile)
 
+    # Train the autoencoder or save/load from file
     if saveNet is None:
         base, _ = os.path.splitext(to_params.MaterialsExcelFile)
         saveNet = base + ".nt"
@@ -66,11 +81,17 @@ def run_topopt(
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
     matEncoder.printEncodingErrors()
-    # matEncoder.plotLSRContours("Youngs_Modulus", title="Young's Modulus Contours in Latent Space")
-    # matEncoder.plotLSRContours("Density", title="Density Contours in Latent Space")
-    # matEncoder.plotLSRContours("Cost", title="Cost Contours in Latent Space")
+    # Save contour plots for latent space
+    for attr, fname in [("Youngs_Modulus", "contour_youngs_modulus"), ("Density", "contour_density")]:
+        fig = matEncoder.plotLSRContours(attr, title=f"{attr} Contours in Latent Space")
+        if fig is not None:
+            fig.tight_layout(pad=0.1)
+            fig.savefig(os.path.join(results_dir, f"{fname}.png"), bbox_inches='tight')
+            fig.savefig(os.path.join(results_dir, f"{fname}.pdf"), bbox_inches='tight')
+            plt.close(fig)
     zRealPoints = matEncoder.training_latents
 
+    # Set up the FEA solver
     solver = linear_solvers.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
     fe_solver_structural = hex_structural_fea.HexStructuralFEA(
@@ -89,13 +110,13 @@ def run_topopt(
     print(f"Number of DOF: {num_dof}")
     num_elems = mesh_structural.num_elems
     num_design_var = num_elems + num_elems * 2
-    #fe_solver_structural.plot_mesh(plot_bc=True, offsetArrow=True)  
+    fe_solver_structural.plot_mesh(plot_bc=True, offsetArrow=True)  
     # Create the filter for density and material variables
     print("Creating filter...")
     [H, Hs] = createFilters(fe_solver_structural, to_params)
 
     iterationCount = 0
-    obj0 = None
+    obj0 = None # will get updated in the first iteration
     gamma = gamma_init
 
     def MMTO_optimization_function(zeta):
@@ -103,15 +124,15 @@ def run_topopt(
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
-    
         # Prepare tensors and decode material properties
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
         xDesign = zetaTensor[0:num_elems]
         zDesign = zetaTensor[num_elems:]
-        zPoints = zDesign.view(latentDim, -1).T
+        zPoints = zDesign.view(2, -1).T
 
         decoded = matEncoder.vaeNet.decoder(zPoints)
         material_properties = matEncoder.getMaterialProperties(decoded)
+        # Set material properties for FEA solver
         Youngs_Modulus = material_properties['Youngs_Modulus'].detach().numpy()
 
         fe_solver_structural.mat_prop = [
@@ -119,53 +140,55 @@ def run_topopt(
             for i in range(len(Youngs_Modulus))]
         fe_solver_structural.set_structural_material(fe_solver_structural.mat_prop)
 
+        # Solve FEA and compute objective/constraints/gradients
         sol = fe_solver_structural.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
-        fe_solver_structural.postprocess()
+        fe_solver_structural.postprocess() # to compute stresses etc.
 
         obj, grad_obj = compute_mmto_objective_and_gradient(
             to_params, sol, zeta, fe_solver_structural, KETemplate, matEncoder)
         cons, grad_cons = compute_mmto_constraint_and_gradient(
             to_params, sol, zeta, fe_solver_structural, KETemplate, matEncoder)
 
-        if (obj0 is None):
+        if (obj0 is None): # For the first iteration
             obj0 = obj
         
-        obj = obj / obj0
+        obj = obj / obj0  # Normalize objective
         grad_obj = grad_obj / obj0
 
         if (to_params.ElemsToKeep is not None):
-            grad_obj[to_params.ElemsToKeep] = min(grad_obj)
+            grad_obj[to_params.ElemsToKeep] = min(grad_obj) # also retain elements that are in the keep list
 
         # Apply filter to sensitivities
         grad_obj[0:num_elems] = (H * grad_obj[0:num_elems]) / Hs
-        for i in range(latentDim):
-            grad_obj[num_elems + i*num_elems : num_elems + (i+1)*num_elems] = \
-                (H * grad_obj[num_elems + i*num_elems : num_elems + (i+1)*num_elems]) / Hs
+        grad_obj[num_elems:2*num_elems] = (H * grad_obj[num_elems:2*num_elems]) / Hs
+        grad_obj[2*num_elems:3*num_elems] = (H * grad_obj[2*num_elems:3*num_elems]) / Hs
 
-        for i in range(grad_cons.shape[0]):
+        for i in range(grad_cons.shape[0]):  # For each constraint
             grad_cons[i, 0:num_elems] = (H * grad_cons[i, 0:num_elems]) / Hs
-            for j in range(latentDim):
-                grad_cons[i, num_elems + j*num_elems : num_elems + (j+1)*num_elems] = \
-                    (H * grad_cons[i, num_elems + j*num_elems : num_elems + (j+1)*num_elems]) / Hs
+            grad_cons[i, num_elems:2*num_elems] = (H * grad_cons[i, num_elems:2*num_elems]) / Hs
+            grad_cons[i, 2*num_elems:3*num_elems] = (H * grad_cons[i, 2*num_elems:3*num_elems]) / Hs
 
         grad_obj = np.array([grad_obj]).reshape((num_design_var, 1))
         cons = np.array(cons).reshape((-1, 1))
         grad_cons = np.array(grad_cons).reshape((len(cons), num_design_var))
 
+        # Extract names for printing
         objective_name = getattr(to_params.Objective[0], 'name', str(to_params.Objective[0]))
         constraint_names = [getattr(c[0], 'name', str(c[0])) for c in to_params.Constraints]
 
+        # Print objective and constraints for this iteration
         print(f"Min. Objective ({objective_name}): {obj*obj0:.5g}")
         for idx, val in enumerate(cons.flatten()):
             print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
 
+        # Store history
         history["objective"].append(obj)
         history["constraints"].append(cons.flatten().copy())
     
         if (use_penalization):
             d_ij = torch.cdist(zPoints, zRealPoints)
             min_i = torch.min(d_ij, dim=1).values
-            min_i = min_i * xDesign
+            min_i = min_i * xDesign # only relevant if element is present
             nActiveElems = np.ceil(torch.sum((xDesign).float()).item())
             avgClosestDistance = torch.sum(min_i) / nActiveElems   
             maxClosestDistance = torch.max(min_i).item()
@@ -173,9 +196,10 @@ def run_topopt(
             zetaTensor.grad = None
             penalty.backward(retain_graph=True)
             gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
-            # for i in range(latentDim):
-            #     gradMeanDistance[i*num_elems:(i+1)*num_elems] = \
-            #         (H * gradMeanDistance[i*num_elems:(i+1)*num_elems]) / Hs
+            if False: # Apply filter to grad_obj for the penalty term
+                gradMeanDistance[0:num_elems] = (H * gradMeanDistance[0:num_elems]) / Hs
+                gradMeanDistance[num_elems:2*num_elems] = (H * gradMeanDistance[num_elems:2*num_elems]) / Hs
+                
             grad_obj[num_elems:,0] += gradMeanDistance
             obj = obj + penalty.item()
             gamma = min(gamma*gamma_factor, gamma_max)
@@ -187,38 +211,44 @@ def run_topopt(
     x0 = 0.5 * np.ones(num_elems) 
     x0 = (H * x0) / Hs
 
-    z0 = np.zeros(latentDim * num_elems)
+    z0 = np.zeros(2 * num_elems)
     if z0_init_method == Z0InitMethod.LIGHTEST:
         zLightest = matEncoder.getLightestMaterial()
-        for i in range(latentDim):
-            z0[i*num_elems:(i+1)*num_elems] = zLightest[i]
+        z0[0:num_elems] = zLightest[0]
+        z0[num_elems:2*num_elems] = zLightest[1]
     elif z0_init_method == Z0InitMethod.HEAVIEST:
         zHeaviest = matEncoder.getHeaviestMaterial()
-        for i in range(latentDim):
-            z0[i*num_elems:(i+1)*num_elems] = zHeaviest[i]
+        z0[0:num_elems] = zHeaviest[0]
+        z0[num_elems:2*num_elems] = zHeaviest[1]
     elif z0_init_method == Z0InitMethod.ORIGIN:
-        z0[:] = 0.0
+        z0[0:num_elems] = 0.0
+        z0[num_elems:2*num_elems] = 0.0
     elif z0_init_method == Z0InitMethod.UNIFORM:
-        for i in range(latentDim):
-            z0[i*num_elems:(i+1)*num_elems] = np.random.uniform(-0.5, 0.5, size=num_elems)
+        z0[0:num_elems] = np.random.uniform(-0.5, 0.5, size=num_elems)
+        z0[num_elems:2*num_elems] = np.random.uniform(-0.5, 0.5, size=num_elems)
     else:
         raise ValueError(f"Unknown z0_init_method: {z0_init_method}")
 
-    for i in range(latentDim):
-        z0[i*num_elems:(i+1)*num_elems] = (H * z0[i*num_elems:(i+1)*num_elems]) / Hs
-    zeta0 = np.concatenate((x0, z0), axis=0).reshape(-1, 1)
+    # Apply filter to initial design variables
+    z0[0:num_elems] = (H * z0[0:num_elems])/Hs
+    z0[num_elems:2*num_elems] = (H * z0[num_elems:2*num_elems]) / Hs
+    zeta0 = np.concatenate((x0, z0), axis=0).reshape(-1, 1)  # shape: (3*num_elems, 1)
 
+    # Set bounds for design variables
     lowerBound = np.zeros(num_design_var, dtype=float).reshape(-1, 1)
     upperBound = np.ones(num_design_var, dtype=float).reshape(-1, 1)
 
-    lowerBound[num_elems:num_design_var] = np.min(zRealPoints.cpu().numpy())
-    upperBound[num_elems:num_design_var] = np.max(zRealPoints.cpu().numpy())
+    # Set bounds for material latent variables
+    lowerBound[num_elems:3*num_elems] = np.min(zRealPoints.cpu().numpy())
+    upperBound[num_elems:3*num_elems] = np.max(zRealPoints.cpu().numpy())
 
+    # Set MMA parameters
     nVariables = num_design_var
     nConstraints = len(to_params.Constraints)
     tStart = time.time()
     maxMMAIterations = maxIterations
 
+    # Run the MMA optimization
     optResults = runMMA(nVariables, nConstraints, MMTO_optimization_function, zeta0.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
         move_limit=0.05, kktTol=1e-6, fTolerance=rel_conv_tol, gTolerance=rel_conv_tol, verbose=False)
@@ -226,12 +256,13 @@ def run_topopt(
     tEnd = time.time()
     print(f"Total optimization time: {tEnd - tStart:.2f} seconds")
    
+    # get design variables
     zetaOptimal = np.asarray(zetaOptimal).flatten()
     xOptimal = zetaOptimal[0:num_elems]
     zOptimal =  zetaOptimal[num_elems:]
-    zOptimalPts = torch.tensor(zOptimal).view(latentDim, -1).T.float()
+    zOptimalPts = torch.tensor(zOptimal).view(2, -1).T.float()
 
-    if (snap_to_real_material):
+    if (snap_to_real_material): # optionally snap to closest real material
         zSnappedPts = torch.tensor(matEncoder.getClosestRealMaterialZValues(zOptimalPts))
         zetaOptimal[num_elems:] = zSnappedPts.T.flatten().numpy()
         print(50 * "-")
@@ -239,15 +270,88 @@ def run_topopt(
         print(50 * "-")
         MMTO_optimization_function(zetaOptimal)
         zOptimalPts = zSnappedPts
-    
+
     decoded = matEncoder.vaeNet.decoder(zOptimalPts)
     material_properties = matEncoder.getMaterialProperties(decoded)
     Youngs_Modulus = material_properties['Youngs_Modulus'].detach().cpu().numpy()
     fe_solver_structural.mesh.setPseudoDensity(xOptimal)
-    fe_solver_structural.plot_elem_field(Youngs_Modulus, title='YoungModulus', colormap='viridis')
+    # Save Young's modulus field plot
+    # Save real materials field plot
+    custom_camera_position = [
+        (64.69850660883577, -71.34025053053703, 66.88944997959193),
+        (25.98076211353316, 25.98076211353316, 0.0),
+        (-0.16137552824275206, 0.5145899236321491, 0.8421135014833997)
+    ]
+    fig = fe_solver_structural.plot_elem_field(Youngs_Modulus, title='YoungModulus', colormap='viridis',save_path=os.path.join(results_dir, "youngs_modulus_field.png"), camera_position=custom_camera_position)
+    fig2 =  fe_solver_structural.plot_elem_field(Youngs_Modulus, title='YoungModulus', colormap='viridis',save_path=os.path.join(results_dir, "youngs_modulus_field.tif"), camera_position=custom_camera_position)
+    if fig is not None:
+        fig.tight_layout(pad=0.1)
+        fig.savefig(os.path.join(results_dir, "youngs_modulus_field.png"), bbox_inches='tight')
+        fig.savefig(os.path.join(results_dir, "youngs_modulus_field.pdf"), bbox_inches='tight')
+        plt.close(fig)
+    # After optimization, before plotting
+    material_indices = matEncoder.getClosestRealMaterialIndex(zOptimalPts)  # shape: (num_elems,)
+    if to_problem == MMTOExamples.CantileverBenchmark_Compliance_Mass:
+        material_colors = {
+            0: '#fe4d02', 
+            1: '#e6fd1a',
+            2: '#1dfde1',
+            3: '#004fff',
+            4: '#020a86',
+        }
+    elif to_problem == MMTOExamples.Bridge_Compliance_MassCost or to_problem == MMTOExamples.Bridge_Compliance_Mass or to_problem == MMTOExamples.MBBBeam_Compliance_Mass:
+        material_colors = {
+            0: '#04fd05', 
+            1: '#0505f0',
+            2: '#ef0711',
+        }
+    elif to_problem == MMTOExamples.Bridge_Compliance_MassCost_Saitou:
+        material_colors = {
+            0: '#0201fc', 
+            1: '#f60004',
+            2: '#080101',
+        }
+    # elif to_problem == MMTOExamples.MBBBeam_Compliance_Mass:
+    #     material_colors = {
+    #         0: '#228B22',  # forest green
+    #         1: '#FFD700',  # golden
+    #         2: '#800080',  # bright purple
+    #     }
+    elif to_problem == MMTOExamples.Table_Compliance_Mass or to_problem == MMTOExamples.CenterCantilever_Compliance_Mass or to_problem == MMTOExamples.Table_Compliance_Mass_Cost or to_problem == MMTOExamples.CenterCantilever_Compliance_Mass_Cost:
+        material_colors = {
+            0: '#e6194b',  # vibrant red
+            1: '#3cb44b',  # vibrant green
+            2: '#ffe119',  # vibrant yellow
+            3: '#4363d8',  # vibrant blue
+            4: '#f58231',  # vibrant orange
+            5: '#911eb4',  # vibrant purple
+            6: '#42d4f4',  # vibrant cyan
+            7: '#f032e6',  # vibrant magenta
+        }
+    else:
+        default_colors = plt.cm.get_cmap('tab20', matEncoder.nMaterials)
+        material_colors = {i: default_colors(i) for i in range(matEncoder.nMaterials)} 
 
-    matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zOptimalPts, xDesign=xOptimal)
+    colors = [material_colors[int(idx)] for idx in material_indices]
+    import matplotlib.colors as mcolors
+    rgb_colors = np.array([mcolors.to_rgb(c) for c in colors])
 
+    fig = fe_solver_structural.plot_elem_field(material_indices, title='Real Materials', colors=rgb_colors,save_path=os.path.join(results_dir, "real_materials_field.png"), camera_position=custom_camera_position)
+    fig2 = fe_solver_structural.plot_elem_field(material_indices, title='Real Materials', colors=rgb_colors,save_path=os.path.join(results_dir, "real_materials_field.tif"), camera_position=custom_camera_position)
+    if fig is not None:
+        fig.tight_layout(pad=0.1)
+        fig.savefig(os.path.join(results_dir, "real_materials_field.png"), bbox_inches='tight')
+        fig.savefig(os.path.join(results_dir, "real_materials_field.tif"), bbox_inches='tight')
+        plt.close(fig)
+    # Plot latent space with designs and training data
+    fig = matEncoder.plotLSR(zRealPoints.detach().cpu().numpy(), zOptimalPts, xDesign=xOptimal)
+    if fig is not None:
+        fig.tight_layout(pad=0.1)
+        fig.savefig(os.path.join(results_dir, "latent_space.png"), bbox_inches='tight')
+        fig.savefig(os.path.join(results_dir, "latent_space.tif"), bbox_inches='tight')
+        plt.close(fig)
+
+    # Combined plot for objective and constraints vs. iterations
     plt.figure(figsize=(12, 6))
     plt.plot(
         range(len(history["objective"])),
@@ -273,140 +377,20 @@ def run_topopt(
     plt.xlabel("Iteration")
     plt.ylabel("Value")
     plt.title("Objective and Constraints vs. Iterations")
-    plt.legend()
+    plt.legend(loc='best', fontsize=10)
     plt.grid()
+    plt.tight_layout(pad=0.1)
+    fig = plt.gcf()
+    fig.savefig(os.path.join(results_dir, "objective_constraints.png"), bbox_inches='tight')
+    fig.savefig(os.path.join(results_dir, "objective_constraints.pdf"), bbox_inches='tight')
     plt.show()
-    material_indices = matEncoder.getClosestRealMaterialIndex(zOptimalPts)  # shape: (num_elems,)
-    # if to_problem == MMTOExamples.CantileverBenchmark_Compliance_Mass or to_problem == MMTOExamples.CenterCantilever_Compliance_Mass:
-    # # Cantilever benchmark colors
-    #     material_colors = {
-    #         0: '#fe4d02', 
-    #         1: '#e6fd1a',
-    #         2: '#1dfde1',
-    #         3: '#004fff',
-    #         4: '#020a86',
-    #     }
-    # elif to_problem == MMTOExamples.Bridge_Compliance_MassCost or to_problem == MMTOExamples.Bridge_Compliance_Mass:
-    # # Bridge benchmark colors
-    #     material_colors = {
-    #         0: '#04fd05', 
-    #         1: '#0505f0',
-    #         2: '#ef0711',
-    #     }
-    # elif to_problem == MMTOExamples.Bridge_Compliance_MassCost_Saitou:
-    # # Bridge benchmark colors (Saitou et al.)
-    #     material_colors = {
-    #         0: '#0201fc', 
-    #         1: '#f60004',
-    #         2: '#080101',
-    #     }
-    # elif to_problem == MMTOExamples.Table_Compliance_Mass or to_problem == MMTOExamples.CenterCantilever_Compliance_Mass or to_problem == MMTOExamples.Table_Compliance_Mass_Cost or to_problem == MMTOExamples.CenterCantilever_Compliance_Mass_Cost:
-    #     material_colors = {
-    #         0: '#e6194b',  # vibrant red
-    #         1: '#3cb44b',  # vibrant green
-    #         2: '#ffe119',  # vibrant yellow
-    #         3: '#4363d8',  # vibrant blue
-    #         4: '#f58231',  # vibrant orange
-    #         5: '#911eb4',  # vibrant purple
-    #         6: '#42d4f4',  # vibrant cyan
-    #         7: '#f032e6',  # vibrant magenta
-    #     }
-    # else:
-    #     # Default colors for up to 20 materials
-    #     default_colors = plt.cm.get_cmap('tab20', matEncoder.nMaterials)
-    #     material_colors = {i: default_colors(i) for i in range(matEncoder.nMaterials)} 
-    excel_file = to_params.MaterialsExcelFile
+    plt.close(fig)
 
-    if excel_file == './DataConstantTemperature/5MaterialsCantilever.xlsx':
-        material_colors = {
-            0: '#fe4d02', 
-            1: '#e6fd1a',
-            2: '#1dfde1',
-            3: '#004fff',
-            4: '#020a86',
-        }
-    elif excel_file == './DataConstantTemperature/3MaterialsBridgev2.xlsx' or excel_file == './DataConstantTemperature/3MaterialsBridge.xlsx':
-        material_colors = {
-            0: '#04fd05', 
-            1: '#0505f0',
-            2: '#ef0711',
-        }
-    elif excel_file == './DataConstantTemperature/20MaterialsTeledyne.xlsx' or excel_file == './DataConstantTemperature/20MaterialsTeledyneSimple.xlsx':
-        material_colors = {
-            0: '#1b1b1b',  # charcoal black
-            1: '#004d00',  # deep forest green
-            2: '#800000',  # dark maroon
-            3: '#ffb6c1',  # light pink
-            4: '#008080',  # teal
-            5: '#b8860b',  # dark goldenrod
-            6: '#2f4f4f',  # dark slate gray
-            7: '#ff4500',  # orange red
-            8: '#6a5acd',  # slate blue
-            9: '#228b22',  # forest green
-            10: '#9932cc', # dark orchid
-            11: '#8b0000', # dark red
-            12: '#e6194b', # vibrant red
-            13: '#3cb44b', # vibrant green
-            14: '#ffe119', # vibrant yellow
-            15: '#4363d8', # vibrant blue
-            16: '#f58231', # vibrant orange
-            17: '#911eb4', # vibrant purple
-            18: '#42d4f4', # vibrant cyan
-            19: '#f032e6', # vibrant magenta
-
-        }
-    elif excel_file == './DataConstantTemperature/8Materials.xlsx':
-        material_colors = {
-            0: '#e6194b',  # vibrant red
-            1: '#3cb44b',  # vibrant green
-            2: '#ffe119',  # vibrant yellow
-            3: '#4363d8',  # vibrant blue
-            4: '#f58231',  # vibrant orange
-            5: '#911eb4',  # vibrant purple
-            6: '#42d4f4',  # vibrant cyan
-            7: '#f032e6',  # vibrant magenta
-        }
-    elif excel_file == './DataConstantTemperature/3Materials.xlsx':
-        material_colors = {
-            0: '#0201fc', 
-            1: '#f60004',
-            2: '#080101',
-        }
-    else:
-        # Default colors for up to 20 materials
-        default_colors = plt.cm.get_cmap('tab20', matEncoder.nMaterials)
-        material_colors = {i: default_colors(i) for i in range(matEncoder.nMaterials)}
-    colors = [material_colors[int(idx.item()) if hasattr(idx, "item") else int(idx)] for idx in material_indices]
-    import matplotlib.colors as mcolors
-    rgb_colors = np.array([mcolors.to_rgb(c) for c in colors])
-    fe_solver_structural.plot_elem_field(material_indices, title='Real Materials', colors=rgb_colors)
 if __name__ == "__main__":
-    
-    # Temperature independent Mult-Material TO Problems :
-    
-    # Example 1 (30000 DOF) uses 3 materials, 4 attributes from './DataConstantTemperature/3MaterialsBridge.xlsx'
-    # Examples 2-5 (13000 DOF) use 3 materials, 5 attributes from './DataConstantTemperature/3Materials.xlsx'
-    # Examples 6-9 (137000 DOF) use 20 materials, 5 attributes from './DataConstantTemperature/20MaterialsTeledyne.xlsx'
-
-    # See MMTO_examples.py for additional details
-
-    # 1. Bridge_Compliance_MassCost (Benchmark Bridge, Minimize Compliance with Mass and Cost constraints)
-
-    # 2. LBracketTopLoad_Compliance_Mass (L-Bracket with Top Load, Minimize Compliance with Mass constraint)
-    # 3. LBracketTopLoad_Compliance_MassCost (L-Bracket with Top Load, Minimize Compliance with Mass and Cost constraints)
-    # 4. LBracketTopLoad_Compliance_MassCriticality (L-Bracket with Top Load, Minimize Compliance with Mass and Criticality constraints)
-    # 5. LBracketTopLoad_Stress_Mass (L-Bracket with Top Load, Minimize Stress with Mass constraint)
-   
-    # 6. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
-    # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
-    # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
-    
-    to_problem = MMTOExamples.LBracketTopLoad_Stress_Mass
-
-
+    to_problem = MMTOExamples.Table_Compliance_Mass
     run_topopt(
         to_problem=to_problem,
         use_penalization=True,
-        use_pretrained_vae=False,
+        use_pretrained_vae=True,
         snap_to_real_material=True,
     )
