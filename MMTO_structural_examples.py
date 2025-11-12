@@ -361,6 +361,7 @@ def createBridgeProblem(nDOFDesired: None):
     bc = bound_cond.BC(force=force, fixed_dofs=fixed_dofs, dirichlet_values=dirichlet_values)
     elem_body_force = None  
     return mesh, mat_prop, bc, elem_body_force
+
 def createBridgeProblemSaitou(nDOFDesired: None):
     # Define grid size and element size
     nelx, nely, nelz = 100, 50, 1
@@ -425,6 +426,7 @@ def createBridgeProblemSaitou(nDOFDesired: None):
     bc = bound_cond.BC(force=force, fixed_dofs=fixed_dofs, dirichlet_values=dirichlet_values)
     elem_body_force = None  
     return mesh, mat_prop, bc, elem_body_force
+
 def createBridgeProblemHalf(nDOFDesired: None):
     # Define grid size and element size
     nelx, nely, nelz = 100, 100, 1

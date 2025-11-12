@@ -29,10 +29,10 @@ def run_topopt(
     rel_conv_tol = 1e-7,
     maxIterations = 100,
     z0_init_method = Z0InitMethod.ORIGIN,  
-    gamma_init = 1e-3,
-    gamma_max = 100,
-    gamma_factor =1.1):
-
+    gamma_init = 1e-3, # penalization
+    gamma_max = 100,#100
+    gamma_factor = 1.1):#1.1
+    
     history = {
         "objective": [],
         "constraints": []
@@ -66,8 +66,9 @@ def run_topopt(
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
     matEncoder.printEncodingErrors()
-    matEncoder.plotLSRContours("Youngs_Modulus", title="Young's Modulus Contours in Latent Space")
-    matEncoder.plotLSRContours("Density", title="Density Contours in Latent Space")
+    # matEncoder.plotLSRContours("Youngs_Modulus", title="Young's Modulus Contours in Latent Space")
+    # matEncoder.plotLSRContours("Density", title="Density Contours in Latent Space")
+    # matEncoder.plotLSRContours("Cost", title="Cost Contours in Latent Space")
     zRealPoints = matEncoder.training_latents
 
     solver = linear_solvers.Solvers.PARDISO
@@ -87,12 +88,9 @@ def run_topopt(
     num_dof = fe_solver_structural.bc.num_dofs
     print(f"Number of DOF: {num_dof}")
     num_elems = mesh_structural.num_elems
-
-    # --- Generalize latent dimension ---
-    latentDim = matEncoder.vae_params.latentDim
-    num_design_var = num_elems + num_elems * latentDim
-    print(f"Using latent dimension: {latentDim}")
-    fe_solver_structural.plot_mesh(plot_bc=True, offsetArrow=True)  
+    num_design_var = num_elems + num_elems * 2
+    #fe_solver_structural.plot_mesh(plot_bc=True, offsetArrow=True)  
+    # Create the filter for density and material variables
     print("Creating filter...")
     [H, Hs] = createFilters(fe_solver_structural, to_params)
 
@@ -105,6 +103,8 @@ def run_topopt(
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
+    
+        # Prepare tensors and decode material properties
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
         xDesign = zetaTensor[0:num_elems]
         zDesign = zetaTensor[num_elems:]
@@ -381,7 +381,29 @@ def run_topopt(
     rgb_colors = np.array([mcolors.to_rgb(c) for c in colors])
     fe_solver_structural.plot_elem_field(material_indices, title='Real Materials', colors=rgb_colors)
 if __name__ == "__main__":
+    
+    # Temperature independent Mult-Material TO Problems :
+    
+    # Example 1 (30000 DOF) uses 3 materials, 4 attributes from './DataConstantTemperature/3MaterialsBridge.xlsx'
+    # Examples 2-5 (13000 DOF) use 3 materials, 5 attributes from './DataConstantTemperature/3Materials.xlsx'
+    # Examples 6-9 (137000 DOF) use 20 materials, 5 attributes from './DataConstantTemperature/20MaterialsTeledyne.xlsx'
+
+    # See MMTO_examples.py for additional details
+
+    # 1. Bridge_Compliance_MassCost (Benchmark Bridge, Minimize Compliance with Mass and Cost constraints)
+
+    # 2. LBracketTopLoad_Compliance_Mass (L-Bracket with Top Load, Minimize Compliance with Mass constraint)
+    # 3. LBracketTopLoad_Compliance_MassCost (L-Bracket with Top Load, Minimize Compliance with Mass and Cost constraints)
+    # 4. LBracketTopLoad_Compliance_MassCriticality (L-Bracket with Top Load, Minimize Compliance with Mass and Criticality constraints)
+    # 5. LBracketTopLoad_Stress_Mass (L-Bracket with Top Load, Minimize Stress with Mass constraint)
+   
+    # 6. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
+    # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
+    # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
+    
     to_problem = MMTOExamples.LBracketTopLoad_Stress_Mass
+
+
     run_topopt(
         to_problem=to_problem,
         use_penalization=True,

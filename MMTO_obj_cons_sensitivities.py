@@ -529,10 +529,10 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
 
     return inv_sf_pnorm, inv_sf_pnorm_sensitivity, max_inv_sf
 
-def compute_volume_constraint_and_gradient(x: np.ndarray, volfracUpper: float) -> tuple:
-    volConstraint = ((np.mean(x)/volfracUpper) - 1.0)
-    volConstraint_gradient = np.ones_like(x) / volfracUpper/ x.size
-    return volConstraint, volConstraint_gradient
+def compute_volumefraction_constraint_and_gradient(x: np.ndarray, volfracUpper: float) -> tuple:
+    volFracConstraint = ((np.mean(x)/volfracUpper) - 1.0)
+    volFracConstraint_gradient = np.ones_like(x) / volfracUpper/ x.size
+    return volFracConstraint, volFracConstraint_gradient
 
 # --- Main Objective/Constraint Functions ---
 def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETemplate, matEncoder):
@@ -658,6 +658,14 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             c[m, 0] = complianceConstraint
             dc[m, :] = grad_complianceConstraint
 
+        elif constraintType == TO_QOI.VOLUME_FRACTION:
+            volfracConstraint, volfracConstraint_gradient = compute_volumefraction_constraint_and_gradient(
+                x, constraintLimit)
+            grad_volfracConstraint = np.zeros_like(zeta)
+            grad_volfracConstraint[0:num_elems] = volfracConstraint_gradient
+            c[m, 0] = volfracConstraint
+            dc[m, :] = grad_volfracConstraint
+            
         elif constraintType == TO_QOI.MASS:
             decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
             mass_density = matEncoder.getMaterialProperties(decoded)['Density']
