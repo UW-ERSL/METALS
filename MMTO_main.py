@@ -385,6 +385,6 @@ if __name__ == "__main__":
     run_topopt(
         to_problem=to_problem,
         use_penalization=True,
-        use_pretrained_vae=True,
+        use_pretrained_vae=False,
         snap_to_real_material=True,
     )
