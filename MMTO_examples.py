@@ -132,7 +132,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints = [ (TO_QOI.MASS, None, 40)] 
-        vae_params.latentDim = 3
+        vae_params.latentDim = 2
 
     elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressSF:
         structural_problem = MMTOStructuralExamples.LBracket

@@ -3,43 +3,249 @@ import torch
 from PyTOImports import *
 # --- Support Functions ---
 
+# def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign, KETemplate, material_model):
+#     """
+#     Compute von Mises stress and sensitivity with respect to x for p-norm stress.
+#     """
+#     # "An efficient 146-line 3D sensitivity analysis code of 
+#     # stress based topology optimization written in MATLAB"
+#     # Optimization and Engineering (2022) 23:1733–1757
+#     # The sensitivity of pnorm von mises stress with respect to x has 2 terms: T1 and T2
+#     # T1 arises due to the stress relaxation: x**STRESS_RELAXATION
+#     # T2 arises indirectly via the solution sensitivity via the adjoint
+#     mesh = fe_solver.mesh
+#     nelems = mesh.num_elems
+
+#     qStress = 2  # STRESS factor for sensitivity
+#     pSIMP = 3
+
+#     if isinstance(fe_solver.mat_prop, list):
+#         E = EDesign
+#         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
+#         D_list = []
+#         for Ei, nui in zip(E, nu):
+#             D = hex_element_stiffness.isotropic_constitutive_matrix(Ei, nui)
+#             D_list.append(D)
+#         D = np.stack(D_list)
+#     else:
+#         E = fe_solver.mat_prop.youngs_modulus
+#         nu = fe_solver.mat_prop.poissons_ratio
+#         D = hex_element_stiffness.isotropic_constitutive_matrix(E, nu)
+
+#     gradN = (1 / 8) * np.array([
+#         [-1, 1, 1, -1, -1, 1, 1, -1],
+#         [-1, -1, 1, 1, -1, -1, 1, 1],
+#         [-1, -1, -1, -1, 1, 1, 1, 1]
+#     ])
+#     # Define the B matrix (strain-displacement matrix) for a hexahedral element at the center (xi=0, eta=0, zeta=0)
+#     B = np.zeros((6, 24))
+#     # Vectorized construction of B matrix for all 8 nodes at once
+#     Bi = np.zeros((6, 3, 8))
+#     Bi[0, 0, :] = gradN[0, :]
+#     Bi[1, 1, :] = gradN[1, :]
+#     Bi[2, 2, :] = gradN[2, :]
+#     Bi[3, 0, :] = gradN[1, :]
+#     Bi[3, 1, :] = gradN[0, :]
+#     Bi[4, 0, :] = gradN[2, :]
+#     Bi[4, 2, :] = gradN[0, :]
+#     Bi[5, 1, :] = gradN[2, :]
+#     Bi[5, 2, :] = gradN[1, :]
+#     # Vectorized assignment to B
+#     idx = np.arange(8)
+#     B[:, (3 * idx)[:, None] + np.arange(3)] = Bi.transpose(0, 2, 1)
+#     # F can be per-element for multi-material
+#     if isinstance(E, np.ndarray):
+#         F_stack = np.array([D[e] @ B for e in range(nelems)])
+#     else:
+#         F = D @ B
+#     g_elem = np.zeros((nelems, 24))
+#     vm_elems = np.zeros(nelems)
+#     T1 = np.zeros(nelems)
+#     T2 = np.zeros(nelems)
+
+#     for e in range(nelems):
+#         vm_elems[e] = fe_solver.vonMisesStress[e]
+#         T1[e] = pSIMP * (x[e] ** (pSIMP - 1)) * vm_elems[e]
+
+#         stress_elem = fe_solver.stressComponents[e]
+#         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
+#         if isinstance(E, np.ndarray):
+#             F = F_stack[e]
+#         g_e = ((sigma11 - sigma22) * (F[0] - F[1]) +
+#                (sigma11 - sigma33) * (F[0] - F[2]) +
+#                (sigma22 - sigma33) * (F[1] - F[2]) +
+#                6 * sigma12 * F[3] + 6 * sigma13 * F[4] + 6 * sigma23 * F[5]) / np.sqrt(2)
+#         g_elem[e] = pSIMP * qStress * vm_elems[e] ** (pSIMP * qStress - 2) * g_e
+
+#     max_vm = np.max(vm_elems)
+#     # Note that we are using the relaxed von Mises below
+#     pNormExponent = 6
+#     vm_pnorm = np.sum(vm_elems ** pNormExponent) ** (1 / pNormExponent)
+#     T1 *= (1 / pNormExponent) * (np.sum(vm_elems ** pNormExponent) ** (1 / pNormExponent - 1))
+
+#     # Now compute the rhs of adjoint eqn 
+#     g = np.zeros(fe_solver.bc.num_dofs)
+#     for e in range(nelems):  # assemble  g vector
+#         edof = mesh.edofMat[e]
+#         g[edof] += g_elem[e]
+#     g *= -(1 / pNormExponent) * (np.sum(vm_elems ** pNormExponent) ** (1 / pNormExponent - 1))
+
+#     # Solve the adjoint	
+#     adjointSol = linear_solvers.solve(
+#         fe_solver.stiff_mtrx,
+#         g,
+#         fe_solver.solver,
+#         fe_solver.bc,
+#         dsolver=fe_solver.dsolver,
+#         **fe_solver.kwargs
+#     )
+
+#     dofMat = fe_solver.mesh.edofMat
+#     num_elems = fe_solver.mesh.num_elems
+#     nRows = KETemplate.shape[0]
+#     ce = (np.dot(adjointSol[dofMat].reshape(num_elems, nRows), KETemplate) * sol[dofMat].reshape(num_elems, nRows)).sum(1)*EDesign
+
+#     T2 = get_structural_material_model_sensitivity(x, material_model) * ce
+#     vm_pnorm_sensitivity = T1 + T2
+#     return vm_pnorm, vm_pnorm_sensitivity, max_vm
+# def compute_pnorm_stress_and_sensitivity_NOT_MMTO_COMPATIBLE(sol: np.ndarray, x, fe_solver, KE, material_model):
+#     """
+#     Compute von Mises stress and sensitivity with respect to x for p-norm stress.
+
+# 	# "An efficient 146-line 3D sensitivity analysis code of 
+#  	# stress based topology optimization written in MATLAB"
+#  	# Optimization and Engineering (2022) 23:1733–1757
+#     """
+#     mesh = fe_solver.mesh
+#     nelems = mesh.num_elems
+
+#     qStress = 0.5  # STRESS relaxation factor
+#     pSIMP = 3    # SIMP penalization
+#     p = PNORM_EXPONENT  # p-norm exponent
+    
+#     E = fe_solver.mat_prop.youngs_modulus 
+#     nu = fe_solver.mat_prop.poissons_ratio
+#     D = E / ((1 + nu) * (1 - 2*nu)) * np.array([
+#         [1-nu, nu, nu, 0, 0, 0],
+#         [nu, 1-nu, nu, 0, 0, 0],
+#         [nu, nu, 1-nu, 0, 0, 0],
+#         [0, 0, 0, (1-2*nu)/2, 0, 0],
+#         [0, 0, 0, 0, (1-2*nu)/2, 0],
+#         [0, 0, 0, 0, 0, (1-2*nu)/2]
+#     ])
+    
+#     # B matrix setup
+#     gradN = (1 / 8) * np.array([
+#         [-1, 1, 1, -1, -1, 1, 1, -1],
+#         [-1, -1, 1, 1, -1, -1, 1, 1],
+#         [-1, -1, -1, -1, 1, 1, 1, 1]
+#     ])
+    
+#     B = np.zeros((6, 24))
+#     Bi = np.zeros((6, 3, 8))
+#     Bi[0, 0, :] = gradN[0, :]
+#     Bi[1, 1, :] = gradN[1, :]
+#     Bi[2, 2, :] = gradN[2, :]
+#     Bi[3, 0, :] = gradN[1, :]
+#     Bi[3, 1, :] = gradN[0, :]
+#     Bi[4, 0, :] = gradN[2, :]
+#     Bi[4, 2, :] = gradN[0, :]
+#     Bi[5, 1, :] = gradN[2, :]
+#     Bi[5, 2, :] = gradN[1, :]
+    
+#     idx = np.arange(8)
+#     B[:, (3 * idx)[:, None] + np.arange(3)] = Bi.transpose(0, 2, 1)
+    
+#     F = D @ B  # shape (6, 24)
+    
+#     vm_elems = fe_solver.vonMisesStress
+#     vm_pnorm = fe_solver.pNormStress
+    
+#     # Compute dpn_dvms = (sum(vm^p))^(1/p - 1)
+#     dpn_dvms = (np.sum(vm_elems ** p)) ** (1/p - 1)
+    
+#     # Pre-compute DvmDs for all elements
+#     DvmDs_all = np.zeros((nelems, 6))
+#     for e in range(nelems):
+#         stress_elem = fe_solver.stressComponents[e]
+#         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
+        
+#         # DvmDs - derivative of von Mises w.r.t. stress components
+#         DvmDs_all[e, 0] = 1/(2*vm_elems[e]) * (2*sigma11 - sigma22 - sigma33)
+#         DvmDs_all[e, 1] = 1/(2*vm_elems[e]) * (2*sigma22 - sigma11 - sigma33)
+#         DvmDs_all[e, 2] = 1/(2*vm_elems[e]) * (2*sigma33 - sigma11 - sigma22)
+#         DvmDs_all[e, 3] = 3/vm_elems[e] * sigma12
+#         DvmDs_all[e, 4] = 3/vm_elems[e] * sigma13
+#         DvmDs_all[e, 5] = 3/vm_elems[e] * sigma23
+    
+#     # Compute T1 (direct sensitivity)
+#     beta = np.zeros(nelems)
+#     x = np.maximum(x, 1e-12) # avoid division by zero
+#     for e in range(nelems):
+#         edof = mesh.edofMat[e]
+#         u_e = sol[edof]
+#         beta[e] = qStress * (x[e]**(qStress-1)) * (vm_elems[e]**(p-1)) * DvmDs_all[e] @ D @ B @ u_e
+    
+#     T1 = dpn_dvms * beta
+    
+#     # Compute adjoint right-hand side using pre-computed DvmDs
+#     g = np.zeros(fe_solver.bc.num_dofs)
+#     for e in range(nelems):
+#         edof = mesh.edofMat[e]
+#         g_e = (x[e]**qStress) * dpn_dvms * B.T @ D.T @ DvmDs_all[e] * (vm_elems[e]**(p-1))
+#         g[edof] += g_e
+    
+#     # Solve adjoint equation
+#     adjointSol = linear_solvers.solve(fe_solver.stiff_mtrx,
+#                                        g,
+#                                        fe_solver.solver,
+#                                        fe_solver.bc,
+#                                        dsolver=fe_solver.dsolver,
+#                                        **fe_solver.kwargs)
+    
+#     # Compute T2 (indirect sensitivity via adjoint)
+#     dofMat = fe_solver.mesh.edofMat
+#     nRows = KE.shape[0]
+#     ce = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KE) * 
+#           sol[dofMat].reshape(nelems, nRows)).sum(1)
+    
+#     T2 = -pSIMP * (x**(pSIMP-1)) * ce  # Note the negative sign from MATLAB
+    
+#     vm_pnorm_sensitivity = T1 + T2
+#     max_vm = np.max(vm_elems)
+    
+#     return vm_pnorm, vm_pnorm_sensitivity, max_vm
 def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign, KETemplate, material_model):
     """
-    Compute von Mises stress and sensitivity with respect to x for p-norm stress.
+    MMTO-compatible: Compute von Mises stress and sensitivity with respect to x for p-norm stress.
     """
-    # "An efficient 146-line 3D sensitivity analysis code of 
-    # stress based topology optimization written in MATLAB"
-    # Optimization and Engineering (2022) 23:1733–1757
-    # The sensitivity of pnorm von mises stress with respect to x has 2 terms: T1 and T2
-    # T1 arises due to the stress relaxation: x**STRESS_RELAXATION
-    # T2 arises indirectly via the solution sensitivity via the adjoint
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
 
-    qStress = 2  # STRESS factor for sensitivity
-    pSIMP = 3
+    qStress = 2  # STRESS relaxation factor
+    pSIMP = 3    # SIMP penalization
+    pNormExponent = 6  # p-norm exponent
 
+    # Get element-wise Poisson's ratio
     if isinstance(fe_solver.mat_prop, list):
-        E = EDesign
         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
-        D_list = []
-        for Ei, nui in zip(E, nu):
-            D = hex_element_stiffness.isotropic_constitutive_matrix(Ei, nui)
-            D_list.append(D)
-        D = np.stack(D_list)
     else:
-        E = fe_solver.mat_prop.youngs_modulus
         nu = fe_solver.mat_prop.poissons_ratio
-        D = hex_element_stiffness.isotropic_constitutive_matrix(E, nu)
 
+    # Build element-wise constitutive matrices
+    D_list = []
+    for Ei, nui in zip(EDesign, nu):
+        D = hex_element_stiffness.isotropic_constitutive_matrix(Ei, nui)
+        D_list.append(D)
+    D = np.stack(D_list)
+
+    # B matrix setup
     gradN = (1 / 8) * np.array([
         [-1, 1, 1, -1, -1, 1, 1, -1],
         [-1, -1, 1, 1, -1, -1, 1, 1],
         [-1, -1, -1, -1, 1, 1, 1, 1]
     ])
-    # Define the B matrix (strain-displacement matrix) for a hexahedral element at the center (xi=0, eta=0, zeta=0)
     B = np.zeros((6, 24))
-    # Vectorized construction of B matrix for all 8 nodes at once
     Bi = np.zeros((6, 3, 8))
     Bi[0, 0, :] = gradN[0, :]
     Bi[1, 1, :] = gradN[1, :]
@@ -50,103 +256,203 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     Bi[4, 2, :] = gradN[0, :]
     Bi[5, 1, :] = gradN[2, :]
     Bi[5, 2, :] = gradN[1, :]
-    # Vectorized assignment to B
     idx = np.arange(8)
     B[:, (3 * idx)[:, None] + np.arange(3)] = Bi.transpose(0, 2, 1)
-    # F can be per-element for multi-material
-    if isinstance(E, np.ndarray):
-        F_stack = np.array([D[e] @ B for e in range(nelems)])
-    else:
-        F = D @ B
-    g_elem = np.zeros((nelems, 24))
-    vm_elems = np.zeros(nelems)
-    T1 = np.zeros(nelems)
-    T2 = np.zeros(nelems)
 
+    vm_elems = fe_solver.vonMisesStress
+    vm_pnorm = fe_solver.pNormStress
+    
+    # Compute dpn_dvms = (sum(vm^p))^(1/p - 1)
+    dpn_dvms = (np.sum(vm_elems ** pNormExponent)) ** (1/pNormExponent - 1)
+    
+    # Pre-compute DvmDs for all elements
+    DvmDs_all = np.zeros((nelems, 6))
     for e in range(nelems):
-        vm_elems[e] = fe_solver.vonMisesStress[e]
-        T1[e] = pSIMP * (x[e] ** (pSIMP - 1)) * vm_elems[e]
-
         stress_elem = fe_solver.stressComponents[e]
         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
-        if isinstance(E, np.ndarray):
-            F = F_stack[e]
-        g_e = ((sigma11 - sigma22) * (F[0] - F[1]) +
-               (sigma11 - sigma33) * (F[0] - F[2]) +
-               (sigma22 - sigma33) * (F[1] - F[2]) +
-               6 * sigma12 * F[3] + 6 * sigma13 * F[4] + 6 * sigma23 * F[5]) / np.sqrt(2)
-        g_elem[e] = pSIMP * qStress * vm_elems[e] ** (pSIMP * qStress - 2) * g_e
-
-    max_vm = np.max(vm_elems)
-    # Note that we are using the relaxed von Mises below
-    pNormExponent = 6
-    vm_pnorm = np.sum(vm_elems ** pNormExponent) ** (1 / pNormExponent)
-    T1 *= (1 / pNormExponent) * (np.sum(vm_elems ** pNormExponent) ** (1 / pNormExponent - 1))
-
-    # Now compute the rhs of adjoint eqn 
-    g = np.zeros(fe_solver.bc.num_dofs)
-    for e in range(nelems):  # assemble  g vector
+        
+        # DvmDs - derivative of von Mises w.r.t. stress components
+        DvmDs_all[e, 0] = 1/(2*vm_elems[e]) * (2*sigma11 - sigma22 - sigma33)
+        DvmDs_all[e, 1] = 1/(2*vm_elems[e]) * (2*sigma22 - sigma11 - sigma33)
+        DvmDs_all[e, 2] = 1/(2*vm_elems[e]) * (2*sigma33 - sigma11 - sigma22)
+        DvmDs_all[e, 3] = 3/vm_elems[e] * sigma12
+        DvmDs_all[e, 4] = 3/vm_elems[e] * sigma13
+        DvmDs_all[e, 5] = 3/vm_elems[e] * sigma23
+    
+    # Compute T1 (direct sensitivity)
+    beta = np.zeros(nelems)
+    x = np.maximum(x, 1e-12) # avoid division by zero
+    for e in range(nelems):
         edof = mesh.edofMat[e]
-        g[edof] += g_elem[e]
-    g *= -(1 / pNormExponent) * (np.sum(vm_elems ** pNormExponent) ** (1 / pNormExponent - 1))
-
-    # Solve the adjoint	
-    adjointSol = linear_solvers.solve(
-        fe_solver.stiff_mtrx,
-        g,
-        fe_solver.solver,
-        fe_solver.bc,
-        dsolver=fe_solver.dsolver,
-        **fe_solver.kwargs
-    )
-
+        u_e = sol[edof]
+        beta[e] = qStress * (x[e]**(qStress-1)) * (vm_elems[e]**(pNormExponent-1)) * DvmDs_all[e] @ D[e] @ B @ u_e
+    
+    T1 = dpn_dvms * beta
+    
+    # Compute adjoint right-hand side using pre-computed DvmDs
+    g = np.zeros(fe_solver.bc.num_dofs)
+    for e in range(nelems):
+        edof = mesh.edofMat[e]
+        g_e = (x[e]**qStress) * dpn_dvms * B.T @ D[e].T @ DvmDs_all[e] * (vm_elems[e]**(pNormExponent-1))
+        g[edof] += g_e
+    
+    # Solve adjoint equation
+    adjointSol = linear_solvers.solve(fe_solver.stiff_mtrx,
+                                       g,
+                                       fe_solver.solver,
+                                       fe_solver.bc,
+                                       dsolver=fe_solver.dsolver,
+                                       **fe_solver.kwargs)
+    
+    # Compute T2 (indirect sensitivity via adjoint)
     dofMat = fe_solver.mesh.edofMat
-    num_elems = fe_solver.mesh.num_elems
     nRows = KETemplate.shape[0]
-    ce = (np.dot(adjointSol[dofMat].reshape(num_elems, nRows), KETemplate) * sol[dofMat].reshape(num_elems, nRows)).sum(1)*EDesign
-
-    T2 = get_structural_material_model_sensitivity(x, material_model) * ce
+    ce = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) * sol[dofMat].reshape(nelems, nRows)).sum(1)*EDesign
+    
+    T2 = -pSIMP * (x**(pSIMP-1)) * ce  # Note the negative sign from MATLAB
+    
     vm_pnorm_sensitivity = T1 + T2
+    max_vm = np.max(vm_elems)
+    
     return vm_pnorm, vm_pnorm_sensitivity, max_vm
+# def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,YDesign, KETemplate, material_model):
+#     """
+#     Compute von Mises stress and sensitivity with respect to x for p-norm stress.
+#     """
+#     # "An efficient 146-line 3D sensitivity analysis code of 
+#     # stress based topology optimization written in MATLAB"
+#     # Optimization and Engineering (2022) 23:1733–1757
+#     # The sensitivity of pnorm von mises stress with respect to x has 2 terms: T1 and T2
+#     # T1 arises due to the stress relaxation: x**STRESS_RELAXATION
+#     # T2 arises indirectly via the solution sensitivity via the adjoint
+#     mesh = fe_solver.mesh
+#     nelems = mesh.num_elems
+
+#     qStress = 2  # STRESS factor for sensitivity
+#     pSIMP = 3
+
+
+#     if isinstance(fe_solver.mat_prop, list):
+#         Y = YDesign
+#         E = EDesign
+#         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
+#         D_list = []
+#         for Ei, nui in zip(E, nu):
+#             D = hex_element_stiffness.isotropic_constitutive_matrix(Ei, nui)
+#             D_list.append(D)
+#         D = np.stack(D_list)
+#     else:
+#         E = fe_solver.mat_prop.youngs_modulus
+#         nu = fe_solver.mat_prop.poissons_ratio
+#         D = hex_element_stiffness.isotropic_constitutive_matrix(E, nu)
+#     gradN = (1 / 8) * np.array([
+#         [-1, 1, 1, -1, -1, 1, 1, -1],
+#         [-1, -1, 1, 1, -1, -1, 1, 1],
+#         [-1, -1, -1, -1, 1, 1, 1, 1]
+#     ])
+#     # Define the B matrix (strain-displacement matrix) for a hexahedral element at the center (xi=0, eta=0, zeta=0)
+#     B = np.zeros((6, 24))
+#     # Vectorized construction of B matrix for all 8 nodes at once
+#     Bi = np.zeros((6, 3, 8))
+#     Bi[0, 0, :] = gradN[0, :]
+#     Bi[1, 1, :] = gradN[1, :]
+#     Bi[2, 2, :] = gradN[2, :]
+#     Bi[3, 0, :] = gradN[1, :]
+#     Bi[3, 1, :] = gradN[0, :]
+#     Bi[4, 0, :] = gradN[2, :]
+#     Bi[4, 2, :] = gradN[0, :]
+#     Bi[5, 1, :] = gradN[2, :]
+#     Bi[5, 2, :] = gradN[1, :]
+#     # Vectorized assignment to B
+#     idx = np.arange(8)
+#     B[:, (3 * idx)[:, None] + np.arange(3)] = Bi.transpose(0, 2, 1)
+#     if isinstance(E, np.ndarray):
+#         F_stack = np.array([D[e] @ B for e in range(nelems)])
+#     else:
+#         F = D @ B
+#     g_elem = np.zeros((nelems, 24))
+#     inv_sf_elems = np.zeros(nelems)
+#     T1 = np.zeros(nelems)
+#     T2 = np.zeros(nelems)
+
+#     for e in range(nelems):
+#         inv_sf_elems[e] = fe_solver.vonMisesStress[e]/Y[e]
+#         T1[e] = pSIMP * (x[e] ** (pSIMP - 1)) * inv_sf_elems[e]
+
+#         stress_elem = fe_solver.stressComponents[e]
+#         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
+#         if isinstance(E, np.ndarray):
+#             F = F_stack[e]
+#         g_e = ((sigma11 - sigma22) * (F[0] - F[1]) +
+#                (sigma11 - sigma33) * (F[0] - F[2]) +
+#                (sigma22 - sigma33) * (F[1] - F[2]) +
+#                6 * sigma12 * F[3] + 6 * sigma13 * F[4] + 6 * sigma23 * F[5]) / np.sqrt(2)
+#         g_elem[e] = pSIMP * qStress * inv_sf_elems[e] ** (pSIMP * qStress - 2) * g_e
+
+#     max_inv_sf = np.max(inv_sf_elems)
+#     # Note that we are using the relaxed von Mises below
+#     pNormExponent = 6
+#     inv_sf_pnorm = np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent)
+#     T1 *= (1 / pNormExponent) * (np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
+
+#     # Now compute the rhs of adjoint eqn 
+#     g = np.zeros(fe_solver.bc.num_dofs)
+#     for e in range(nelems):  # assemble  g vector
+#         edof = mesh.edofMat[e]
+#         g[edof] += g_elem[e]
+#     g *= -(1 / pNormExponent) * (np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
+
+#     # Solve the adjoint	
+#     adjointSol = linear_solvers.solve(
+#         fe_solver.stiff_mtrx,
+#         g,
+#         fe_solver.solver,
+#         fe_solver.bc,
+#         dsolver=fe_solver.dsolver,
+#         **fe_solver.kwargs
+#     )
+
+#     dofMat = fe_solver.mesh.edofMat
+#     num_elems = fe_solver.mesh.num_elems
+#     nRows = KETemplate.shape[0]
+#     ce = (np.dot(adjointSol[dofMat].reshape(num_elems, nRows), KETemplate) * sol[dofMat].reshape(num_elems, nRows)).sum(1)*EDesign
+
+#     T2 = get_structural_material_model_sensitivity(x, material_model) * ce
+#     inv_sf_pnorm_sensitivity = T1 + T2
+
+#     return inv_sf_pnorm, inv_sf_pnorm_sensitivity, max_inv_sf
 
 def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,YDesign, KETemplate, material_model):
     """
-    Compute von Mises stress and sensitivity with respect to x for p-norm stress.
+    MMTO-compatible: Compute p-norm of inverse safety factor and its sensitivity with respect to x.
     """
-    # "An efficient 146-line 3D sensitivity analysis code of 
-    # stress based topology optimization written in MATLAB"
-    # Optimization and Engineering (2022) 23:1733–1757
-    # The sensitivity of pnorm von mises stress with respect to x has 2 terms: T1 and T2
-    # T1 arises due to the stress relaxation: x**STRESS_RELAXATION
-    # T2 arises indirectly via the solution sensitivity via the adjoint
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
 
-    qStress = 2  # STRESS factor for sensitivity
-    pSIMP = 3
+    qStress = 2  # STRESS relaxation factor
+    pSIMP = 3    # SIMP penalization
+    pNormExponent = 6  # p-norm exponent
 
-
+    # Get element-wise Poisson's ratio
     if isinstance(fe_solver.mat_prop, list):
-        Y = YDesign
-        E = EDesign
         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
-        D_list = []
-        for Ei, nui in zip(E, nu):
-            D = hex_element_stiffness.isotropic_constitutive_matrix(Ei, nui)
-            D_list.append(D)
-        D = np.stack(D_list)
     else:
-        E = fe_solver.mat_prop.youngs_modulus
         nu = fe_solver.mat_prop.poissons_ratio
-        D = hex_element_stiffness.isotropic_constitutive_matrix(E, nu)
+
+    # Build element-wise constitutive matrices
+    D_list = []
+    for Ei, nui in zip(EDesign, nu):
+        D = hex_element_stiffness.isotropic_constitutive_matrix(Ei, nui)
+        D_list.append(D)
+    D = np.stack(D_list)
+
+    # B matrix setup
     gradN = (1 / 8) * np.array([
         [-1, 1, 1, -1, -1, 1, 1, -1],
         [-1, -1, 1, 1, -1, -1, 1, 1],
         [-1, -1, -1, -1, 1, 1, 1, 1]
     ])
-    # Define the B matrix (strain-displacement matrix) for a hexahedral element at the center (xi=0, eta=0, zeta=0)
     B = np.zeros((6, 24))
-    # Vectorized construction of B matrix for all 8 nodes at once
     Bi = np.zeros((6, 3, 8))
     Bi[0, 0, :] = gradN[0, :]
     Bi[1, 1, :] = gradN[1, :]
@@ -157,62 +463,69 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     Bi[4, 2, :] = gradN[0, :]
     Bi[5, 1, :] = gradN[2, :]
     Bi[5, 2, :] = gradN[1, :]
-    # Vectorized assignment to B
     idx = np.arange(8)
     B[:, (3 * idx)[:, None] + np.arange(3)] = Bi.transpose(0, 2, 1)
-    if isinstance(E, np.ndarray):
-        F_stack = np.array([D[e] @ B for e in range(nelems)])
-    else:
-        F = D @ B
-    g_elem = np.zeros((nelems, 24))
-    inv_sf_elems = np.zeros(nelems)
-    T1 = np.zeros(nelems)
-    T2 = np.zeros(nelems)
 
+    # Compute inverse safety factor per element
+    sigma_vm = fe_solver.vonMisesStress
+    Y = YDesign
+    inv_sf_elems = sigma_vm / Y
+    inv_sf_pnorm = np.sum(inv_sf_elems ** pNormExponent) ** (1.0 / pNormExponent)
+
+    # Compute dpn_dinv_sf = (sum(inv_sf^p))^(1/p - 1)
+    dpn_dinv_sf = (np.sum(inv_sf_elems ** pNormExponent)) ** (1.0 / pNormExponent - 1)
+
+    # Pre-compute DinvSfDs for all elements
+    DinvSfDs_all = np.zeros((nelems, 6))
     for e in range(nelems):
-        inv_sf_elems[e] = fe_solver.vonMisesStress[e]/Y[e]
-        T1[e] = pSIMP * (x[e] ** (pSIMP - 1)) * inv_sf_elems[e]
-
         stress_elem = fe_solver.stressComponents[e]
         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
-        if isinstance(E, np.ndarray):
-            F = F_stack[e]
-        g_e = ((sigma11 - sigma22) * (F[0] - F[1]) +
-               (sigma11 - sigma33) * (F[0] - F[2]) +
-               (sigma22 - sigma33) * (F[1] - F[2]) +
-               6 * sigma12 * F[3] + 6 * sigma13 * F[4] + 6 * sigma23 * F[5]) / np.sqrt(2)
-        g_elem[e] = pSIMP * qStress * inv_sf_elems[e] ** (pSIMP * qStress - 2) * g_e
+        vm = sigma_vm[e]
+        Y_e = Y[e]
+        # Derivative of inv_sf w.r.t. stress components
+        DvmDs = np.zeros(6)
+        DvmDs[0] = 1/(2*vm) * (2*sigma11 - sigma22 - sigma33)
+        DvmDs[1] = 1/(2*vm) * (2*sigma22 - sigma11 - sigma33)
+        DvmDs[2] = 1/(2*vm) * (2*sigma33 - sigma11 - sigma22)
+        DvmDs[3] = 3/vm * sigma12
+        DvmDs[4] = 3/vm * sigma13
+        DvmDs[5] = 3/vm * sigma23
+        DinvSfDs_all[e, :] = DvmDs / Y_e
 
-    max_inv_sf = np.max(inv_sf_elems)
-    # Note that we are using the relaxed von Mises below
-    pNormExponent = 6
-    inv_sf_pnorm = np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent)
-    T1 *= (1 / pNormExponent) * (np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
-
-    # Now compute the rhs of adjoint eqn 
-    g = np.zeros(fe_solver.bc.num_dofs)
-    for e in range(nelems):  # assemble  g vector
+    # Compute T1 (direct sensitivity)
+    beta = np.zeros(nelems)
+    x = np.maximum(x, 1e-12) # avoid division by zero
+    for e in range(nelems):
         edof = mesh.edofMat[e]
-        g[edof] += g_elem[e]
-    g *= -(1 / pNormExponent) * (np.sum(inv_sf_elems ** pNormExponent) ** (1 / pNormExponent - 1))
+        u_e = sol[edof]
+        beta[e] = qStress * (x[e]**(qStress-1)) * (inv_sf_elems[e]**(pNormExponent-1)) * DinvSfDs_all[e] @ D[e] @ B @ u_e
 
-    # Solve the adjoint	
-    adjointSol = linear_solvers.solve(
-        fe_solver.stiff_mtrx,
-        g,
-        fe_solver.solver,
-        fe_solver.bc,
-        dsolver=fe_solver.dsolver,
-        **fe_solver.kwargs
-    )
+    T1 = dpn_dinv_sf * beta
 
+    # Compute adjoint right-hand side using pre-computed DinvSfDs
+    g = np.zeros(fe_solver.bc.num_dofs)
+    for e in range(nelems):
+        edof = mesh.edofMat[e]
+        g_e = (x[e]**qStress) * dpn_dinv_sf * B.T @ D[e].T @ DinvSfDs_all[e] * (inv_sf_elems[e]**(pNormExponent-1))
+        g[edof] += g_e
+
+    # Solve adjoint equation
+    adjointSol = linear_solvers.solve(fe_solver.stiff_mtrx,
+                                    g,
+                                    fe_solver.solver,
+                                    fe_solver.bc,
+                                    dsolver=fe_solver.dsolver,
+                                    **fe_solver.kwargs)
+
+    # Compute T2 (indirect sensitivity via adjoint)
     dofMat = fe_solver.mesh.edofMat
-    num_elems = fe_solver.mesh.num_elems
     nRows = KETemplate.shape[0]
-    ce = (np.dot(adjointSol[dofMat].reshape(num_elems, nRows), KETemplate) * sol[dofMat].reshape(num_elems, nRows)).sum(1)*EDesign
+    ce = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) * sol[dofMat].reshape(nelems, nRows)).sum(1)*EDesign
 
-    T2 = get_structural_material_model_sensitivity(x, material_model) * ce
+    T2 = -pSIMP * (x**(pSIMP-1)) * ce  # Note the negative sign from MATLAB
+
     inv_sf_pnorm_sensitivity = T1 + T2
+    max_inv_sf = np.max(inv_sf_elems)
 
     return inv_sf_pnorm, inv_sf_pnorm_sensitivity, max_inv_sf
 

@@ -381,7 +381,7 @@ def run_topopt(
     rgb_colors = np.array([mcolors.to_rgb(c) for c in colors])
     fe_solver_structural.plot_elem_field(material_indices, title='Real Materials', colors=rgb_colors)
 if __name__ == "__main__":
-    to_problem = MMTOExamples.CantileverBenchmark_Compliance_Mass
+    to_problem = MMTOExamples.LBracketTopLoad_Stress_Mass
     run_topopt(
         to_problem=to_problem,
         use_penalization=True,
