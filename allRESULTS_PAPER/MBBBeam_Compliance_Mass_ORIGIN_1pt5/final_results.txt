@@ -1,2 +1,0 @@
-Final Compliance (after snapping): 0.5711273524240054
-Final Constraint 1: -0.1087726354598999
