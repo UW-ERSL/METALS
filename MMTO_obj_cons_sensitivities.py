@@ -222,7 +222,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
 
-    qStress = 2  # STRESS relaxation factor
+    qStress = 0.5  # STRESS relaxation factor
     pSIMP = 3    # SIMP penalization
     pNormExponent = 6  # p-norm exponent
 
@@ -594,7 +594,7 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         grad_vm_z = (1.0 / pNormExponent) * outer * grad_vm_z
         grad_pnorm_stress = np.zeros_like(zeta)
         grad_pnorm_stress[0:num_elems] = grad_vm_density
-        grad_pnorm_stress[num_elems:] = 0.1*grad_vm_z
+        grad_pnorm_stress[num_elems:] = grad_vm_z
 
         return vm_pnorm, grad_pnorm_stress
     
