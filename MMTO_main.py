@@ -23,13 +23,14 @@ def run_topopt(
     to_problem,
     timeLimit=7200,
     saveNet=None,
+    plot_progress=True,
     use_pretrained_vae=False,
     use_penalization=False,
     snap_to_real_material=True,
     rel_conv_tol = 1e-7,
     maxIterations = 100,
-    z0_init_method = Z0InitMethod.ORIGIN,  
-    gamma_init = 1e-3, # penalization
+    z0_init_method = Z0InitMethod.HEAVIEST,  
+    gamma_init = 1e-6, # penalization
     gamma_max = 100,#100
     gamma_factor = 1.1):#1.1
     
@@ -103,6 +104,8 @@ def run_topopt(
 
     def MMTO_optimization_function(zeta):
         nonlocal iterationCount, obj0, gamma, zRealPoints
+
+       
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
@@ -113,6 +116,8 @@ def run_topopt(
         zDesign = zetaTensor[num_elems:]
         zPoints = zDesign.view(latentDim, -1).T
 
+
+
         decoded = matEncoder.vaeNet.decoder(zPoints)
         material_properties = matEncoder.getMaterialProperties(decoded)
         Youngs_Modulus = material_properties['Youngs_Modulus'].detach().numpy()
@@ -121,9 +126,18 @@ def run_topopt(
             mat_lib.create_material_with_defaults(name=f"Material_{i+1}", youngs_modulus=Youngs_Modulus[i])
             for i in range(len(Youngs_Modulus))]
         fe_solver_structural.set_structural_material(fe_solver_structural.mat_prop)
-
+        
         sol = fe_solver_structural.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
+        fe_solver_structural.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
         fe_solver_structural.postprocess()
+
+        if (plot_progress):
+           fe_solver_structural.plot_pseudo_density(
+                    plotter=None,
+                   auto_close=False,
+                   title=f"Iter {len(history['objective']) + 1} - Density"
+               )
+
 
         obj, grad_obj = compute_mmto_objective_and_gradient(
             to_params, sol, zeta, fe_solver_structural, KETemplate, matEncoder)
@@ -280,44 +294,6 @@ def run_topopt(
     plt.grid()
     plt.show()
     material_indices = matEncoder.getClosestRealMaterialIndex(zOptimalPts)  # shape: (num_elems,)
-    # if to_problem == MMTOExamples.CantileverBenchmark_Compliance_Mass or to_problem == MMTOExamples.CenterCantilever_Compliance_Mass:
-    # # Cantilever benchmark colors
-    #     material_colors = {
-    #         0: '#fe4d02', 
-    #         1: '#e6fd1a',
-    #         2: '#1dfde1',
-    #         3: '#004fff',
-    #         4: '#020a86',
-    #     }
-    # elif to_problem == MMTOExamples.Bridge_Compliance_MassCost or to_problem == MMTOExamples.Bridge_Compliance_Mass:
-    # # Bridge benchmark colors
-    #     material_colors = {
-    #         0: '#04fd05', 
-    #         1: '#0505f0',
-    #         2: '#ef0711',
-    #     }
-    # elif to_problem == MMTOExamples.Bridge_Compliance_MassCost_Saitou:
-    # # Bridge benchmark colors (Saitou et al.)
-    #     material_colors = {
-    #         0: '#0201fc', 
-    #         1: '#f60004',
-    #         2: '#080101',
-    #     }
-    # elif to_problem == MMTOExamples.Table_Compliance_Mass or to_problem == MMTOExamples.CenterCantilever_Compliance_Mass or to_problem == MMTOExamples.Table_Compliance_Mass_Cost or to_problem == MMTOExamples.CenterCantilever_Compliance_Mass_Cost:
-    #     material_colors = {
-    #         0: '#e6194b',  # vibrant red
-    #         1: '#3cb44b',  # vibrant green
-    #         2: '#ffe119',  # vibrant yellow
-    #         3: '#4363d8',  # vibrant blue
-    #         4: '#f58231',  # vibrant orange
-    #         5: '#911eb4',  # vibrant purple
-    #         6: '#42d4f4',  # vibrant cyan
-    #         7: '#f032e6',  # vibrant magenta
-    #     }
-    # else:
-    #     # Default colors for up to 20 materials
-    #     default_colors = plt.cm.get_cmap('tab20', matEncoder.nMaterials)
-    #     material_colors = {i: default_colors(i) for i in range(matEncoder.nMaterials)} 
     excel_file = to_params.MaterialsExcelFile
 
     if excel_file == './DataConstantTemperature/5MaterialsCantilever.xlsx':
@@ -404,7 +380,7 @@ if __name__ == "__main__":
     # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    to_problem = MMTOExamples.LBracketTopLoad_Stress_Mass
+    to_problem = MMTOExamples.LBracketTopLoad_Mass_StressSF
 
 
     run_topopt(
