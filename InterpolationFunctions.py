@@ -47,6 +47,7 @@ def cubicInterpolation_torch(T, M0, M1, M2, M3, T0=T0_CUBIC, T1=T1_CUBIC, T2=T2_
 def logBezierInterpolation(T, M0, M1, M2, M3, T0=TMin,  T3=TMax):
     """Cubic Bezier interpolation in log10-space for material property variation with temperature using four points."""
     # Take log10 of all M values (handle zeros or negatives gracefully)
+    
     M0_log = np.log10(M0)
     M1_log = np.log10(M1)
     M2_log = np.log10(M2)
@@ -59,36 +60,49 @@ def logBezierInterpolation(T, M0, M1, M2, M3, T0=TMin,  T3=TMax):
     B2 = 3 * (1 - t) * t ** 2
     B3 = t ** 3
     log_val = B0 * M0_log + B1 * M1_log + B2 * M2_log + B3 * M3_log
-    return 10 ** log_val
+    M = 10 ** log_val
+    M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
+    return M    
 
 
 def logBezierInterpolation_torch(T, M0, M1, M2, M3, T0=TMin,  T3=TMax):
     """Cubic Bezier interpolation in log10-space for material property variation with temperature using four points (torch version)."""
+    if not isinstance(T, torch.Tensor):
+        T = torch.tensor(T, dtype=torch.float32)
     M0_log = torch.log10(M0)
     M1_log = torch.log10(M1)
     M2_log = torch.log10(M2)
     M3_log = torch.log10(M3)
-    t = torch.tensor((T - T0) / (T3 - T0))
+    t = (T - T0) / (T3 - T0)
     B0 = (1 - t) ** 3
     B1 = 3 * (1 - t) ** 2 * t
     B2 = 3 * (1 - t) * t ** 2
     B3 = t ** 3
     log_val = B0 * M0_log + B1 * M1_log + B2 * M2_log + B3 * M3_log
-    return 10 ** log_val
+    M = 10 ** log_val
+    T0 = torch.tensor(T0, dtype=torch.float32)
+    T3 = torch.tensor(T3, dtype=torch.float32)
+    M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
+    return M   
 
 def bezierInterpolation(T, M0, M1, M2, M3, T0=T0_BEZIER, T1=T1_BEZIER, T2=T2_BEZIER, T3=T3_BEZIER):
     """Cubic Bezier interpolation for material property variation with temperature using four points."""
-    # Normalize T to [0,1] using T0 and T3
+    # Normalize T to [0,1] using T0 and T3  
     t = (T - T0) / (T3 - T0)
     # Cubic Bezier basis functions
     B0 = (1 - t) ** 3
     B1 = 3 * (1 - t) ** 2 * t
     B2 = 3 * (1 - t) * t ** 2
     B3 = t ** 3
-    return B0 * M0 + B1 * M1 + B2 * M2 + B3 * M3
+    M = B0 * M0 + B1 * M1 + B2 * M2 + B3 * M3
+    M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
+    return M
 
 def bezierInterpolation_torch(T, M0, M1, M2, M3, T0=T0_BEZIER, T1=T1_BEZIER, T2=T2_BEZIER, T3=T3_BEZIER):
     """Cubic Bezier interpolation for material property variation with temperature using four points (torch version)."""
+    # Convert T to tensor if it's not already
+    if not isinstance(T, torch.Tensor):
+        T = torch.tensor(T, dtype=torch.float32)
     # Normalize T to [0,1] using T0 and T3
     t = (T - T0) / (T3 - T0)
     # Cubic Bezier basis functions
@@ -96,7 +110,11 @@ def bezierInterpolation_torch(T, M0, M1, M2, M3, T0=T0_BEZIER, T1=T1_BEZIER, T2=
     B1 = 3 * (1 - t) ** 2 * t
     B2 = 3 * (1 - t) * t ** 2
     B3 = t ** 3
-    return B0 * M0 + B1 * M1 + B2 * M2 + B3 * M3
+    M = B0 * M0 + B1 * M1 + B2 * M2 + B3 * M3
+    T0 = torch.tensor(T0, dtype=torch.float32)
+    T3 = torch.tensor(T3, dtype=torch.float32)
+    M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
+    return M
 
 
 def hermiteInterpolation(T, M0, M1, theta0_deg, theta1_deg, T0 = TMin, T1 = TMax): # Assume data between T0 and T1

@@ -26,6 +26,7 @@ def run_topopt(
     turnOnNonlinearThermal=False,
     use_penalization=True,
     snap_to_real_material=True,
+    plot_progress=True,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
@@ -205,6 +206,11 @@ def run_topopt(
         
         uvw = fe_solver_structural.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
         fe_solver_structural.postprocess()
+        if (plot_progress):
+           fe_solver_structural.plot_pseudo_density(
+                    plotter=None,
+                   auto_close=False,
+               )
 
         obj, grad_obj = compute_mmto_objective_and_gradient(
             to_params, uvw, Temp_elem, zeta, fe_solver_structural, KETemplate, matEncoder)
@@ -337,7 +343,7 @@ def run_topopt(
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    to_problem = MMTOTempDependentExamples.LBracket_Stress_MassCompliance
+    to_problem = MMTOTempDependentExamples.LBracket_Stress_MassVolume
     run_topopt(
         to_problem=to_problem,
         turnOnThermal=True,

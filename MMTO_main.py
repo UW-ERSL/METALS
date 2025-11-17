@@ -380,7 +380,7 @@ if __name__ == "__main__":
     # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    to_problem = MMTOExamples.LBracketTopLoad_Mass_StressSF
+    to_problem = MMTOExamples.LBracketTopLoad_Stress_Mass
 
 
     run_topopt(

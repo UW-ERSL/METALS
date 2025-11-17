@@ -14,6 +14,7 @@ class VAEParams:
 class MMTOTempDependentExamples(enum.Enum):
     LBracket_Compliance_Mass = enum.auto()
     LBracket_Compliance_MassCost = enum.auto()
+    LBracket_Stress_MassVolume = enum.auto()
     LBracket_Stress_MassCompliance = enum.auto()
 
 
@@ -64,7 +65,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 750
         vae_params.numEpochs = 200000        
-    elif to_problem == MMTOTempDependentExamples.LBracket_Stress_MassCompliance:
+    elif to_problem == MMTOTempDependentExamples.LBracket_Stress_MassVolume:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
         kwargs['topload'] = 1e4 
@@ -73,11 +74,11 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.MaterialsExcelFile = './DataVaryingTemperature/METALSDemoMaterials.xlsx'
         to_params.Objective=(TO_QOI.PNORM_STRESS, None)
         to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[(TO_QOI.MASS, None, 30), (TO_QOI.COMPLIANCE, None, 4e4)]
-        vae_params.latentDim = 2
+        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints=[(TO_QOI.MASS, None, 80), (TO_QOI.VOLUME_FRACTION, None, 0.3)]
+        vae_params.latentDim = 3
         vae_params.learningRate = 2e-5
-        vae_params.vae_hiddenDim = 750
+        vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
     elif to_problem == MMTOTempDependentExamples.BliskSection_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.BliskSection
@@ -92,7 +93,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
 
         # for large number of materials and attributes, we need to train the VAE longer
         vae_params.learningRate = 2e-5
-        vae_params.vae_hiddenDim = 750
+        vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
         vae_params.latentDim = 3
     elif to_problem == MMTOTempDependentExamples.BliskSection_Compliance_Mass:

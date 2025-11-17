@@ -4,7 +4,7 @@ import torch
 from PyTOImports import *
 from InterpolationFunctions import hermiteInterpolation, hermiteInterpolation_torch
 # --- Support Functions ---
-from MMTO_obj_cons_sensitivities import compute_pnorm_safety_factor_and_sensitivity, compute_pnorm_stress_and_sensitivity
+from MMTO_obj_cons_sensitivities import compute_pnorm_safety_factor_and_sensitivity, compute_pnorm_stress_and_sensitivity, compute_volumefraction_constraint_and_gradient
 
 # --- Main Objective/Constraint Functions ---
 
@@ -126,6 +126,13 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             grad_cons_compliance = grad_compliance / constraintLimit
             c[m, 0] = cons_compliance
             dc[m, :] = grad_cons_compliance
+        elif constraintType == TO_QOI.VOLUME_FRACTION:
+            volfracConstraint, volfracConstraint_gradient = compute_volumefraction_constraint_and_gradient(
+                x, constraintLimit)
+            grad_volfracConstraint = np.zeros_like(zeta)
+            grad_volfracConstraint[0:num_elems] = volfracConstraint_gradient
+            c[m, 0] = volfracConstraint
+            dc[m, :] = grad_volfracConstraint
 
         elif constraintType == TO_QOI.MASS:
             mass_density = matEncoder.getMaterialProperties(decoded)['Density']

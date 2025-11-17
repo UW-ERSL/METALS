@@ -11,7 +11,7 @@ class MaterialEncoder:
     def __init__(self, vae_params):
         self.nAttributes = 0
         self.vae_params = vae_params
-        self.RELATIVE_MATERIAL_MIN_VAL = 1e-3
+        self.RELATIVE_MATERIAL_MIN_VAL = 1e-6
 
     def readExcel(self, excel_file):
         self.excel_file = excel_file
