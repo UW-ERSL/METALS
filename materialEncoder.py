@@ -11,6 +11,7 @@ class MaterialEncoder:
     def __init__(self, vae_params):
         self.nAttributes = 0
         self.vae_params = vae_params
+        self.RELATIVE_MATERIAL_MIN_VAL = 1e-3
 
     def readExcel(self, excel_file):
         self.excel_file = excel_file
@@ -147,36 +148,49 @@ class MaterialEncoder:
         decoded = self.vaeNet.decoder(zPts)
         material_properties = self.getMaterialProperties(decoded)
 
+        Temp_Limit = material_properties['Temp_Limit'].detach().numpy()
+
         if name in ['E', 'Y']:
             M0 = material_properties[name + '0'].detach().numpy()
             M1 = material_properties[name + '1'].detach().numpy()
             M2 = material_properties[name + '2'].detach().numpy()
             M3 = material_properties[name + '3'].detach().numpy()
-            M = logBezierInterpolation(T, M0, M1, M2, M3)
+            M = logBezierInterpolation(T, M0, M1, M2, M3, 0, Temp_Limit)
+            # M = logBezierInterpolation(T, M0, M1, M2, M3)
         elif name == 'K':
             M0 = material_properties[name + '0'].detach().numpy()
             M1 = material_properties[name + '1'].detach().numpy()
             M2 = material_properties[name + '2'].detach().numpy()
             M3 = material_properties[name + '3'].detach().numpy()
             M = bezierInterpolation(T, M0, M1, M2, M3)
+            # Enforce minimum property value
+        min_db_value = np.min(self.rawData[:, self.materialAttributes[name + '0']['idx']])
+        min_allowed = self.RELATIVE_MATERIAL_MIN_VAL * min_db_value
+        M = np.maximum(M, min_allowed)   
         return M
 
     def getMaterialPropertyAtTemperatureTorch(self, name, zPts, T):
         decoded = self.vaeNet.decoder(zPts)
         material_properties = self.getMaterialProperties(decoded)
 
+        Temp_Limit = material_properties['Temp_Limit'].detach().numpy()
+
         if name in ['E', 'Y']:
             M0 = material_properties[name + '0']
             M1 = material_properties[name + '1']
             M2 = material_properties[name + '2']
             M3 = material_properties[name + '3']
-            M = logBezierInterpolation_torch(T, M0, M1, M2, M3)
+            M = logBezierInterpolation_torch(T, M0, M1, M2, M3, 0, Temp_Limit)
+            # M = logBezierInterpolation_torch(T, M0, M1, M2, M3)
         elif name == 'K':
             M0 = material_properties[name + '0']
             M1 = material_properties[name + '1']
             M2 = material_properties[name + '2']
             M3 = material_properties[name + '3']
             M = bezierInterpolation_torch(T, M0, M1, M2, M3)
+        min_db_value = torch.min(torch.tensor(self.rawData[:, self.materialAttributes[name + '0']['idx']], dtype=M.dtype, device=M.device))
+        min_allowed = self.RELATIVE_MATERIAL_MIN_VAL * min_db_value
+        M = torch.maximum(M, min_allowed)
         return M
 
     def getMaterialProperties(self, decoded):
@@ -321,8 +335,8 @@ class MaterialEncoder:
                 plt.text(zRealPts_2d[i, 0] + 0.1, zRealPts_2d[i, 1], str(label), fontsize=12, color='black', ha='center', va='bottom')
             plt.xlabel('$z_1$')
             plt.ylabel('$z_2$')
-            plt.xlim(-5, 5)
-            plt.ylim(-5, 5)
+            # plt.xlim(-5, 5)
+            # plt.ylim(-5, 5)
             plt.grid(True)
             plt.legend()
             plt.show()
@@ -392,7 +406,41 @@ class MaterialEncoder:
         plt.legend(self.materialNames)
         plt.grid()
         plt.show()
-
+    def plotTemperatureVsMaterialPropertyRaw(self, attrName, semilogy=False):
+        plt.figure()
+        T = np.linspace(0, 1250, 300)
+        markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_']
+        for i in range(self.rawData.shape[0]):
+            # Get control points for this material
+            if attrName in ['E', 'Y']:
+                M0 = self.rawData[i, self.materialAttributes[attrName + '0']['idx']]
+                M1 = self.rawData[i, self.materialAttributes[attrName + '1']['idx']]
+                M2 = self.rawData[i, self.materialAttributes[attrName + '2']['idx']]
+                M3 = self.rawData[i, self.materialAttributes[attrName + '3']['idx']]
+                Temp_Limit = self.rawData[i, self.materialAttributes['Temp_Limit']['idx']]
+                M = logBezierInterpolation(T, M0, M1, M2, M3, 0, Temp_Limit)
+            elif attrName == 'K':
+                M0 = self.rawData[i, self.materialAttributes[attrName + '0']['idx']]
+                M1 = self.rawData[i, self.materialAttributes[attrName + '1']['idx']]
+                M2 = self.rawData[i, self.materialAttributes[attrName + '2']['idx']]
+                M3 = self.rawData[i, self.materialAttributes[attrName + '3']['idx']]
+                M = bezierInterpolation(T, M0, M1, M2, M3)
+            else:
+                continue
+            min_db_value = np.min(self.rawData[:, self.materialAttributes[attrName + '0']['idx']])
+            min_allowed = self.RELATIVE_MATERIAL_MIN_VAL * min_db_value
+            M = np.maximum(M, min_allowed)  
+            marker = markers[i % len(markers)]
+            if semilogy:
+                plt.semilogy(T, M, label=self.materialNames[i], marker=marker, markevery=30)
+            else:
+                plt.plot(T, M, label=self.materialNames[i], marker=marker, markevery=30)
+        plt.xlabel("Temperature (C)")
+        plt.ylabel(f"{attrName}")
+        plt.title(f"Temperature vs {attrName} (Raw Data)")
+        plt.legend(self.materialNames)
+        plt.grid()
+        plt.show()
     def getHeaviestMaterial(self):
         with torch.no_grad():
             z_real = self.vaeNet.encoder(self.scaledMaterialData)
@@ -414,3 +462,49 @@ class MaterialEncoder:
         lightest_idx = np.argmin(density_values)
         lightest_z = z_real[lightest_idx].detach().cpu().numpy()
         return lightest_z
+    
+    def check_drop_at_temp_limit(self, N_orders=3):
+        # Check if required attributes are present
+        required_E_keys = ['E0', 'E1', 'E2', 'E3', 'Temp_Limit']
+        required_Y_keys = ['Y0', 'Y1', 'Y2', 'Y3', 'Temp_Limit']
+        missing_E = [k for k in required_E_keys if k not in self.materialAttributes]
+        missing_Y = [k for k in required_Y_keys if k not in self.materialAttributes]
+        if missing_E or missing_Y:
+            print("ERROR: Missing required attributes in materialAttributes:")
+            if missing_E:
+                print("  Young's modulus keys missing:", missing_E)
+            if missing_Y:
+                print("  Yield strength keys missing:", missing_Y)
+            print("Exiting check_drop_at_temp_limit.")
+            return
+
+        failed_materials = []
+        for i, name in enumerate(self.materialNames):
+            # Get control points and Temp_Limit for Young's modulus
+            E0 = self.rawData[i, self.materialAttributes['E0']['idx']]
+            E1 = self.rawData[i, self.materialAttributes['E1']['idx']]
+            E2 = self.rawData[i, self.materialAttributes['E2']['idx']]
+            E3 = self.rawData[i, self.materialAttributes['E3']['idx']]
+            Temp_Limit = self.rawData[i, self.materialAttributes['Temp_Limit']['idx']]
+            # Evaluate at Temp_Limit
+            E_at_limit = logBezierInterpolation(Temp_Limit, E0, E1, E2, E3,0, Temp_Limit)
+            E_drop = np.log10(E0) - np.log10(E_at_limit)
+            if E_drop < N_orders:
+                failed_materials.append((name, 'Young\'s modulus', E_drop))
+
+            # Get control points for yield strength
+            Y0 = self.rawData[i, self.materialAttributes['Y0']['idx']]
+            Y1 = self.rawData[i, self.materialAttributes['Y1']['idx']]
+            Y2 = self.rawData[i, self.materialAttributes['Y2']['idx']]
+            Y3 = self.rawData[i, self.materialAttributes['Y3']['idx']]
+            Y_at_limit = logBezierInterpolation(Temp_Limit, Y0, Y1, Y2, Y3,0, Temp_Limit)
+            Y_drop = np.log10(Y0) - np.log10(Y_at_limit)
+            if Y_drop < N_orders:
+                failed_materials.append((name, 'Yield strength', Y_drop))
+
+        if failed_materials:
+            print("\nWARNING: The following materials do not drop by at least {} orders of magnitude at Temp_Limit:".format(N_orders))
+            for mat, prop, drop in failed_materials:
+                print(f"  {mat}: {prop} drops by {drop:.2f} orders of magnitude")
+        else:
+            print(f"All materials drop by at least {N_orders} orders of magnitude at Temp_Limit.")
