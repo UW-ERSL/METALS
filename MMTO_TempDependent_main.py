@@ -25,6 +25,7 @@ def run_topopt(
     turnOnThermal=True,
     turnOnNonlinearThermal=False,
     use_penalization=True,
+    snap_to_real_material=True,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
@@ -43,7 +44,10 @@ def run_topopt(
         return
     matEncoder = MaterialEncoder(vae_params)
     matEncoder.readExcel(to_params.MaterialsExcelFile)
-
+    matEncoder.plotTemperatureVsMaterialPropertyRaw("E", semilogy=True)
+    matEncoder.plotTemperatureVsMaterialPropertyRaw("Y", semilogy=True)
+    matEncoder.plotTemperatureVsMaterialPropertyRaw("K", semilogy=True)
+    matEncoder.check_drop_at_temp_limit(N_orders=3)
     if saveNet is None:
         base, _ = os.path.splitext(to_params.MaterialsExcelFile)
         saveNet = base + ".nt"
@@ -64,14 +68,14 @@ def run_topopt(
     # Print encoding errors for all attributes after training
     matEncoder.printEncodingErrors()
     zRealTorch = matEncoder.training_latents
-
-    if True:
-        matEncoder.plotTemperatureVsMaterialProperty("E", semilogy=True)
-        matEncoder.plotTemperatureVsMaterialProperty("Y", semilogy=True)
-        matEncoder.plotTemperatureVsMaterialProperty("K", semilogy=True)
-    if True:
-        matEncoder.plotLSRContours("E0")
-        matEncoder.plotLSRContours("E1")
+    matEncoder.plotLSR(zRealTorch.detach().cpu().numpy())
+    # if True:
+        # matEncoder.plotTemperatureVsMaterialProperty("E", semilogy=True)
+        # matEncoder.plotTemperatureVsMaterialProperty("Y", semilogy=True)
+        # matEncoder.plotTemperatureVsMaterialProperty("K", semilogy=True)
+    # if True:
+        # matEncoder.plotLSRContours("E0")
+        # matEncoder.plotLSRContours("E1")
 
     solver = linear_solvers.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
@@ -188,7 +192,6 @@ def run_topopt(
 
         E = matEncoder.getMaterialPropertyAtTemperature("E", zPts, Temp_elem)
         Y = matEncoder.getMaterialPropertyAtTemperature("Y", zPts, Temp_elem)
-
         fe_solver_structural.mat_prop = [
             mat_lib.create_material_with_defaults(
                 name=f"Material_{i+1}",
@@ -296,7 +299,7 @@ def run_topopt(
 
     optResults = runMMA(nVariables, nConstraints, MMTO_optimization_function, zeta0.reshape(-1, 1), lowerBound,
         upperBound, maxIterations=maxMMAIterations, timeLimitSecs=timeLimit,
-        move_limit=0.2, kktTol=1e-6, fTolerance=rel_conv_tol, gTolerance=rel_conv_tol, verbose=False)
+        move_limit=0.05, kktTol=1e-6, fTolerance=rel_conv_tol, gTolerance=rel_conv_tol, verbose=False)
     zetaOptimal = optResults[0]
     tEnd = time.time()
     print(f"Total optimization time: {tEnd - tStart:.2f} seconds")
@@ -306,7 +309,15 @@ def run_topopt(
     zDesign = zetaOptimal[num_elems:]
     zDesignTensor = torch.tensor(zDesign).float()
     zPts = zDesignTensor.view(latentDim, -1).T
-
+    zOptimalPts = torch.tensor(zDesign).view(latentDim, -1).T.float()
+    if (snap_to_real_material):
+        zSnappedPts = torch.tensor(matEncoder.getClosestRealMaterialZValues(zOptimalPts))
+        zetaOptimal[num_elems:] = zSnappedPts.T.flatten().numpy()
+        print(50 * "-")
+        print("After snapping:")
+        print(50 * "-")
+        MMTO_optimization_function(zetaOptimal)
+        zOptimalPts = zSnappedPts
     fe_solver_thermal.mesh.setPseudoDensity(xDesign)
     fe_solver_structural.mesh.setPseudoDensity(xDesign)
     closest_index = matEncoder.getClosestRealMaterialIndex(zPts)
@@ -326,11 +337,12 @@ def run_topopt(
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    to_problem = MMTOTempDependentExamples.LBracket_Compliance_MassCost
+    to_problem = MMTOTempDependentExamples.LBracket_Stress_MassCompliance
     run_topopt(
         to_problem=to_problem,
         turnOnThermal=True,
-        turnOnNonlinearThermal=True,
+        turnOnNonlinearThermal=False,
         use_penalization=True,
         use_pretrained_vae=False,
+        snap_to_real_material=True,
     )

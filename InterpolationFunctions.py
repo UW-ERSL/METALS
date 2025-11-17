@@ -15,7 +15,6 @@ T0_BEZIER = TMin
 T1_BEZIER = TMin + (TMax - TMin) / 3
 T2_BEZIER = TMin + 2 * (TMax - TMin) / 3
 T3_BEZIER = TMax
-
 def cubicInterpolation(T, M0, M1, M2, M3, T0=T0_CUBIC, T1=T1_CUBIC, T2=T2_CUBIC, T3=T3_CUBIC):
     """Cubic interpolation for material property variation with temperature using four points."""
     # Solve for cubic coefficients: f(T) = a*T^3 + b*T^2 + c*T + d
