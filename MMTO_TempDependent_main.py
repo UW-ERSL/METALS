@@ -21,7 +21,7 @@ class Z0InitMethod(Enum):
 
 def run_topopt(
     to_problem,
-    nIterations=100,
+    nIterations=150,
     turnOnThermal=True,
     turnOnNonlinearThermal=False,
     use_penalization=True,
@@ -48,7 +48,7 @@ def run_topopt(
     matEncoder.plotTemperatureVsMaterialPropertyRaw("E", semilogy=True)
     matEncoder.plotTemperatureVsMaterialPropertyRaw("Y", semilogy=True)
     matEncoder.plotTemperatureVsMaterialPropertyRaw("K", semilogy=True)
-    matEncoder.check_drop_at_temp_limit(N_orders=3)
+    # matEncoder.check_drop_at_temp_limit(N_orders=3)
     if saveNet is None:
         base, _ = os.path.splitext(to_params.MaterialsExcelFile)
         saveNet = base + ".nt"
@@ -348,7 +348,7 @@ if __name__ == "__main__":
         to_problem=to_problem,
         turnOnThermal=True,
         turnOnNonlinearThermal=False,
-        use_penalization=True,
-        use_pretrained_vae=False,
-        snap_to_real_material=True,
+        use_penalization=False,
+        use_pretrained_vae=True,
+        snap_to_real_material=False,
     )

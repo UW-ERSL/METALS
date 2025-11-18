@@ -61,7 +61,7 @@ def logBezierInterpolation(T, M0, M1, M2, M3, T0=TMin,  T3=TMax):
     B3 = t ** 3
     log_val = B0 * M0_log + B1 * M1_log + B2 * M2_log + B3 * M3_log
     M = 10 ** log_val
-    M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
+    # M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
     return M    
 
 
@@ -82,7 +82,7 @@ def logBezierInterpolation_torch(T, M0, M1, M2, M3, T0=TMin,  T3=TMax):
     M = 10 ** log_val
     T0 = torch.tensor(T0, dtype=torch.float32)
     T3 = torch.tensor(T3, dtype=torch.float32)
-    M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
+    # M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
     return M   
 
 def bezierInterpolation(T, M0, M1, M2, M3, T0=T0_BEZIER, T1=T1_BEZIER, T2=T2_BEZIER, T3=T3_BEZIER):
@@ -95,7 +95,7 @@ def bezierInterpolation(T, M0, M1, M2, M3, T0=T0_BEZIER, T1=T1_BEZIER, T2=T2_BEZ
     B2 = 3 * (1 - t) * t ** 2
     B3 = t ** 3
     M = B0 * M0 + B1 * M1 + B2 * M2 + B3 * M3
-    M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
+    # M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
     return M
 
 def bezierInterpolation_torch(T, M0, M1, M2, M3, T0=T0_BEZIER, T1=T1_BEZIER, T2=T2_BEZIER, T3=T3_BEZIER):
@@ -113,7 +113,7 @@ def bezierInterpolation_torch(T, M0, M1, M2, M3, T0=T0_BEZIER, T1=T1_BEZIER, T2=
     M = B0 * M0 + B1 * M1 + B2 * M2 + B3 * M3
     T0 = torch.tensor(T0, dtype=torch.float32)
     T3 = torch.tensor(T3, dtype=torch.float32)
-    M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
+    # M = (T > T0) * (T < T3) * M + (T <= T0) * M0 + (T >= T3) * M3
     return M
 
 
