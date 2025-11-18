@@ -74,8 +74,8 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.MaterialsExcelFile = './DataVaryingTemperature/METALSDemoMaterials.xlsx'
         to_params.Objective=(TO_QOI.PNORM_STRESS, None)
         to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[(TO_QOI.MASS, None, 80), (TO_QOI.VOLUME_FRACTION, None, 0.3)]
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints=[ (TO_QOI.VOLUME_FRACTION, None, 0.4), (TO_QOI.TEMPERATURE_SAFETY_FACTOR, None, 1.5)]
         vae_params.latentDim = 3
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
