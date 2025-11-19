@@ -26,7 +26,7 @@ def run_topopt(
     turnOnNonlinearThermal=False,
     use_penalization=True,
     snap_to_real_material=True,
-    plot_progress=True,
+    plot_progress=False,
     timeLimit=7200,
     saveNet=None,
     use_pretrained_vae=True,
@@ -356,7 +356,7 @@ if __name__ == "__main__":
         to_problem=to_problem,
         turnOnThermal=True,
         turnOnNonlinearThermal=False,
-        use_penalization=True,
+        use_penalization=False,
         use_pretrained_vae=True,
         snap_to_real_material=False,
     )

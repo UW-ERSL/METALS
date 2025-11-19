@@ -77,7 +77,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.RelativeFilterRadius = 1.5
         to_params.nDOFDesired = 25000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[ (TO_QOI.VOLUME_FRACTION, None, 0.3),
-                               (TO_QOI.TEMPERATURE_SAFETY_FACTOR, None, 1.1)]
+                               (TO_QOI.TEMPERATURE_SAFETY_FACTOR, None, 1)]
 
         vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
