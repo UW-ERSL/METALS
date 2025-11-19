@@ -31,8 +31,8 @@ def run_topopt(
     saveNet=None,
     use_pretrained_vae=True,
     z0_init_method=Z0InitMethod.ORIGIN,
-    rel_conv_tol=1e-10,
-    gamma_init=1e-3,
+    rel_conv_tol=1e-4,
+    gamma_init=1e-6,
     gamma_max=100,
     gamma_factor=1.1):
 
@@ -69,7 +69,7 @@ def run_topopt(
     # Print encoding errors for all attributes after training
     matEncoder.printEncodingErrors()
     zRealTorch = matEncoder.training_latents
-    matEncoder.plotLSR(zRealTorch.detach().cpu().numpy())
+    # matEncoder.plotLSR(zRealTorch.detach().cpu().numpy())
     # if True:
         # matEncoder.plotTemperatureVsMaterialProperty("E", semilogy=True)
         # matEncoder.plotTemperatureVsMaterialProperty("Y", semilogy=True)
@@ -128,11 +128,15 @@ def run_topopt(
         zD = zetaTensor[num_elems:]
         zPts = zD.view(latentDim, -1).T
 
+        xNumpy = xDesign.detach().cpu().numpy()
+        grey_elements = np.sum((xNumpy > 0.1) & (xNumpy < 0.9))
+        fraction_grey = (grey_elements / num_elems)
+        print(f"Percentange grey elements:", f"{fraction_grey*100:.2f}%")
         decoded = matEncoder.vaeNet.decoder(zPts)
         material_properties = matEncoder.getMaterialProperties(decoded)
 
-        fe_solver_thermal.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
-        fe_solver_structural.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
+        fe_solver_thermal.mesh.setPseudoDensity(xNumpy)
+        fe_solver_structural.mesh.setPseudoDensity(xNumpy)
         if turnOnThermal:
             if turnOnNonlinearThermal:
                 K0 = material_properties['K0'].detach().numpy()
@@ -209,6 +213,7 @@ def run_topopt(
         if (plot_progress):
            fe_solver_structural.plot_pseudo_density(
                     plotter=None,
+                    title =f'Iteration {iterationCount}',
                    auto_close=False,
                )
 
@@ -251,7 +256,10 @@ def run_topopt(
 
         print(f"Min. Objective ({objective_name}): {obj*obj0:.3g}")
         for idx, val in enumerate(cons.flatten()):
-            print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} <= {to_params.Constraints[idx][2]:.3g}?")
+            inequality = '<='
+            if constraint_names[idx] == "STRESS_SAFETY_FACTOR" or constraint_names[idx] == "TEMPERATURE_SAFETY_FACTOR":
+                inequality = '>='
+            print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} {inequality} {to_params.Constraints[idx][2]:.3g}?")
 
         if (use_penalization):
             d_ij = torch.cdist(zPts, zRealTorch, p=2) 
@@ -348,7 +356,7 @@ if __name__ == "__main__":
         to_problem=to_problem,
         turnOnThermal=True,
         turnOnNonlinearThermal=False,
-        use_penalization=False,
+        use_penalization=True,
         use_pretrained_vae=True,
         snap_to_real_material=False,
     )

@@ -125,7 +125,7 @@ class MaterialEncoder:
                       format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
                 print("Converged!")
                 break
-            if (epoch % 500 == 0):
+            if (epoch % 5000 == 0):
                 print('Epoch {:d}: reconLoss {:.3e}, klLoss {:.3e}, loss {:.3e}, maxPercentErr {:.3e}'. \
                       format(epoch, reconLoss.item(), klLoss.item(), loss.item(), largestErrorPercent))
             opt.step()

@@ -227,14 +227,12 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             TempLimit = matEncoder.getMaterialProperties(decoded)['Temp_Limit']
             pseudodensity = zetaTensor[0:num_elems]
             T_tensor = torch.tensor(T).float()
-            inv_T_SF = pseudodensity*T_tensor / TempLimit
-            # temp_constraint_elem = pseudodensity * TempLimit / T_tensor
-            # temp_safety_factor = constraintLimit
+            inv_T_SF_elem =  T_tensor / TempLimit
+            inv_T_SF = torch.max(inv_T_SF_elem)
             safety_constraint = inv_T_SF - (1.0 / constraintLimit)
-            max_safety_constraint = torch.max(safety_constraint)
             zetaTensor.grad = None
-            max_safety_constraint.backward(retain_graph=True)
-            c[m, 0] = max_safety_constraint.detach().numpy()
+            safety_constraint.backward(retain_graph=True)
+            c[m, 0] = safety_constraint.detach().numpy()
             dc[m, :] = zetaTensor.grad.detach().numpy()
         else:
             raise NotImplementedError(f"Constraint {constraintType} is not implemented yet.")
