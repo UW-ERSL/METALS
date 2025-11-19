@@ -405,7 +405,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             grad_cons_criticality = zetaTensor.grad.detach().numpy()
             c[m, 0] = cons_criticality
             dc[m, :] = grad_cons_criticality
-        elif constraintType == TO_QOI.STRESS_SAFETY_FACTOR:
+        elif constraintType == TO_QOI.STRESS_FAILURE_FACTOR:
             decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
             material_properties = matEncoder.getMaterialProperties(decoded)
             ETensor = material_properties['Youngs_Modulus']
@@ -414,8 +414,8 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             EDesign = ETensor.detach().numpy()
             inv_sf_pnorm, grad_inv_sf_density,_ = compute_pnorm_safety_factor_and_sensitivity(
                 sol, x, fe_solver,EDesign,YDesign, KETemplate, MaterialModel.SIMP)
-            safety_factor = constraintLimit
-            safety_constraint = safety_factor*inv_sf_pnorm - 1.0
+            failure_factor = constraintLimit
+            safety_constraint = inv_sf_pnorm/failure_factor - 1.0
             c[m, 0] = safety_constraint
 
             # 2. Compute latent variable part of gradient (chain rule)

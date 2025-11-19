@@ -25,7 +25,7 @@ class MMTOExamples(enum.Enum):
     LBracketTopLoad_Compliance_MassCost = enum.auto()
     LBracketTopLoad_Compliance_MassCriticality = enum.auto()
     LBracketTopLoad_Stress_Mass = enum.auto()
-    LBracketTopLoad_Mass_StressSF = enum.auto()
+    LBracketTopLoad_Mass_StressFF = enum.auto()
 
     EdgeCantilever_Compliance_MassCost = enum.auto()
     
@@ -146,9 +146,9 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Constraints = [ (TO_QOI.VOLUME_FRACTION, None, 0.3), (TO_QOI.MASS, None, 40)] 
         vae_params.latentDim = 2
 
-    elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressSF:
+    elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressFF:
         structural_problem = MMTOStructuralExamples.LBracket
-        kwargs['topload'] = 5e5
+        kwargs['topload'] = 5e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
@@ -156,7 +156,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.STRESS_SAFETY_LIMIT, None, 1.5), (TO_QOI.VOLUME_FRACTION, None, 0.3)] 
+        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5), (TO_QOI.VOLUME_FRACTION, None, 0.3)] 
         vae_params.latentDim = 2    
 
     elif to_problem == MMTOExamples.EdgeCantilever_Compliance_MassCost:

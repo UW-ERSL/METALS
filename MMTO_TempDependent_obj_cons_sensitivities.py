@@ -147,7 +147,7 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             c[m, 0] = cons_mass
             dc[m, :] = grad_cons_mass
 
-        elif constraintType == TO_QOI.STRESS_SAFETY_FACTOR:
+        elif constraintType == TO_QOI.STRESS_FAILURE_FACTOR:
             ETensor = matEncoder.getMaterialPropertyAtTemperatureTorch("E", zetaTensor[num_elems:].view(latentDim, -1).T, T)
             YTensor = matEncoder.getMaterialPropertyAtTemperatureTorch("Y", zetaTensor[num_elems:].view(latentDim, -1).T, T)
             EDesign = ETensor.detach().numpy()
@@ -155,8 +155,8 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
 
             inv_sf_pnorm, grad_inv_sf_density, _ = compute_pnorm_safety_factor_and_sensitivity(
                 uvw, x, fe_solver_structural, EDesign, YDesign, KETemplate, MaterialModel.SIMP)
-            safety_factor = constraintLimit
-            safety_constraint = safety_factor*inv_sf_pnorm - 1.0
+            failure_factor = constraintLimit
+            safety_constraint = inv_sf_pnorm/failure_factor - 1.0
             c[m, 0] = safety_constraint
 
             # 2. Compute latent variable part of gradient (chain rule)
@@ -223,17 +223,64 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             grad_cons_criticality = zetaTensor.grad.detach().numpy()
             c[m, 0] = cons_criticality
             dc[m, :] = grad_cons_criticality
-        elif constraintType == TO_QOI.TEMPERATURE_SAFETY_LIMIT:
+        elif constraintType == TO_QOI.TEMPERATURE_FAILURE_FACTOR:
             TempLimit = matEncoder.getMaterialProperties(decoded)['Temp_Limit']
             pseudodensity = zetaTensor[0:num_elems]
             T_tensor = torch.tensor(T).float()
             inv_T_SF_elem = (pseudodensity > 0.5) * T_tensor / TempLimit
             inv_T_SF = torch.max(inv_T_SF_elem)
-            safety_constraint = constraintLimit*inv_T_SF - 1.0 
+            safety_constraint = inv_T_SF/constraintLimit - 1.0 
             zetaTensor.grad = None
             safety_constraint.backward(retain_graph=True)
             c[m, 0] = safety_constraint.detach().numpy()
             dc[m, :] = zetaTensor.grad.detach().numpy()
+        elif constraintType == TO_QOI.PBR:
+            pbr_values = matEncoder.getMaterialProperties(decoded)['PBR']
+            mean_pbr = torch.mean(pbr_values)
+            pbr_constraint = (mean_pbr / constraintLimit) - 1.0
+            zetaTensor.grad = None
+            pbr_constraint.backward(retain_graph=True)
+            c[m, 0] = pbr_constraint.detach().numpy()
+            dc[m, :] = zetaTensor.grad.detach().numpy()
+        elif constraintType == TO_QOI.FATIGUE_FAILURE_FACTOR:
+            ETensor = matEncoder.getMaterialPropertyAtTemperatureTorch("E", zetaTensor[num_elems:].view(latentDim, -1).T, T)
+            Fatigue_limit_Tensor =  matEncoder.getMaterialProperties(decoded)['Fatigue_Limit']
+            EDesign = ETensor.detach().numpy()
+            Fatigue_limit_Design = Fatigue_limit_Tensor.detach().numpy()
+ 
+            FFF_pnorm, grad_FFF_density, _ = compute_pnorm_safety_factor_and_sensitivity(
+                uvw, x, fe_solver_structural, EDesign, Fatigue_limit_Design, KETemplate, MaterialModel.SIMP)
+            failure_factor = constraintLimit
+            failure_constraint = FFF_pnorm/failure_factor - 1.0
+            c[m, 0] = failure_constraint
+
+            # 2. Compute latent variable part of gradient (chain rule)
+            pNormExponent = 6
+            sigma_vm = fe_solver_structural.vonMisesStress
+            d_sigma_vm_dE = sigma_vm / EDesign
+            FL = Fatigue_limit_Design
+            S = sigma_vm
+            inv_sf_elem = S / FL
+            outer = (np.sum(inv_sf_elem ** pNormExponent)) ** (1.0 / pNormExponent - 1)
+            grad_FFF_z = np.zeros(latentDim * num_elems)
+            # Backward for dE/dz and dY/dz
+            zetaTensor.grad = None
+            ETensor.backward(torch.ones_like(ETensor), retain_graph=True)
+            dE_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, latentDim)
+            zetaTensor.grad = None
+            Fatigue_limit_Tensor.backward(torch.ones_like(Fatigue_limit_Tensor), retain_graph=True)
+            dFL_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, latentDim)
+            zetaTensor.grad = None
+            for d in range(latentDim):
+                d_sigma_dz = d_sigma_vm_dE * dE_dz[:, d]
+                d_FFF_dz = (d_sigma_dz * FL - dFL_dz[:, d] * sigma_vm) / (FL ** 2)
+                grad_FFF_z[d*num_elems:(d+1)*num_elems] = (pNormExponent * (inv_sf_elem ** (pNormExponent - 1))) * d_FFF_dz
+            grad_FFF_z = (1.0 / pNormExponent) * outer * grad_FFF_z
+ 
+            grad_FFF = np.zeros_like(zeta)
+            grad_FFF[:num_elems] = grad_FFF_density
+            grad_FFF[num_elems:] = grad_FFF_z
+            dc[m, :] = grad_FFF
         else:
             raise NotImplementedError(f"Constraint {constraintType} is not implemented yet.")
 
