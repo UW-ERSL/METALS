@@ -33,6 +33,8 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
         [-1, -1, 1, 1, -1, -1, 1, 1],
         [-1, -1, -1, -1, 1, 1, 1, 1]
     ])
+    for i in range(3):
+        gradN[i, :] = 2*gradN[i,:] / fe_solver.mesh.elem_size[i]
     B = np.zeros((6, 24))
     Bi = np.zeros((6, 3, 8))
     Bi[0, 0, :] = gradN[0, :]
@@ -149,6 +151,8 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
         [-1, -1, 1, 1, -1, -1, 1, 1],
         [-1, -1, -1, -1, 1, 1, 1, 1]
     ])
+    for i in range(3):
+        gradN[i, :] = 2*gradN[i,:] / fe_solver.mesh.elem_size[i]
     B = np.zeros((6, 24))
     Bi = np.zeros((6, 3, 8))
     Bi[0, 0, :] = gradN[0, :]
