@@ -166,7 +166,7 @@ def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000,
 
     return mesh, mat_prop, bc
 
-def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right=600, temp_top=50, thermal_conductivity=1.0):
+def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right=800, temp_top=50, thermal_conductivity=1.0):
     """
     Creates a thermal problem setup for an L-bracket topology optimization.
     If mesh is not provided, creates it using the structural LBracket problem.

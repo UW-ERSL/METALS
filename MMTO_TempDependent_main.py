@@ -31,10 +31,10 @@ def run_topopt(
     saveNet=None,
     use_pretrained_vae=True,
     z0_init_method=Z0InitMethod.ORIGIN,
-    rel_conv_tol=1e-4,
-    gamma_init=1e-6,
+    rel_conv_tol=1e-7,
+    gamma_init=1e-5,
     gamma_max=100,
-    gamma_factor=1.1):
+    gamma_factor=1.5):
 
     mesh_structural, mesh_thermal, mat_prop_struct, mat_prop_thermal, \
     bc_struct, bc_thermal, elem_body_force, to_params, vae_params = \
@@ -45,10 +45,15 @@ def run_topopt(
         return
     matEncoder = MaterialEncoder(vae_params)
     matEncoder.readExcel(to_params.MaterialsExcelFile)
+   
+    matEncoder.printModulusDropAtTempLimit()
+    matEncoder.printYieldStrengthDropAtTempLimit()
+    
     matEncoder.plotTemperatureVsMaterialPropertyRaw("E", semilogy=True)
     matEncoder.plotTemperatureVsMaterialPropertyRaw("Y", semilogy=True)
     matEncoder.plotTemperatureVsMaterialPropertyRaw("K", semilogy=True)
-    # matEncoder.check_drop_at_temp_limit(N_orders=3)
+
+   
     if saveNet is None:
         base, _ = os.path.splitext(to_params.MaterialsExcelFile)
         saveNet = base + ".nt"
@@ -70,13 +75,7 @@ def run_topopt(
     matEncoder.printEncodingErrors()
     zRealTorch = matEncoder.training_latents
     # matEncoder.plotLSR(zRealTorch.detach().cpu().numpy())
-    # if True:
-        # matEncoder.plotTemperatureVsMaterialProperty("E", semilogy=True)
-        # matEncoder.plotTemperatureVsMaterialProperty("Y", semilogy=True)
-        # matEncoder.plotTemperatureVsMaterialProperty("K", semilogy=True)
-    # if True:
-        # matEncoder.plotLSRContours("E0")
-        # matEncoder.plotLSRContours("E1")
+
 
     solver = linear_solvers.Solvers.PARDISO
     dsolver = deflation.DeflationSolver()
@@ -225,12 +224,7 @@ def run_topopt(
 
         if obj0 is None:
             obj0 = obj
-            if np.any(cons > 0):
-                print(50 * "-")
-                print("Warning: Constraint(s) violated at start of optimization!")
-                print("GCMMA may not converge for this problem. Consider changing constraints if convergence issues occur.")
-                print(50 * "-")
-
+        
         obj = obj / obj0
         grad_obj = grad_obj / obj0
         if (to_params.ElemsToKeep is not None):
@@ -273,6 +267,7 @@ def run_topopt(
             gamma = min(gamma*gamma_factor, gamma_max)
 
         iterationCount += 1
+        
         return obj, grad_obj, cons, grad_cons
 
     x0 = 0.5 * np.ones(num_elems)
@@ -354,7 +349,7 @@ if __name__ == "__main__":
         to_problem=to_problem,
         turnOnThermal=True,
         turnOnNonlinearThermal=False,
-        use_penalization=False,
+        use_penalization=True,
         use_pretrained_vae=True,
         snap_to_real_material=False,
     )

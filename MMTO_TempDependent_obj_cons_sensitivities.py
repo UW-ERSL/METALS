@@ -223,13 +223,12 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             grad_cons_criticality = zetaTensor.grad.detach().numpy()
             c[m, 0] = cons_criticality
             dc[m, :] = grad_cons_criticality
-        elif constraintType == TO_QOI.TEMPERATURE_SAFETY_FACTOR:
+        elif constraintType == TO_QOI.TEMPERATURE_SAFETY_LIMIT:
             TempLimit = matEncoder.getMaterialProperties(decoded)['Temp_Limit']
             pseudodensity = zetaTensor[0:num_elems]
             T_tensor = torch.tensor(T).float()
             inv_T_SF_elem = T_tensor / TempLimit
             inv_T_SF = torch.max(inv_T_SF_elem)
-            print(f"Max T limit: {inv_T_SF.detach().numpy():.3g}")
             safety_constraint = constraintLimit*inv_T_SF - 1.0 
             zetaTensor.grad = None
             safety_constraint.backward(retain_graph=True)

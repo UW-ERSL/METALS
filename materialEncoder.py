@@ -83,6 +83,55 @@ class MaterialEncoder:
         self.vaeNet.encoder.isTraining = True
         return largestErrorPercent
 
+    def printYieldStrengthDropAtTempLimit(self):
+        """Print the ratio of Y0 to Y at Temp_Limit for each material."""
+        if 'Y0' not in self.materialAttributes or 'Temp_Limit' not in self.materialAttributes:
+            print("ERROR: Missing required attributes (Y0 or Temp_Limit)")
+            return
+        
+        print("\n" + "=" * 60)
+        print("Yield Strength Drop at Temperature Limit")
+        print("=" * 60)
+        print("{:<20} {:>12} {:>12} {:>12} {:>12}".format("Material", "T_limit (C)", "Y0 (Pa)", "Y@T_limit", "Y0/Y ratio"))
+        print("-" * 60)
+        
+        for i, name in enumerate(self.materialNames):
+            Y0 = self.rawData[i, self.materialAttributes['Y0']['idx']]
+            Y1 = self.rawData[i, self.materialAttributes['Y1']['idx']]
+            Y2 = self.rawData[i, self.materialAttributes['Y2']['idx']]
+            Y3 = self.rawData[i, self.materialAttributes['Y3']['idx']]
+            Temp_Limit = self.rawData[i, self.materialAttributes['Temp_Limit']['idx']]
+            
+            Y_at_limit = logBezierInterpolation(Temp_Limit, Y0, Y1, Y2, Y3)
+            ratio = Y0 / Y_at_limit
+            
+            print("{:<20} {:>12.1f} {:>12.3e} {:>12.3e} {:>12.2f}".format(name, Temp_Limit, Y0, Y_at_limit, ratio))
+        print("=" * 60 + "\n")
+    def printModulusDropAtTempLimit(self):
+        """Print the ratio of E0 to E at Temp_Limit for each material."""
+        if 'E0' not in self.materialAttributes or 'Temp_Limit' not in self.materialAttributes:
+            print("ERROR: Missing required attributes (E0 or Temp_Limit)")
+            return
+        
+        print("\n" + "=" * 60)
+        print("Young's Modulus Drop at Temperature Limit")
+        print("=" * 60)
+        print("{:<20} {:>12} {:>12} {:>12} {:>12}".format("Material","T_limit (C)", "E0 (Pa)", "E@T_limit", "E0/E ratio"))
+        print("-" * 60)
+        
+        for i, name in enumerate(self.materialNames):
+            E0 = self.rawData[i, self.materialAttributes['E0']['idx']]
+            E1 = self.rawData[i, self.materialAttributes['E1']['idx']]
+            E2 = self.rawData[i, self.materialAttributes['E2']['idx']]
+            E3 = self.rawData[i, self.materialAttributes['E3']['idx']]
+            Temp_Limit = self.rawData[i, self.materialAttributes['Temp_Limit']['idx']]
+            
+            E_at_limit = logBezierInterpolation(Temp_Limit, E0, E1, E2, E3)
+            ratio = E0 / E_at_limit
+            
+            print("{:<20} {:>12.1f} {:>12.3e} {:>12.3e} {:>12.2f}".format(name, Temp_Limit, E0, E_at_limit, ratio))
+        print("=" * 60 + "\n")
+        
     def printEncodingErrors(self):
         with torch.no_grad():
             z_real = self.vaeNet.encoder(self.scaledMaterialData)
