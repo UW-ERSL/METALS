@@ -415,7 +415,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             inv_sf_pnorm, grad_inv_sf_density,_ = compute_pnorm_safety_factor_and_sensitivity(
                 sol, x, fe_solver,EDesign,YDesign, KETemplate, MaterialModel.SIMP)
             safety_factor = constraintLimit
-            safety_constraint = inv_sf_pnorm - (1.0 / safety_factor)
+            safety_constraint = safety_factor*inv_sf_pnorm - 1.0
             c[m, 0] = safety_constraint
 
             # 2. Compute latent variable part of gradient (chain rule)

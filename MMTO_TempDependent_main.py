@@ -255,10 +255,8 @@ def run_topopt(
         constraint_names = [getattr(c[0], 'name', str(c[0])) for c in to_params.Constraints]
 
         print(f"Min. Objective ({objective_name}): {obj*obj0:.3g}")
+        inequality = '<='
         for idx, val in enumerate(cons.flatten()):
-            inequality = '<='
-            if constraint_names[idx] == "STRESS_SAFETY_FACTOR" or constraint_names[idx] == "TEMPERATURE_SAFETY_FACTOR":
-                inequality = '>='
             print(f"Constraint {idx+1} ({constraint_names[idx]}): {(val+1)*to_params.Constraints[idx][2]:.3g} {inequality} {to_params.Constraints[idx][2]:.3g}?")
 
         if (use_penalization):

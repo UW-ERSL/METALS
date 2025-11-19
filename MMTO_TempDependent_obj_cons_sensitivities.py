@@ -156,7 +156,7 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             inv_sf_pnorm, grad_inv_sf_density, _ = compute_pnorm_safety_factor_and_sensitivity(
                 uvw, x, fe_solver_structural, EDesign, YDesign, KETemplate, MaterialModel.SIMP)
             safety_factor = constraintLimit
-            safety_constraint = inv_sf_pnorm - (1.0 / safety_factor)
+            safety_constraint = safety_factor*inv_sf_pnorm - 1.0
             c[m, 0] = safety_constraint
 
             # 2. Compute latent variable part of gradient (chain rule)
@@ -229,7 +229,8 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             T_tensor = torch.tensor(T).float()
             inv_T_SF_elem = T_tensor / TempLimit
             inv_T_SF = torch.max(inv_T_SF_elem)
-            safety_constraint = inv_T_SF - (1.0 / constraintLimit)
+            print(f"Max T limit: {inv_T_SF.detach().numpy():.3g}")
+            safety_constraint = constraintLimit*inv_T_SF - 1.0 
             zetaTensor.grad = None
             safety_constraint.backward(retain_graph=True)
             c[m, 0] = safety_constraint.detach().numpy()
