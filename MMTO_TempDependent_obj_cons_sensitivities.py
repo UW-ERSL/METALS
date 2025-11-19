@@ -227,7 +227,7 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             TempLimit = matEncoder.getMaterialProperties(decoded)['Temp_Limit']
             pseudodensity = zetaTensor[0:num_elems]
             T_tensor = torch.tensor(T).float()
-            inv_T_SF_elem = T_tensor / TempLimit
+            inv_T_SF_elem = (pseudodensity > 0.5) * T_tensor / TempLimit
             inv_T_SF = torch.max(inv_T_SF_elem)
             safety_constraint = constraintLimit*inv_T_SF - 1.0 
             zetaTensor.grad = None

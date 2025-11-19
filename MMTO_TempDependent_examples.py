@@ -14,7 +14,7 @@ class VAEParams:
 class MMTOTempDependentExamples(enum.Enum):
     LBracket_Compliance_Mass = enum.auto()
     LBracket_Compliance_MassCost = enum.auto()
-    LBracket_Stress_MassVolume = enum.auto()
+    LBracket_Stress_MassVolumeTemp = enum.auto()
     LBracket_Stress_MassCompliance = enum.auto()
 
 
@@ -65,7 +65,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 750
         vae_params.numEpochs = 200000        
-    elif to_problem == MMTOTempDependentExamples.LBracket_Stress_MassVolume:
+    elif to_problem == MMTOTempDependentExamples.LBracket_Stress_MassVolumeTemp:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
         kwargs['topload'] = 1e4 
@@ -78,11 +78,30 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.nDOFDesired = 25000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[ (TO_QOI.VOLUME_FRACTION, None, 0.4), (TO_QOI.MASS, None, 30),
                                (TO_QOI.TEMPERATURE_SAFETY_LIMIT, None, 1)]
-
         vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
+    elif to_problem == MMTOTempDependentExamples.LBracket_Mass_MultipleConstraints:
+        structural_problem=MMTOStructuralExamples.LBracket
+        thermal_problem=MMTOThermalExamples.LBracketThermal
+        kwargs['topload'] = 1e4 
+        kwargs['midload'] = 0
+        to_params.Comment  = "Thermal + Structural TO Problem"
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials_KS.xlsx'
+        to_params.Objective=(TO_QOI.MASS, None)
+        to_params.ExtrudeZ = True
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 25000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints=[ (TO_QOI.VOLUME_FRACTION, None, 0.4), (TO_QOI.MASS, None, 30),
+                                 (TO_QOI.MAX, None, 5000),
+                                 (TO_QOI.STRESS_SAFETY_LIMIT, None, 3.5),
+                               (TO_QOI.TEMPERATURE_SAFETY_LIMIT, None, 1)]
+        vae_params.latentDim = 6
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 500
+        vae_params.numEpochs = 200000
+
     elif to_problem == MMTOTempDependentExamples.BliskSection_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.BliskSection
         thermal_problem=MMTOThermalExamples.BliskSection
