@@ -10,7 +10,7 @@ class VAEParams: #default VAE parameters
     learningRate: float = 2e-6
     numEpochs: int = 150000 # max epochs
     vae_hiddenDim: int = 500
-    latentDim: int = 2 # hard coded for now
+    latentDim: int = 2 # default latent dimension
     maxAttributeErrorPercent: float = 0.001 # termination criteria for VAE training
 
 class MMTOExamples(enum.Enum):
@@ -24,7 +24,7 @@ class MMTOExamples(enum.Enum):
     LBracketTopLoad_Compliance_Mass = enum.auto()
     LBracketTopLoad_Compliance_MassCost = enum.auto()
     LBracketTopLoad_Compliance_MassCriticality = enum.auto()
-    LBracketTopLoad_Stress_Mass = enum.auto()
+    LBracketTopLoad_Stress_VolumeFraction_Mass = enum.auto()
     LBracketTopLoad_Mass_StressFF = enum.auto()
 
     EdgeCantilever_Compliance_MassCost = enum.auto()
@@ -133,7 +133,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Constraints = [(TO_QOI.MASS, None, 75),(TO_QOI.MAX_CRITICALITY, None, 0.5)] 
         vae_params.latentDim = 3
 
-    elif to_problem == MMTOExamples.LBracketTopLoad_Stress_Mass:
+    elif to_problem == MMTOExamples.LBracketTopLoad_Stress_VolumeFraction_Mass:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 1e4
         kwargs['midload'] = 0
@@ -143,7 +143,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         to_params.Objective = (TO_QOI.PNORM_STRESS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [ (TO_QOI.VOLUME_FRACTION, None, 0.3), (TO_QOI.MASS, None, 40)] 
+        to_params.Constraints = [ (TO_QOI.VOLUME_FRACTION, None, 0.3), (TO_QOI.MASS, None, 60)] 
         vae_params.latentDim = 2
 
     elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressFF:
@@ -152,11 +152,10 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
-        to_params.RelativeFilterRadius = 2.5
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5), (TO_QOI.VOLUME_FRACTION, None, 0.3)] 
+        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5)] 
         vae_params.latentDim = 2    
 
     elif to_problem == MMTOExamples.EdgeCantilever_Compliance_MassCost:

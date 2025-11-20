@@ -203,8 +203,14 @@ def run_topopt(
         iterationCount += 1
         return obj, grad_obj, cons, grad_cons
 
+       # Check if there's a volume fraction constraint and set initial density accordingly
+    initialDensity = 0.5
+    for constraint in to_params.Constraints:
+        if constraint[0] == TO_QOI.VOLUME_FRACTION:
+            initialDensity = constraint[2]  # Use the constraint value as initial density
+            break
     # Initialize the design variables
-    x0 = 0.5 * np.ones(num_elems) 
+    x0 = initialDensity * np.ones(num_elems) 
     x0 = (H * x0) / Hs
 
     z0 = np.zeros(latentDim * num_elems)
@@ -388,7 +394,7 @@ if __name__ == "__main__":
 
     run_topopt(
         to_problem=to_problem,
-        use_penalization=True,
+        use_penalization=False,
         use_pretrained_vae=True,
-        snap_to_real_material=True,
+        snap_to_real_material=False,
     )

@@ -118,7 +118,7 @@ def createEdgeCantileverThermalProblem_TempBC(mesh=None, nDOFDesired: int = 5000
 
     return mesh, mat_prop, bc
 def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000, 
-                                          thermal_conductivity=1.0, temp_tip=800.0, temp_bottom=50.0):
+                                          thermal_conductivity=1.0, temp_tip=600.0, temp_bottom=50.0):
     """
     Creates a thermal blisk blade problem with prescribed temperatures at the tip and bottom.
     Uses mesh from the structural blisk blade example if provided.
