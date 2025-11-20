@@ -17,6 +17,7 @@ class MMTOTempDependentExamples(enum.Enum):
     LBracket_Stress_MassVolumeTemp = enum.auto()
     LBracket_Stress_MassCompliance = enum.auto()
     LBracket_Stress_MultipleConstraints = enum.auto()
+    LBracket_Mass_StressFF = enum.auto()    
 
 
     BliskSection_Compliance_MassCost = enum.auto()

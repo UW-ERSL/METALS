@@ -29,7 +29,7 @@ def run_topopt(
     snap_to_real_material=True,
     rel_conv_tol = 1e-7,
     maxIterations = 100,
-    z0_init_method = Z0InitMethod.HEAVIEST,  
+    z0_init_method = Z0InitMethod.ORIGIN,  
     gamma_init = 1e-6, # penalization
     gamma_max = 100,#100
     gamma_factor = 1.1):#1.1
@@ -389,12 +389,12 @@ if __name__ == "__main__":
     # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    to_problem = MMTOExamples.LBracketTopLoad_Mass_StressFF
+    to_problem = MMTOExamples.LBracketTopLoad_Stress_VolumeFraction_Mass
 
 
     run_topopt(
         to_problem=to_problem,
-        use_penalization=False,
+        use_penalization=True,
         use_pretrained_vae=True,
-        snap_to_real_material=False,
+        snap_to_real_material=True,
     )
