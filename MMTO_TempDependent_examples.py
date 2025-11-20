@@ -22,7 +22,6 @@ class MMTOTempDependentExamples(enum.Enum):
     BliskSection_Compliance_MassCost = enum.auto()
     BliskSection_Stress_MassComplianceCriticality = enum.auto()
     BliskSection_Compliance_Mass = enum.auto()
-    LBracket_Mass_StressFF = enum.auto()
     BliskSection_Mass_MultipleConstraints = enum.auto()
 
 def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesired = None, **kwargs):
@@ -96,10 +95,10 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5)]
-        vae_params.latentDim = 2
+        vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
-        vae_params.numEpochs = 150000
+        vae_params.numEpochs = 200000
 
     elif to_problem == MMTOTempDependentExamples.LBracket_Stress_MultipleConstraints:
         structural_problem=MMTOStructuralExamples.LBracket
