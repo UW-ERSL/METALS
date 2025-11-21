@@ -344,7 +344,7 @@ def run_topopt(
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    to_problem = MMTOTempDependentExamples.LBracket_Mass_StressFF
+    to_problem = MMTOTempDependentExamples.BliskSection_Mass_StressFF
     run_topopt(
         to_problem=to_problem,
         turnOnThermal=True,

@@ -6,7 +6,7 @@ import pandas as pd
 from InterpolationFunctions import bezierInterpolation, bezierInterpolation_torch, TMin, TMax
 from InterpolationFunctions import logBezierInterpolation, logBezierInterpolation_torch
 from sklearn.decomposition import PCA
-
+import matplotlib.cm as cm
 class MaterialEncoder:
     def __init__(self, vae_params):
         self.nAttributes = 0
@@ -455,10 +455,18 @@ class MaterialEncoder:
         plt.legend(self.materialNames)
         plt.grid()
         plt.show()
+        
     def plotTemperatureVsMaterialPropertyRaw(self, attrName, semilogy=False):
         plt.figure()
         T = np.linspace(TMin, TMax, 300)
         markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_']
+        
+        # Define colors for the first three materials and generate others
+        colors = ['#0201fc', '#3cb44b', '#654321']
+        if self.rawData.shape[0] > 3:
+            
+            additional_colors = cm.tab10(np.linspace(0.3, 1, self.rawData.shape[0] - 3))
+            colors.extend([cm.colors.rgb2hex(c) for c in additional_colors])
         for i in range(self.rawData.shape[0]):
             # Get control points for this material
             if attrName in ['E', 'Y']:
@@ -480,10 +488,11 @@ class MaterialEncoder:
             # min_allowed = self.RELATIVE_MATERIAL_MIN_VAL * min_db_value
             # M = np.maximum(M, min_allowed)  
             marker = markers[i % len(markers)]
+            color = colors[i % len(colors)]
             if semilogy:
-                plt.semilogy(T, M, label=self.materialNames[i], marker=marker, markevery=30)
+                plt.semilogy(T, M, label=self.materialNames[i], marker=marker, markevery=30, color=color)
             else:
-                plt.plot(T, M, label=self.materialNames[i], marker=marker, markevery=30)
+                plt.plot(T, M, label=self.materialNames[i], marker=marker, markevery=30, color=color)
         plt.xlabel("Temperature (C)")
         plt.ylabel(f"{attrName}")
         plt.title(f"Temperature vs {attrName} (Raw Data)")

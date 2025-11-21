@@ -118,7 +118,7 @@ def createEdgeCantileverThermalProblem_TempBC(mesh=None, nDOFDesired: int = 5000
 
     return mesh, mat_prop, bc
 def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000, 
-                                          thermal_conductivity=1.0, temp_tip=600.0, temp_bottom=50.0):
+                                          thermal_conductivity=1.0, temp_tip=50.0, temp_bottom=50.0):
     """
     Creates a thermal blisk blade problem with prescribed temperatures at the tip and bottom.
     Uses mesh from the structural blisk blade example if provided.
@@ -166,7 +166,7 @@ def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000,
 
     return mesh, mat_prop, bc
 
-def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right=50, temp_top=150, thermal_conductivity=1.0):
+def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right=50, temp_top=100, thermal_conductivity=1.0):
     """
     Creates a thermal problem setup for an L-bracket topology optimization.
     If mesh is not provided, creates it using the structural LBracket problem.

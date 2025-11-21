@@ -21,6 +21,7 @@ class MMTOTempDependentExamples(enum.Enum):
 
 
     BliskSection_Compliance_MassCost = enum.auto()
+    BliskSection_Mass_StressFF = enum.auto()
     BliskSection_Stress_MassComplianceCriticality = enum.auto()
     BliskSection_Compliance_Mass = enum.auto()
     BliskSection_Mass_MultipleConstraints = enum.auto()
@@ -154,6 +155,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.vae_hiddenDim = 750
         vae_params.numEpochs = 200000
         vae_params.latentDim = 2
+
     elif to_problem == MMTOTempDependentExamples.BliskSection_Stress_MassComplianceCriticality:
         structural_problem = MMTOStructuralExamples.BliskSection
         thermal_problem=MMTOThermalExamples.BliskSection
@@ -170,18 +172,33 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.vae_hiddenDim = 750
         vae_params.numEpochs = 200000
         vae_params.latentDim = 3
+
+    elif to_problem == MMTOTempDependentExamples.BliskSection_Mass_StressFF:
+        structural_problem = MMTOStructuralExamples.BliskSection
+        thermal_problem=MMTOThermalExamples.BliskSection
+        to_params.Comment  = "Large DOF"
+        to_params.KeepFixedElems = True
+        to_params.RemoveHangingElems = False
+        to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired
+        to_params.Objective = (TO_QOI.MASS, None)
+        to_params.Constraints=[(TO_QOI.STRESS_FAILURE_FACTOR, None, 1)]
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials_2.xlsx'
+
+        # for large number of materials and attributes, we need to train the VAE longer
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 500
+        vae_params.numEpochs = 200000
+        vae_params.latentDim = 6
     elif to_problem == MMTOTempDependentExamples.BliskSection_Mass_MultipleConstraints:
         structural_problem = MMTOStructuralExamples.BliskSection
         thermal_problem=MMTOThermalExamples.BliskSection
         to_params.Comment  = "Large DOF"
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = False
-        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.Objective = (TO_QOI.MASS, None)
-        to_params.Constraints=[ (TO_QOI.VOLUME_FRACTION, None, 0.4),
-                               (TO_QOI.STRESS_FAILURE_FACTOR, None, 1),
-                               (TO_QOI.TEMPERATURE_FAILURE_FACTOR, None, 1),
-                               (TO_QOI.FATIGUE_FAILURE_FACTOR, None, 0.5),
+        to_params.Constraints=[(TO_QOI.STRESS_FAILURE_FACTOR, None, 1),
+                               (TO_QOI.MEAN_CRITICALITY, None, 0.7),
                                (TO_QOI.PBR, None, 1.6)]
         to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials_2.xlsx'
 
