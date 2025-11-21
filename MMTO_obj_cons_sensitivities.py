@@ -115,6 +115,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     sigma_vm = fe_solver.vonMisesStress
     Y = YDesign
     inv_sf_elems = sigma_vm / Y
+    
     inv_sf_pnorm = np.sum(inv_sf_elems ** pNormExponent) ** (1.0 / pNormExponent)
 
     # d (inv_sf_pnorm) / d (x) = d (inv_sf_pnorm) / d (inv_sf) * d (inv_sf) / d (x)
@@ -130,7 +131,6 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
 
     qStress = 0.5  # STRESS relaxation factor
     pSIMP = 3    # SIMP penalization
-
 
     # Get element-wise Poisson's ratio
     if isinstance(fe_solver.mat_prop, list):
@@ -410,46 +410,33 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             c[m, 0] = cons_criticality
             dc[m, :] = grad_cons_criticality
         elif constraintType == TO_QOI.STRESS_FAILURE_FACTOR:
+            
             decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
             material_properties = matEncoder.getMaterialProperties(decoded)
             ETensor = material_properties['Youngs_Modulus']
             YTensor = material_properties['Yield_Strength']
             YDesign= YTensor.detach().numpy()
             EDesign = ETensor.detach().numpy()
-            inv_sf_pnorm, grad_inv_sf_density,_ = compute_pnorm_safety_factor_and_sensitivity(
+
+            inv_sf_pnorm, grad_ff_density,stress_ff_max = compute_pnorm_safety_factor_and_sensitivity(
                 sol, x, fe_solver,EDesign,YDesign, KETemplate, MaterialModel.SIMP)
-            failure_factor = constraintLimit
-            safety_constraint = inv_sf_pnorm/failure_factor - 1.0
+            safety_constraint = stress_ff_max/constraintLimit - 1.0
             c[m, 0] = safety_constraint
+            grad_stress_ff = np.zeros_like(zeta)
+            grad_stress_ff[:num_elems] = grad_ff_density/constraintLimit
 
-            # 2. Compute latent variable part of gradient (chain rule)
-            pNormExponent = 6
+            # 2. Compute latent variable part of gradient (simple approach)
+            # we assume that latent variables have a more direct influence on yield strength than on von Mises stress via E
             sigma_vm = fe_solver.vonMisesStress
-            d_sigma_vm_dE = sigma_vm / EDesign
-            Y = YDesign
-            S = sigma_vm
-            inv_sf_elem = S / Y
-            outer = (np.sum(sigma_vm ** pNormExponent)) ** (1.0 / pNormExponent - 1)
-            grad_inv_sf_z = np.zeros(latentDim*num_elems)
-            # Backward for dE/dz and dY/dz
+            pNormExponent = 6
+            stress_ff = torch.tensor(sigma_vm) / YTensor
+            # we can use max directly, but to keep consistent with p-norm approach used above
+            ff_pNorm= torch.sum(stress_ff ** pNormExponent) ** (1.0 / pNormExponent)
             zetaTensor.grad = None
-            ETensor.backward(torch.ones_like(ETensor), retain_graph=True)
-            dE_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, latentDim)
-            zetaTensor.grad = None
-            YTensor.backward(torch.ones_like(YTensor), retain_graph=True)
-            dY_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, latentDim)
-            zetaTensor.grad = None
-            for d in range(latentDim):
-                d_sigma_dz = d_sigma_vm_dE * dE_dz[:,d]
-                d_inv_sf_dz = (d_sigma_dz * Y - (sigma_vm / (Y ** 2)) * dY_dz[:,d])
-                grad_inv_sf_z[d*num_elems:(d+1)*num_elems] = (pNormExponent * (inv_sf_elem ** (pNormExponent - 1))) * d_inv_sf_dz
-            grad_inv_sf_z = (1.0 / pNormExponent) * outer * grad_inv_sf_z
-
-            grad_inv_safety = np.zeros_like(zeta)
-            grad_inv_safety[:num_elems] = grad_inv_sf_density
-            grad_inv_safety[num_elems:] = grad_inv_sf_z
-            dc[m, :] = grad_inv_safety
-
+            ff_pNorm.backward(retain_graph=True)
+            grad_stress_ff[num_elems:] = zetaTensor.grad[num_elems:].detach().numpy()/constraintLimit
+            
+            dc[m, :] = grad_stress_ff
         else:
             raise NotImplementedError(f"Constraint {constraintType} is not implemented yet.")
 

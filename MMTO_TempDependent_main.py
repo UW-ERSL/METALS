@@ -21,7 +21,7 @@ class Z0InitMethod(Enum):
 
 def run_topopt(
     to_problem,
-    nIterations=150,
+    nIterations=100,
     turnOnThermal=True,
     turnOnNonlinearThermal=False,
     use_penalization=True,
@@ -32,7 +32,7 @@ def run_topopt(
     use_pretrained_vae=True,
     z0_init_method=Z0InitMethod.ORIGIN,
     rel_conv_tol=1e-7,
-    gamma_init=1e-5,
+    gamma_init=1e-3,
     gamma_max=100,
     gamma_factor=1.5):
 
@@ -130,7 +130,7 @@ def run_topopt(
         xNumpy = xDesign.detach().cpu().numpy()
         grey_elements = np.sum((xNumpy > 0.1) & (xNumpy < 0.9))
         fraction_grey = (grey_elements / num_elems)
-        print(f"Percentange grey elements:", f"{fraction_grey*100:.2f}%")
+        #print(f"Percentange grey elements:", f"{fraction_grey*100:.2f}%")
         decoded = matEncoder.vaeNet.decoder(zPts)
         material_properties = matEncoder.getMaterialProperties(decoded)
 
@@ -344,12 +344,12 @@ def run_topopt(
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    to_problem = MMTOTempDependentExamples.LBracket_Stress_MultipleConstraints
+    to_problem = MMTOTempDependentExamples.LBracket_Mass_StressFF
     run_topopt(
         to_problem=to_problem,
         turnOnThermal=True,
         turnOnNonlinearThermal=False,
-        use_penalization=False,
-        use_pretrained_vae=False,
-        snap_to_real_material=False,
+        use_penalization=True,
+        use_pretrained_vae=True,
+        snap_to_real_material=True,
     )

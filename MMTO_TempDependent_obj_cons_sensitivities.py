@@ -153,39 +153,23 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             EDesign = ETensor.detach().numpy()
             YDesign = YTensor.detach().numpy()
 
-            inv_sf_pnorm, grad_inv_sf_density, _ = compute_pnorm_safety_factor_and_sensitivity(
+            stress_ffpnorm, grad_stress_ffdensity, stress_ff_max = compute_pnorm_safety_factor_and_sensitivity(
                 uvw, x, fe_solver_structural, EDesign, YDesign, KETemplate, MaterialModel.SIMP)
-            failure_factor = constraintLimit
-            safety_constraint = inv_sf_pnorm/failure_factor - 1.0
-            c[m, 0] = safety_constraint
+  
+            c[m, 0] = stress_ff_max/constraintLimit - 1.0
+            grad_stress_ff = np.zeros_like(zeta)
+            grad_stress_ff[:num_elems] = grad_stress_ffdensity/constraintLimit
 
             # 2. Compute latent variable part of gradient (chain rule)
-            pNormExponent = 6
             sigma_vm = fe_solver_structural.vonMisesStress
-            d_sigma_vm_dE = sigma_vm / EDesign
-            Y = YDesign
-            S = sigma_vm
-            inv_sf_elem = S / Y
-            outer = (np.sum(inv_sf_elem ** pNormExponent)) ** (1.0 / pNormExponent - 1)
-            grad_inv_sf_z = np.zeros(latentDim * num_elems)
-            # Backward for dE/dz and dY/dz
+            pNormExponent = 6
+            stress_ff = torch.tensor(sigma_vm) / YTensor
+            # we can use max directly, but to keep consistent with p-norm approach used above
+            ff_pNorm= torch.sum(stress_ff ** pNormExponent) ** (1.0 / pNormExponent)
             zetaTensor.grad = None
-            ETensor.backward(torch.ones_like(ETensor), retain_graph=True)
-            dE_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, latentDim)
-            zetaTensor.grad = None
-            YTensor.backward(torch.ones_like(YTensor), retain_graph=True)
-            dY_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, latentDim)
-            zetaTensor.grad = None
-            for d in range(latentDim):
-                d_sigma_dz = d_sigma_vm_dE * dE_dz[:, d]
-                d_inv_sf_dz = (d_sigma_dz * Y - dY_dz[:, d] * sigma_vm) / (Y ** 2)
-                grad_inv_sf_z[d*num_elems:(d+1)*num_elems] = (pNormExponent * (inv_sf_elem ** (pNormExponent - 1))) * d_inv_sf_dz
-            grad_inv_sf_z = (1.0 / pNormExponent) * outer * grad_inv_sf_z
-
-            grad_inv_safety = np.zeros_like(zeta)
-            grad_inv_safety[:num_elems] = grad_inv_sf_density
-            grad_inv_safety[num_elems:] = grad_inv_sf_z
-            dc[m, :] = grad_inv_safety
+            ff_pNorm.backward(retain_graph=True)
+            grad_stress_ff[num_elems:] = zetaTensor.grad[num_elems:].detach().numpy()/constraintLimit
+            dc[m, :] = grad_stress_ff
 
         elif constraintType == TO_QOI.COST:
             mass_density = matEncoder.getMaterialProperties(decoded)['Density']
@@ -260,8 +244,8 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             d_sigma_vm_dE = sigma_vm / EDesign
             FL = Fatigue_limit_Design
             S = sigma_vm
-            inv_sf_elem = S / FL
-            outer = (np.sum(inv_sf_elem ** pNormExponent)) ** (1.0 / pNormExponent - 1)
+            stress_ffelem = S / FL
+            outer = (np.sum(stress_ffelem ** pNormExponent)) ** (1.0 / pNormExponent - 1)
             grad_FFF_z = np.zeros(latentDim * num_elems)
             # Backward for dE/dz and dY/dz
             zetaTensor.grad = None
@@ -274,7 +258,7 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             for d in range(latentDim):
                 d_sigma_dz = d_sigma_vm_dE * dE_dz[:, d]
                 d_FFF_dz = (d_sigma_dz * FL - dFL_dz[:, d] * sigma_vm) / (FL ** 2)
-                grad_FFF_z[d*num_elems:(d+1)*num_elems] = (pNormExponent * (inv_sf_elem ** (pNormExponent - 1))) * d_FFF_dz
+                grad_FFF_z[d*num_elems:(d+1)*num_elems] = (pNormExponent * (stress_ffelem ** (pNormExponent - 1))) * d_FFF_dz
             grad_FFF_z = (1.0 / pNormExponent) * outer * grad_FFF_z
  
             grad_FFF = np.zeros_like(zeta)

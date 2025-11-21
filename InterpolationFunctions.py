@@ -3,7 +3,7 @@ import torch
 import pandas as pd
 
 # These temperature values are used in several interpolation functions
-TMin = 0
+TMin = 50
 TMax = 1200
 
 T0_CUBIC = TMin

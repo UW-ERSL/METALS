@@ -29,8 +29,9 @@ def run_topopt(
     snap_to_real_material=True,
     rel_conv_tol = 1e-7,
     maxIterations = 100,
+    binarize_topology = True,
     z0_init_method = Z0InitMethod.ORIGIN,  
-    gamma_init = 1e-6, # penalization
+    gamma_init = 1e-3, # penalization
     gamma_max = 100,#100
     gamma_factor = 1.1):#1.1
     
@@ -257,6 +258,11 @@ def run_topopt(
     zOptimal =  zetaOptimal[num_elems:]
     zOptimalPts = torch.tensor(zOptimal).view(latentDim, -1).T.float()
 
+    if (binarize_topology):
+        x_sorted = np.sort(xOptimal)
+        threshold = x_sorted[int((1-np.mean(xOptimal))*len(xOptimal))]
+        xOptimal = np.where(xOptimal < threshold, 0.0, 1.0)
+    
     if (snap_to_real_material):
         zSnappedPts = torch.tensor(matEncoder.getClosestRealMaterialZValues(zOptimalPts))
         zetaOptimal[num_elems:] = zSnappedPts.T.flatten().numpy()
@@ -389,7 +395,7 @@ if __name__ == "__main__":
     # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    to_problem = MMTOExamples.LBracketTopLoad_Stress_VolumeFraction_Mass
+    to_problem = MMTOExamples.LBracketTopLoad_Mass_StressFF
 
 
     run_topopt(

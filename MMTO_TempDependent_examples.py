@@ -91,12 +91,12 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         kwargs['topload'] = 5e4 
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials_2.xlsx'
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
         to_params.Objective=(TO_QOI.MASS, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5)]
-        vae_params.latentDim = 6
+        vae_params.latentDim = 4
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000

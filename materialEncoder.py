@@ -3,7 +3,7 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from InterpolationFunctions import bezierInterpolation, bezierInterpolation_torch
+from InterpolationFunctions import bezierInterpolation, bezierInterpolation_torch, TMin, TMax
 from InterpolationFunctions import logBezierInterpolation, logBezierInterpolation_torch
 from sklearn.decomposition import PCA
 
@@ -438,7 +438,7 @@ class MaterialEncoder:
     def plotTemperatureVsMaterialProperty(self, attrName, semilogy=False):
         zRealPts = self.vaeNet.encoder.z
         plt.figure()
-        T = np.linspace(0, 1250, 300)
+        T = np.linspace(TMin, TMax, 300)
         markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_']
         for i in range(zRealPts.shape[0]):
             zPt = zRealPts[i, :].view(1, -1)
@@ -457,7 +457,7 @@ class MaterialEncoder:
         plt.show()
     def plotTemperatureVsMaterialPropertyRaw(self, attrName, semilogy=False):
         plt.figure()
-        T = np.linspace(0, 1250, 300)
+        T = np.linspace(TMin, TMax, 300)
         markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_']
         for i in range(self.rawData.shape[0]):
             # Get control points for this material
@@ -512,48 +512,3 @@ class MaterialEncoder:
         lightest_z = z_real[lightest_idx].detach().cpu().numpy()
         return lightest_z
     
-    # def check_drop_at_temp_limit(self, N_orders=3):
-    #     # Check if required attributes are present
-    #     required_E_keys = ['E0', 'E1', 'E2', 'E3', 'Temp_Limit']
-    #     required_Y_keys = ['Y0', 'Y1', 'Y2', 'Y3', 'Temp_Limit']
-    #     missing_E = [k for k in required_E_keys if k not in self.materialAttributes]
-    #     missing_Y = [k for k in required_Y_keys if k not in self.materialAttributes]
-    #     if missing_E or missing_Y:
-    #         print("ERROR: Missing required attributes in materialAttributes:")
-    #         if missing_E:
-    #             print("  Young's modulus keys missing:", missing_E)
-    #         if missing_Y:
-    #             print("  Yield strength keys missing:", missing_Y)
-    #         print("Exiting check_drop_at_temp_limit.")
-    #         return
-
-    #     failed_materials = []
-    #     for i, name in enumerate(self.materialNames):
-    #         # Get control points and Temp_Limit for Young's modulus
-    #         E0 = self.rawData[i, self.materialAttributes['E0']['idx']]
-    #         E1 = self.rawData[i, self.materialAttributes['E1']['idx']]
-    #         E2 = self.rawData[i, self.materialAttributes['E2']['idx']]
-    #         E3 = self.rawData[i, self.materialAttributes['E3']['idx']]
-    #         Temp_Limit = self.rawData[i, self.materialAttributes['Temp_Limit']['idx']]
-    #         # Evaluate at Temp_Limit
-    #         E_at_limit = logBezierInterpolation(Temp_Limit, E0, E1, E2, E3,0, Temp_Limit)
-    #         E_drop = np.log10(E0) - np.log10(E_at_limit)
-    #         if E_drop < N_orders:
-    #             failed_materials.append((name, 'Young\'s modulus', E_drop))
-
-    #         # Get control points for yield strength
-    #         Y0 = self.rawData[i, self.materialAttributes['Y0']['idx']]
-    #         Y1 = self.rawData[i, self.materialAttributes['Y1']['idx']]
-    #         Y2 = self.rawData[i, self.materialAttributes['Y2']['idx']]
-    #         Y3 = self.rawData[i, self.materialAttributes['Y3']['idx']]
-    #         Y_at_limit = logBezierInterpolation(Temp_Limit, Y0, Y1, Y2, Y3,0, Temp_Limit)
-    #         Y_drop = np.log10(Y0) - np.log10(Y_at_limit)
-    #         if Y_drop < N_orders:
-    #             failed_materials.append((name, 'Yield strength', Y_drop))
-
-    #     if failed_materials:
-    #         print("\nWARNING: The following materials do not drop by at least {} orders of magnitude at Temp_Limit:".format(N_orders))
-    #         for mat, prop, drop in failed_materials:
-    #             print(f"  {mat}: {prop} drops by {drop:.2f} orders of magnitude")
-    #     else:
-    #         print(f"All materials drop by at least {N_orders} orders of magnitude at Temp_Limit.")
