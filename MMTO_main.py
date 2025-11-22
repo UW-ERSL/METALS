@@ -21,19 +21,19 @@ class Z0InitMethod(Enum):
 
 def run_topopt(
     to_problem,
-    timeLimit=7200,
+    timeLimit=10*60*60,
     saveNet=None,
     plot_progress=True,
     use_pretrained_vae=False,
     use_penalization=False,
     snap_to_real_material=True,
     rel_conv_tol = 1e-7,
-    maxIterations = 100,
+    maxIterations = 150,
     binarize_topology = True,
     z0_init_method = Z0InitMethod.ORIGIN,  
-    gamma_init = 1e-3, # penalization
+    gamma_init = 1e-6, # penalization
     gamma_max = 100,#100
-    gamma_factor = 1.1):#1.1
+    gamma_factor = 1.25):#1.1
     
     history = {
         "objective": [],
@@ -148,6 +148,9 @@ def run_topopt(
         if (obj0 is None):
             obj0 = obj
         
+        if any(c > 0.5 for c in cons.flatten()): # if any constraint is significantly violated, zero out objective gradient
+            grad_obj *= 0 # MMA step will try to reduce constraint violation first
+
         obj = obj / obj0
         grad_obj = grad_obj / obj0
 

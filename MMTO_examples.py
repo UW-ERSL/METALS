@@ -1,6 +1,6 @@
 import enum
-from MMTO_structural_examples import *
-from MMTO_thermal_examples import *
+from Structural_examples import *
+from Thermal_examples import *
 from PyTOImports import  *
 from dataclasses import dataclass, field
 

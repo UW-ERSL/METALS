@@ -2,10 +2,10 @@ import numpy as np
 import torch
 import time
 import os
-from MMTO_TempDependent_examples import MMTOTempDependentExamples, getMMTOTempDependentProblem
+from MMTO_T_examples import MMTOTempDependentExamples, getMMTOTempDependentProblem
 from materialEncoder import MaterialEncoder
 import matplotlib.pyplot as plt
-from MMTO_TempDependent_obj_cons_sensitivities import (
+from MMTO_T_obj_cons_sensitivities import (
     compute_mmto_objective_and_gradient,
     compute_mmto_constraint_and_gradient,
 )
@@ -15,26 +15,29 @@ from enum import Enum
 class Z0InitMethod(Enum):
     LIGHTEST = 'lightest'
     HEAVIEST = 'heaviest'
+    STRONGEST = 'strongest'
+    BEST_STIFFNESS_TO_DENSITY = 'best_stiffness_to_density'
+    BEST_STRENGTH_TO_DENSITY = 'best_strength_to_density'
     ORIGIN = 'origin'
     UNIFORM = 'uniform'
 
 
 def run_topopt(
     to_problem,
-    nIterations=100,
+    nIterations=150,
     turnOnThermal=True,
     turnOnNonlinearThermal=False,
     use_penalization=True,
     snap_to_real_material=True,
     plot_progress=False,
-    timeLimit=7200,
+    timeLimit=10*60*60,
     saveNet=None,
     use_pretrained_vae=True,
     z0_init_method=Z0InitMethod.ORIGIN,
     rel_conv_tol=1e-7,
-    gamma_init=1e-3,
+    gamma_init=1e-6,
     gamma_max=100,
-    gamma_factor=1.5):
+    gamma_factor=1.25):
 
     mesh_structural, mesh_thermal, mat_prop_struct, mat_prop_thermal, \
     bc_struct, bc_thermal, elem_body_force, to_params, vae_params = \
@@ -225,6 +228,9 @@ def run_topopt(
         if obj0 is None:
             obj0 = obj
         
+        if any(c > 0.5 for c in cons.flatten()): # if any constraint is significantly violated, zero out objective gradient
+            grad_obj *= 0 # MMA step will try to reduce constraint violation first
+
         obj = obj / obj0
         grad_obj = grad_obj / obj0
         if (to_params.ElemsToKeep is not None):
@@ -241,6 +247,7 @@ def run_topopt(
                 grad_cons[i, num_elems + j*num_elems : num_elems + (j+1)*num_elems] = \
                     (H * grad_cons[i, num_elems + j*num_elems : num_elems + (j+1)*num_elems]) / Hs
 
+   
         grad_obj = np.array([grad_obj]).reshape((num_design_var, 1))
         cons = np.array(cons).reshape((-1, 1))
         grad_cons = np.array(grad_cons).reshape((len(cons), num_design_var))
@@ -282,6 +289,18 @@ def run_topopt(
         zHeaviest = matEncoder.getHeaviestMaterial()
         for i in range(latentDim):
             z0[i*num_elems:(i+1)*num_elems] = zHeaviest[i]
+    elif z0_init_method == Z0InitMethod.STRONGEST:
+        zStrongest = matEncoder.getStrongestMaterial()
+        for i in range(latentDim):
+            z0[i*num_elems:(i+1)*num_elems] = zStrongest[i]
+    elif z0_init_method == Z0InitMethod.BEST_STIFFNESS_TO_DENSITY:
+        zBest = matEncoder.getBestStiffnessToDensityMaterial()
+        for i in range(latentDim):
+            z0[i*num_elems:(i+1)*num_elems] = zBest[i]
+    elif z0_init_method == Z0InitMethod.BEST_STRENGTH_TO_DENSITY:
+        zBest = matEncoder.getBestStrengthToDensityMaterial()
+        for i in range(latentDim):
+            z0[i*num_elems:(i+1)*num_elems] = zBest[i]
     elif z0_init_method == Z0InitMethod.ORIGIN:
         z0[:] = 0.0
     elif z0_init_method == Z0InitMethod.UNIFORM:
@@ -317,6 +336,29 @@ def run_topopt(
     zDesignTensor = torch.tensor(zDesign).float()
     zPts = zDesignTensor.view(latentDim, -1).T
     zOptimalPts = torch.tensor(zDesign).view(latentDim, -1).T.float()
+
+    fe_solver_thermal.mesh.setPseudoDensity(xDesign)
+    fe_solver_structural.mesh.setPseudoDensity(xDesign)
+    if (to_params.Eliminate_Hanging_Elements):
+        print("Eliminating hanging elements...")
+        # we must binarize for hanging element removal
+        x_sorted = np.sort(xDesign)
+        threshold = x_sorted[int((1-np.mean(xDesign))*len(xDesign))]
+        xDesign = np.where(xDesign < threshold, 0.0, 1.0)
+        fe_solver_structural.mesh.setPseudoDensity(xDesign)
+        fe_solver_thermal.mesh.setPseudoDensity(xDesign)
+        meshComponents = fe_solver_structural.mesh.find_connected_components()
+        print(f"Number of connected components found: {len(meshComponents)}")
+        if (len(meshComponents) > 1): 
+            # Find the largest connected component and its size
+            largest_component = max(meshComponents, key=len)
+            print(f"Largest component size: {len(largest_component)} elements") 
+            # Set density to 1 for elements in largest component
+            xDesign[:] = 0.0
+            xDesign[list(largest_component)] = 1.0
+            fe_solver_structural.mesh.setPseudoDensity(xDesign.flatten())
+            fe_solver_thermal.mesh.setPseudoDensity(xDesign.flatten())
+
     if (snap_to_real_material):
         zSnappedPts = torch.tensor(matEncoder.getClosestRealMaterialZValues(zOptimalPts))
         zetaOptimal[num_elems:] = zSnappedPts.T.flatten().numpy()
@@ -325,14 +367,12 @@ def run_topopt(
         print(50 * "-")
         MMTO_optimization_function(zetaOptimal)
         zOptimalPts = zSnappedPts
-    fe_solver_thermal.mesh.setPseudoDensity(xDesign)
-    fe_solver_structural.mesh.setPseudoDensity(xDesign)
-    closest_index = matEncoder.getClosestRealMaterialIndex(zPts)
+    
+    closest_index = matEncoder.getClosestRealMaterialIndex(zOptimalPts)
 
-    E = matEncoder.getMaterialPropertyAtTemperature("E", zPts, Temp_elem)
-    Y = matEncoder.getMaterialPropertyAtTemperature("Y", zPts, Temp_elem)
-    Temp_Limit = matEncoder.getValuesAtLatentPoints("Temp_Limit", zPts)
-
+    E = matEncoder.getMaterialPropertyAtTemperature("E", zOptimalPts, Temp_elem)
+    Y = matEncoder.getMaterialPropertyAtTemperature("Y", zOptimalPts, Temp_elem)
+    Temp_Limit = matEncoder.getValuesAtLatentPoints("Temp_Limit", zOptimalPts)
     isTemperatureWithinLimits = (Temp_elem <= Temp_Limit.flatten()) | (xDesign < 0.9)
     print(f"Number of elements exceeding Temp Limit: {np.sum(~isTemperatureWithinLimits)} out of {num_elems}")
 
@@ -341,15 +381,15 @@ def run_topopt(
     fe_solver_structural.plot_elem_field(closest_index)
     fe_solver_structural.plot_elem_field(Temp_elem, title='Temperature', colormap='plasma')
 
-    matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zPts, xDesign=xDesign)
+    matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zOptimalPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    to_problem = MMTOTempDependentExamples.LBracket_Test
+    to_problem = MMTOTempDependentExamples.BliskSection_Mass_StressFF
     run_topopt(
         to_problem=to_problem,
-        turnOnThermal=False,
+        turnOnThermal=True,
         turnOnNonlinearThermal=False,
         use_penalization=True,
-        use_pretrained_vae=False,
+        use_pretrained_vae=True,
         snap_to_real_material=True,
     )

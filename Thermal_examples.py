@@ -118,14 +118,14 @@ def createEdgeCantileverThermalProblem_TempBC(mesh=None, nDOFDesired: int = 5000
 
     return mesh, mat_prop, bc
 def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000, 
-                                          thermal_conductivity=1.0, temp_tip=50.0, temp_bottom=50.0):
+                                          thermal_conductivity=1.0, temp_tip=1000.0, temp_bottom=50.0):
     """
     Creates a thermal blisk blade problem with prescribed temperatures at the tip and bottom.
     Uses mesh from the structural blisk blade example if provided.
     """
     # If mesh is not provided, create it using the structural example
     if mesh is None:
-        from MMTO_structural_examples import createBliskSectionProblem
+        from Structural_examples import createBliskSectionProblem
         mesh, _, _, _ = createBliskSectionProblem(nDOFDesired=nDOFDesired)
         mesh.createEdofMatThermal()
     else:
@@ -166,7 +166,7 @@ def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000,
 
     return mesh, mat_prop, bc
 
-def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right=50, temp_top=100, thermal_conductivity=1.0):
+def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right=150, temp_top=50, thermal_conductivity=1.0):
     """
     Creates a thermal problem setup for an L-bracket topology optimization.
     If mesh is not provided, creates it using the structural LBracket problem.
@@ -174,7 +174,7 @@ def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right
     """
     # If mesh is not provided, create it using the structural example
     if mesh is None:
-        from MMTO_structural_examples import createLBracketProblem
+        from Structural_examples import createLBracketProblem
         mesh, _, _, _ = createLBracketProblem(nDOFDesired=nDOFDesired)
         mesh.createEdofMatThermal()
     else:

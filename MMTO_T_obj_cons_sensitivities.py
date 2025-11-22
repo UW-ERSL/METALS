@@ -148,12 +148,12 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             dc[m, :] = grad_cons_mass
 
         elif constraintType == TO_QOI.STRESS_FAILURE_FACTOR:
-            print("TMax = ", T.max())
+            #print("TMax = ", T.max())
             ETensor = matEncoder.getMaterialPropertyAtTemperatureTorch("E", zetaTensor[num_elems:].view(latentDim, -1).T, T)
             YTensor = matEncoder.getMaterialPropertyAtTemperatureTorch("Y", zetaTensor[num_elems:].view(latentDim, -1).T, T)
             EDesign = ETensor.detach().numpy()
             YDesign = YTensor.detach().numpy()
-            print("Y Min = ", YDesign.min())
+            #print(f"Y_min = {YDesign.min():.3e}")
             stress_ffpnorm, grad_stress_ffdensity, stress_ff_max = compute_pnorm_safety_factor_and_sensitivity(
                 uvw, x, fe_solver_structural, EDesign, YDesign, KETemplate, MaterialModel.SIMP)
   

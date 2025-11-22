@@ -499,6 +499,7 @@ class MaterialEncoder:
         plt.legend(self.materialNames)
         plt.grid()
         plt.show()
+        
     def getHeaviestMaterial(self):
         with torch.no_grad():
             z_real = self.vaeNet.encoder(self.scaledMaterialData)
@@ -521,3 +522,38 @@ class MaterialEncoder:
         lightest_z = z_real[lightest_idx].detach().cpu().numpy()
         return lightest_z
     
+
+    def getStrongestMaterial(self):
+        with torch.no_grad():
+            z_real = self.vaeNet.encoder(self.scaledMaterialData)
+            decoded = self.vaeNet.decoder(z_real)
+            decoded_properties = self.getMaterialProperties(decoded)
+
+        yield_values = decoded_properties['Y0'].detach().cpu().numpy().flatten()
+        strongest_idx = np.argmax(yield_values)
+        strongest_z = z_real[strongest_idx].detach().cpu().numpy()
+        return strongest_z
+    
+    def getBestStiffnessToDensityMaterial(self):
+        with torch.no_grad():
+            z_real = self.vaeNet.encoder(self.scaledMaterialData)
+            decoded = self.vaeNet.decoder(z_real)
+            decoded_properties = self.getMaterialProperties(decoded)
+
+        stiffness_values = decoded_properties['E0'].detach().cpu().numpy().flatten()
+        density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
+        best_idx = np.argmax(stiffness_values/density_values)
+        best_z = z_real[best_idx].detach().cpu().numpy()
+        return best_z
+    
+    def getBestStrengthToDensityMaterial(self):
+        with torch.no_grad():
+            z_real = self.vaeNet.encoder(self.scaledMaterialData)
+            decoded = self.vaeNet.decoder(z_real)
+            decoded_properties = self.getMaterialProperties(decoded)
+
+        yield_values = decoded_properties['Y0'].detach().cpu().numpy().flatten()
+        density_values = decoded_properties['Density'].detach().cpu().numpy().flatten()
+        best_idx = np.argmax(yield_values/density_values)
+        best_z = z_real[best_idx].detach().cpu().numpy()
+        return best_z

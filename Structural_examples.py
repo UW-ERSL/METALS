@@ -174,7 +174,7 @@ def createLBracketProblem(nDOFDesired: int = 10000, topload = 1000,midload = 0):
 
   # ----------------------------------------
 
-def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 0, radialForce = 1, downwardForce = 1, 
+def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 2000, radialForce = 0, downwardForce = 10000, 
                               youngs_modulus = 1, poissons_ratio = 0.3): 
  
   # Read the STL model, create a mesh of desired size, and a structural problem is posed on it.
