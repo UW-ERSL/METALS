@@ -32,7 +32,7 @@ def run_topopt(
     binarize_topology = True,
     z0_init_method = Z0InitMethod.ORIGIN,  
     gamma_init = 1e-6, # penalization
-    gamma_max = 100,#100
+    gamma_max = 100,
     gamma_factor = 1.25):#1.1
     
     history = {
@@ -106,18 +106,19 @@ def run_topopt(
     def MMTO_optimization_function(zeta):
         nonlocal iterationCount, obj0, gamma, zRealPoints
 
-       
         zeta = np.asarray(zeta).flatten()
         print("-------------- Iteration", iterationCount, "-----------------")
         
-    
         # Prepare tensors and decode material properties
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
         xDesign = zetaTensor[0:num_elems]
         zDesign = zetaTensor[num_elems:]
         zPoints = zDesign.view(latentDim, -1).T
 
-
+        xNumpy = xDesign.detach().cpu().numpy()
+        grey_elements = np.sum((xNumpy > 0.1) & (xNumpy < 0.9))
+        fraction_grey = (grey_elements / num_elems)
+        print(f"Percentange grey elements:", f"{fraction_grey*100:.2f}%")
 
         decoded = matEncoder.vaeNet.decoder(zPoints)
         material_properties = matEncoder.getMaterialProperties(decoded)
@@ -205,6 +206,7 @@ def run_topopt(
             gamma = min(gamma*gamma_factor, gamma_max)
 
         iterationCount += 1
+        #print(np.linalg.norm(grad_obj[:num_elems]), np.linalg.norm(grad_obj[num_elems:]),np.linalg.norm(grad_cons))
         return obj, grad_obj, cons, grad_cons
 
        # Check if there's a volume fraction constraint and set initial density accordingly
@@ -398,7 +400,7 @@ if __name__ == "__main__":
     # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
     # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
     
-    to_problem = MMTOExamples.LBracketTopLoad_Mass_StressFF
+    to_problem = MMTOExamples.Bridge_Compliance_MassCost
 
 
     run_topopt(

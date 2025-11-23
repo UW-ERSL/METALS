@@ -18,15 +18,15 @@ class MMTOTempDependentExamples(enum.Enum):
     LBracket_Stress_MassCompliance = enum.auto()
     LBracket_Stress_MultipleConstraints = enum.auto()
     LBracket_Mass_StressFF = enum.auto()    
-    LBracket_Test = enum.auto()    
+    LBracket_Mass_MultipleConstraints = enum.auto()    
 
 
     BliskSection_Compliance_MassCost = enum.auto()
     BliskSection_Mass_StressFF = enum.auto()
-    BliskSection_Test = enum.auto()
+    BliskSection_Mass_MultipleConstraints = enum.auto()
     BliskSection_Stress_MassComplianceCriticality = enum.auto()
     BliskSection_Compliance_Mass = enum.auto()
-    BliskSection_Mass_MultipleConstraints = enum.auto()
+
 
 def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesired = None, **kwargs):
     """Get the structural topology optimization problem based on the specified example.
@@ -91,34 +91,43 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
     elif to_problem == MMTOTempDependentExamples.LBracket_Mass_StressFF:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
-        kwargs['topload'] = 5e4
+        Force = 250
+        kwargs['topload'] = Force
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
         to_params.MaterialsExcelFile = './DataVaryingTemperature/3Materials.xlsx'
         to_params.Objective=(TO_QOI.MASS, None)
         to_params.ExtrudeZ = True
         to_params.Eliminate_Hanging_Elements = False
-        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5)]
+        to_params.nDOFDesired =25000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 1)
+                               ,(TO_QOI.COMPLIANCE, None, 0.005*Force)]
         vae_params.latentDim = 4
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
-    elif to_problem == MMTOTempDependentExamples.LBracket_Test:
-            structural_problem=MMTOStructuralExamples.LBracket
-            thermal_problem=MMTOThermalExamples.LBracketThermal
-            kwargs['topload'] = 5e4 
-            kwargs['midload'] = 0
-            to_params.Comment  = "Thermal + Structural TO Problem"
-            to_params.MaterialsExcelFile = './DataVaryingTemperature/6MaterialsTempDependent.xlsx'
-            to_params.Objective=(TO_QOI.MASS, None)
-            to_params.ExtrudeZ = True
-            to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-            to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5)]
-            vae_params.latentDim = 6
-            vae_params.learningRate = 2e-5
-            vae_params.vae_hiddenDim = 500
-            vae_params.numEpochs = 200000
+    elif to_problem == MMTOTempDependentExamples.LBracket_Mass_MultipleConstraints:
+        structural_problem=MMTOStructuralExamples.LBracket
+        thermal_problem=MMTOThermalExamples.LBracketThermal
+        Force = 5000
+        kwargs['topload'] = Force
+        kwargs['midload'] = 0
+
+        to_params.Comment  = "Thermal + Structural TO Problem"
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials.xlsx'
+        to_params.Objective=(TO_QOI.MASS, None)
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 0.8),
+                               (TO_QOI.FATIGUE_FAILURE_FACTOR, None, 1),
+                               (TO_QOI.TEMPERATURE_FAILURE_FACTOR, None, 1),
+                               (TO_QOI.MEAN_CRITICALITY, None, 1),
+                               (TO_QOI.PBR, None, 1.8),
+                               (TO_QOI.COMPLIANCE, None, 0.0005*Force)]
+        vae_params.latentDim = 6
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 500
+        vae_params.numEpochs = 200000
 
     elif to_problem == MMTOTempDependentExamples.LBracket_Stress_MultipleConstraints:
         structural_problem=MMTOStructuralExamples.LBracket
@@ -212,27 +221,34 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         structural_problem = MMTOStructuralExamples.BliskSection
         thermal_problem=MMTOThermalExamples.BliskSection
         to_params.Comment  = "Large DOF"
+        kwargs['rpm'] = 1000
+        kwargs['radialForce'] = 0
+        kwargs['downwardForce'] = 1500
         to_params.KeepFixedElems = True
         to_params.RemoveHangingElems = False
-        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.nDOFDesired = 100000 if nDOFDesired is None else nDOFDesired
         to_params.Objective = (TO_QOI.MASS, None)
-        to_params.Constraints=[(TO_QOI.STRESS_FAILURE_FACTOR, None, 1),
+        to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 1.0),
+                               (TO_QOI.FATIGUE_FAILURE_FACTOR, None, 0.5),
                                (TO_QOI.MEAN_CRITICALITY, None, 0.7),
-                               (TO_QOI.PBR, None, 1.6)]
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials_2.xlsx'
+                               (TO_QOI.PBR, None, 1.8),
+                               (TO_QOI.COMPLIANCE, None, 20)]
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials.xlsx'
 
-        # for large number of materials and attributes, we need to train the VAE longer
+        vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
-        vae_params.latentDim = 6
+
     else:
         raise ValueError(f"Unknown problem: {to_problem}")
     
-    mesh, mat_prop, bc, elem_body_force = getMMTOStructuralProblem(structural_problem, nDOFDesired = to_params.nDOFDesired, **kwargs)
+    mesh, mat_prop, bc, elem_body_force = getMMTOStructuralProblem(structural_problem, 
+                                                                   nDOFDesired = to_params.nDOFDesired, **kwargs)
 
     if 'thermal_problem' in locals() and thermal_problem is not None:
-        mesh_thermal, mat_prop_thermal, bc_thermal = getMMTOThermalProblem(thermal_problem, nDOFDesired=to_params.nDOFDesired, **kwargs)
+        mesh_thermal, mat_prop_thermal, bc_thermal = getMMTOThermalProblem(thermal_problem, 
+                                                                           nDOFDesired=to_params.nDOFDesired)
         
     else:
         mesh_thermal, mat_prop_thermal, bc_thermal = None, None, None

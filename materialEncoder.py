@@ -262,6 +262,40 @@ class MaterialEncoder:
         closest_indices = torch.argmin(distances, dim=1)
         return closest_indices
 
+    def plotMaterialHistogram(self, closest_indices,xDesign, colors):
+        """Plot a histogram showing the frequency of each material in closest_indices."""
+        plt.figure(figsize=(4, 4))
+        
+        # Filter closest_indices based on xDesign threshold
+        xDesign_np = np.array(xDesign)
+        mask = xDesign_np >= 0.1
+        filtered_indices = closest_indices[mask]
+        
+        # Count occurrences of each material index
+        unique_indices, counts = np.unique(filtered_indices, return_counts=True)
+        total_counts = np.sum(counts)
+        # Create bar plot with material names
+        material_names = [self.materialNames[idx] for idx in unique_indices]
+        # Use colors from the attached colorbar
+        # Map each material to a color based on its position in the full material list
+        # Create arrays for all materials (including zero counts)
+        all_counts = np.zeros(len(self.materialNames))
+        all_counts[unique_indices] = counts
+        
+        if (colors is None) or (len(colors) < len(self.materialNames)):
+            colors = cm.tab10(np.linspace(0, 1, len(self.materialNames)))
+
+
+        plt.bar(range(len(self.materialNames)), 100*all_counts/total_counts, color=colors, edgecolor='black')
+        plt.xticks(range(len(self.materialNames)), self.materialNames, rotation=45, ha='right')
+        plt.xlabel('Material')
+        plt.ylabel('Percentage')
+        plt.title('Materials Distribution')
+        plt.tight_layout()
+        plt.grid(axis='y', alpha=0.3)
+        plt.show()
+        
+        
     def getClosestRealMaterialZValues(self, zDesign):
         with torch.no_grad():
             zReal = self.vaeNet.encoder(self.scaledMaterialData)
@@ -456,17 +490,17 @@ class MaterialEncoder:
         plt.grid()
         plt.show()
         
-    def plotTemperatureVsMaterialPropertyRaw(self, attrName, semilogy=False):
+    def plotTemperatureVsMaterialPropertyRaw(self, attrName, semilogy=False,colors=None):
         plt.figure()
         T = np.linspace(TMin, TMax, 300)
         markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_']
         
         # Define colors for the first three materials and generate others
-        colors = ['#0201fc', '#3cb44b', '#654321']
-        if self.rawData.shape[0] > 3:
-            
-            additional_colors = cm.tab10(np.linspace(0.3, 1, self.rawData.shape[0] - 3))
-            colors.extend([cm.colors.rgb2hex(c) for c in additional_colors])
+        if (colors is None) or (len(colors) < self.rawData.shape[0]):
+            colors = ['#0201fc', '#3cb44b', '#654321']
+            if self.rawData.shape[0] > 3:
+                additional_colors = cm.tab10(np.linspace(0.3, 1, self.rawData.shape[0] - 3))
+                colors.extend([cm.colors.rgb2hex(c) for c in additional_colors])
         for i in range(self.rawData.shape[0]):
             # Get control points for this material
             if attrName in ['E', 'Y']:

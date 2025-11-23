@@ -20,7 +20,7 @@ def getMMTOThermalProblem(problem: MMTOThermalExamples,nDOFDesired: int = 20000,
     if problem == MMTOThermalExamples.EdgeCantilever:
         return createEdgeCantileverThermalProblem(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
     elif problem == MMTOThermalExamples.BliskSection:
-        return createBliskBladeThermalProblem_TempBC(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
+        return createBliskSectionThermalProblem_TempBC(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
     elif problem == MMTOThermalExamples.EdgeCantilever_TempBC:
         return createEdgeCantileverThermalProblem_TempBC(mesh=mesh, nDOFDesired=nDOFDesired, **kwargs)
     elif problem == MMTOThermalExamples.LBracketThermal:
@@ -73,7 +73,7 @@ def createEdgeCantileverThermalProblem(mesh=None, nDOFDesired: int = 20000, L: l
 
     return mesh, mat_prop, bc
 def createEdgeCantileverThermalProblem_TempBC(mesh=None, nDOFDesired: int = 5000, L: list = [0.4, 0.2, 0.1],
-                                              thermal_conductivity=1.0, temp_left=275.0, temp_right=50.0):
+                                              thermal_conductivity=1.0, temp_left=275.0, temp_at_load=50.0):
     """
     Creates a thermal edge cantilever problem with prescribed temperatures on both ends.
     """
@@ -104,7 +104,7 @@ def createEdgeCantileverThermalProblem_TempBC(mesh=None, nDOFDesired: int = 5000
     fixed_dofs = np.concatenate([fixed_nodes_left, fixed_nodes_right]).astype(int)
     dirichlet_values = np.concatenate([
         temp_left * np.ones_like(fixed_nodes_left, dtype=float),
-        temp_right * np.ones_like(fixed_nodes_right, dtype=float)
+        temp_at_load * np.ones_like(fixed_nodes_right, dtype=float)
     ])
 
     # No heat source
@@ -117,8 +117,8 @@ def createEdgeCantileverThermalProblem_TempBC(mesh=None, nDOFDesired: int = 5000
     )
 
     return mesh, mat_prop, bc
-def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000, 
-                                          thermal_conductivity=1.0, temp_tip=1000.0, temp_bottom=50.0):
+def createBliskSectionThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000, 
+                                          thermal_conductivity=1.0, temp_tip=900.0, temp_bottom=50.0):
     """
     Creates a thermal blisk blade problem with prescribed temperatures at the tip and bottom.
     Uses mesh from the structural blisk blade example if provided.
@@ -166,11 +166,12 @@ def createBliskBladeThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000,
 
     return mesh, mat_prop, bc
 
-def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right=150, temp_top=50, thermal_conductivity=1.0):
+def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, 
+                                 temp_at_load=500, temp_at_wall=50, thermal_conductivity=1.0):
     """
     Creates a thermal problem setup for an L-bracket topology optimization.
     If mesh is not provided, creates it using the structural LBracket problem.
-    Applies Dirichlet BCs: temp_right at rightmost end (x = xMax), temp_top at topmost end (y = yMax).
+    Applies Dirichlet BCs: temp_at_load at rightmost end (x = xMax), temp_at_wall at topmost end (y = yMax).
     """
     # If mesh is not provided, create it using the structural example
     if mesh is None:
@@ -194,8 +195,8 @@ def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, temp_right
 
     fixed_dofs = np.concatenate([top_nodes, right_nodes]).astype(int)
     dirichlet_values = np.concatenate([
-        temp_top * np.ones_like(top_nodes, dtype=float),
-        temp_right * np.ones_like(right_nodes, dtype=float)
+        temp_at_wall * np.ones_like(top_nodes, dtype=float),
+        temp_at_load * np.ones_like(right_nodes, dtype=float)
     ])
 
     mesh.node_indices[top_nodes, 3] = 1  # for plotting

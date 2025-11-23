@@ -21,6 +21,28 @@ class Z0InitMethod(Enum):
     ORIGIN = 'origin'
     UNIFORM = 'uniform'
 
+material_colors = {
+            0: "#080878",  # medium blue
+            1: '#004d00',  # deep forest green
+            2: '#800000',  # dark maroon
+            3: '#e6194b', # vibrant red
+            4: '#b8860b',  # dark goldenrod
+            5: '#1b1b1b',  # charcoal black
+            6: "#49c878", # vibrant magenta
+            7: "#28a3dc",  # bright sky blue
+            8: '#6a5acd',  # slate blue
+            9: "#a35f5f", # brownish
+            10: '#9932cc', # dark orchid
+            11: '#228b22',  # forest green
+            12: '#ffb6c1',  # light pink
+            13: "#e76f5d", # vibrant green
+            14: '#ffe119', # vibrant yellow
+            15: '#008080',  # teal
+            16: '#f58231', # vibrant orange
+            17: '#911eb4', # vibrant purple
+            18: '#42d4f4', # vibrant cyan
+            19: "#505053",  # dim gray
+        }
 
 def run_topopt(
     to_problem,
@@ -52,9 +74,9 @@ def run_topopt(
     matEncoder.printModulusDropAtTempLimit()
     matEncoder.printYieldStrengthDropAtTempLimit()
     
-    matEncoder.plotTemperatureVsMaterialPropertyRaw("E", semilogy=True)
-    matEncoder.plotTemperatureVsMaterialPropertyRaw("Y", semilogy=True)
-    matEncoder.plotTemperatureVsMaterialPropertyRaw("K", semilogy=True)
+    matEncoder.plotTemperatureVsMaterialPropertyRaw("E", semilogy=True, colors=material_colors)
+    matEncoder.plotTemperatureVsMaterialPropertyRaw("Y", semilogy=True, colors=material_colors)
+    matEncoder.plotTemperatureVsMaterialPropertyRaw("K", semilogy=True, colors=material_colors)
 
    
     if saveNet is None:
@@ -133,7 +155,7 @@ def run_topopt(
         xNumpy = xDesign.detach().cpu().numpy()
         grey_elements = np.sum((xNumpy > 0.1) & (xNumpy < 0.9))
         fraction_grey = (grey_elements / num_elems)
-        #print(f"Percentange grey elements:", f"{fraction_grey*100:.2f}%")
+        print(f"Percentange grey elements:", f"{fraction_grey*100:.2f}%")
         decoded = matEncoder.vaeNet.decoder(zPts)
         material_properties = matEncoder.getMaterialProperties(decoded)
 
@@ -368,7 +390,9 @@ def run_topopt(
         MMTO_optimization_function(zetaOptimal)
         zOptimalPts = zSnappedPts
     
-    closest_index = matEncoder.getClosestRealMaterialIndex(zOptimalPts)
+    closest_index = matEncoder.getClosestRealMaterialIndex(zOptimalPts).numpy().astype(int)
+    material_colors_rgb = [tuple(int(material_colors[k].lstrip('#')[i:i+2], 16) / 255.0 for i in (0, 2, 4)) for k in sorted(material_colors.keys())]
+    matEncoder.plotMaterialHistogram(closest_index,xDesign, colors=material_colors_rgb)
 
     E = matEncoder.getMaterialPropertyAtTemperature("E", zOptimalPts, Temp_elem)
     Y = matEncoder.getMaterialPropertyAtTemperature("Y", zOptimalPts, Temp_elem)
@@ -378,13 +402,17 @@ def run_topopt(
 
     fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Is Within Limits', colormap='RdYlGn')
     fe_solver_structural.plot_elem_field(E, title='Young\'s Modulus', colormap='plasma')
-    fe_solver_structural.plot_elem_field(closest_index)
+    fe_solver_structural.plot_elem_field(Y, title='Yield Strength', colormap='plasma')
+
+    elem_colors_RGB = [material_colors_rgb[idx] for idx in closest_index]
+    fe_solver_structural.plot_elem_field(closest_index, show_geometry = True, colors = elem_colors_RGB, title='Material Distribution')
     fe_solver_structural.plot_elem_field(Temp_elem, title='Temperature', colormap='plasma')
+
 
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zOptimalPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    to_problem = MMTOTempDependentExamples.BliskSection_Mass_StressFF
+    to_problem = MMTOTempDependentExamples.BliskSection_Mass_MultipleConstraints
     run_topopt(
         to_problem=to_problem,
         turnOnThermal=True,

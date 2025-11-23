@@ -7,7 +7,6 @@ import scipy.sparse as spy_sprs
 from scipy.sparse import lil_matrix
 class MMTOStructuralExamples(enum.Enum):
 	EdgeCantilever = enum.auto()  
-	BliskWithBladeMass = enum.auto()
 	BliskSection= enum.auto()
 	Bridge = enum.auto()
 	BridgeHalf = enum.auto()
@@ -174,7 +173,7 @@ def createLBracketProblem(nDOFDesired: int = 10000, topload = 1000,midload = 0):
 
   # ----------------------------------------
 
-def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 2000, radialForce = 0, downwardForce = 10000, 
+def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 5000, radialForce = 0, downwardForce = 300, 
                               youngs_modulus = 1, poissons_ratio = 0.3): 
  
   # Read the STL model, create a mesh of desired size, and a structural problem is posed on it.
