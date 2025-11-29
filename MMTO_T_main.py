@@ -46,7 +46,7 @@ material_colors = {
 
 def run_topopt(
     to_problem,
-    nIterations=150,
+    nIterations=20,
     turnOnThermal=True,
     turnOnNonlinearThermal=False,
     use_penalization=True,
@@ -183,7 +183,7 @@ def run_topopt(
                     Temp_nodes = last_Temp_nodes.copy()
 
                 for picard_iter in range(max_picard_iter):
-                    edofMat = fe_solver_thermal.mesh.edofMat
+                    edofMat = fe_solver_thermal.mesh.edofMatThermal
                     Temp_elem = np.mean(Temp_nodes[edofMat], axis=1)
                     K_elem = bezierInterpolation(Temp_elem, K0, K1, K2, K3)
                     fe_solver_thermal.mat_prop = [
@@ -214,7 +214,7 @@ def run_topopt(
                     for i in range(num_elems)]
                 fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
                 Temp_nodes = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
-                edofMat = fe_solver_thermal.mesh.edofMat
+                edofMat = fe_solver_thermal.mesh.edofMatThermal
                 Temp_elem = np.mean(Temp_nodes[edofMat], axis=1)
         else:
             Temp_elem = np.ones(num_elems) * 50.0
@@ -299,7 +299,7 @@ def run_topopt(
         
         return obj, grad_obj, cons, grad_cons
 
-    x0 = 0.5 * np.ones(num_elems)
+    x0 = 1 * np.ones(num_elems)
     x0 = (H * x0) / Hs
 
     z0 = np.zeros(latentDim * num_elems)

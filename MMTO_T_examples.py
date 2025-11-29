@@ -26,6 +26,7 @@ class MMTOTempDependentExamples(enum.Enum):
     BliskSection_Mass_MultipleConstraints = enum.auto()
     BliskSection_Stress_MassComplianceCriticality = enum.auto()
     BliskSection_Compliance_Mass = enum.auto()
+    BliskSection_Test = enum.auto()
 
 
 def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesired = None, **kwargs):
@@ -100,8 +101,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.ExtrudeZ = True
         to_params.Eliminate_Hanging_Elements = False
         to_params.nDOFDesired =25000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 1)
-                               ,(TO_QOI.COMPLIANCE, None, 0.005*Force)]
+        to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 1)]
         vae_params.latentDim = 4
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
@@ -117,7 +117,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials.xlsx'
         to_params.Objective=(TO_QOI.MASS, None)
         to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.nDOFDesired = 25000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 0.8),
                                (TO_QOI.FATIGUE_FAILURE_FACTOR, None, 1),
                                (TO_QOI.TEMPERATURE_FAILURE_FACTOR, None, 1),
@@ -200,23 +200,6 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.numEpochs = 200000
         vae_params.latentDim = 3
 
-    elif to_problem == MMTOTempDependentExamples.BliskSection_Mass_StressFF:
-        structural_problem = MMTOStructuralExamples.BliskSection
-        thermal_problem=MMTOThermalExamples.BliskSection
-        to_params.Comment  = "Large DOF"
-        to_params.KeepFixedElems = True
-        to_params.RemoveHangingElems = False
-        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Objective = (TO_QOI.MASS, None)
-        to_params.Constraints=[(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5),
-                               (TO_QOI.TEMPERATURE_FAILURE_FACTOR, None, 1)]
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/3Materials.xlsx'
-
-        # for large number of materials and attributes, we need to train the VAE longer
-        vae_params.learningRate = 2e-5
-        vae_params.vae_hiddenDim = 500
-        vae_params.numEpochs = 200000
-        vae_params.latentDim = 4
     elif to_problem == MMTOTempDependentExamples.BliskSection_Mass_MultipleConstraints:
         structural_problem = MMTOStructuralExamples.BliskSection
         thermal_problem=MMTOThermalExamples.BliskSection
@@ -234,6 +217,28 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
                                (TO_QOI.PBR, None, 1.8),
                                (TO_QOI.COMPLIANCE, None, 20)]
         to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials.xlsx'
+
+        vae_params.latentDim = 6
+        vae_params.learningRate = 2e-5
+        vae_params.vae_hiddenDim = 500
+        vae_params.numEpochs = 200000
+    elif to_problem == MMTOTempDependentExamples.BliskSection_Test:
+        structural_problem = MMTOStructuralExamples.BliskSection
+        thermal_problem=MMTOThermalExamples.BliskSection
+        to_params.Comment  = "Large DOF"
+        kwargs['rpm'] = 1000
+        kwargs['radialForce'] = 0
+        kwargs['downwardForce'] = 200
+        to_params.KeepFixedElems = True
+        to_params.RemoveHangingElems = False
+        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
+        to_params.Objective = (TO_QOI.MASS, None)
+        to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 1.0),
+                               (TO_QOI.FATIGUE_FAILURE_FACTOR, None, 0.5),
+                               (TO_QOI.MEAN_CRITICALITY, None, 0.7),
+                               (TO_QOI.PBR, None, 1.8),
+                               (TO_QOI.COMPLIANCE, None, 50)]
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/LSR_20251119_all_materials-2.xlsx'
 
         vae_params.latentDim = 6
         vae_params.learningRate = 2e-5

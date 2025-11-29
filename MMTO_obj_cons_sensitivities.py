@@ -73,7 +73,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     beta = np.zeros(nelems)
     x = np.maximum(x, 1e-12) # avoid division by zero
     for e in range(nelems):
-        edof = mesh.edofMat[e]
+        edof = mesh.edofMatStructural[e]
         u_e = sol[edof]
         beta[e] = qStress * (x[e]**(qStress-1)) * (vm_elems[e]**(pNormExponent-1)) * DvmDs_all[e] @ D[e] @ B @ u_e
     
@@ -82,7 +82,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     # Compute adjoint right-hand side using pre-computed DvmDs
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):
-        edof = mesh.edofMat[e]
+        edof = mesh.edofMatStructural[e]
         g_e = (x[e]**qStress) * dpn_dvms * B.T @ D[e].T @ DvmDs_all[e] * (vm_elems[e]**(pNormExponent-1))
         g[edof] += g_e
     
@@ -95,7 +95,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
                                        **fe_solver.kwargs)
     
     # Compute T2 (indirect sensitivity via adjoint)
-    dofMat = fe_solver.mesh.edofMat
+    dofMat = fe_solver.mesh.edofMatStructural
     nRows = KETemplate.shape[0]
     ce = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) * sol[dofMat].reshape(nelems, nRows)).sum(1)*EDesign
     
@@ -189,7 +189,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     beta = np.zeros(nelems)
     x = np.maximum(x, 1e-12) # avoid division by zero
     for e in range(nelems):
-        edof = mesh.edofMat[e]
+        edof = mesh.edofMatStructural[e]
         u_e = sol[edof]
         beta[e] = qStress * (x[e]**(qStress-1)) * (inv_sf_elems[e]**(pNormExponent-1)) * DinvSfDs_all[e] @ D[e] @ B @ u_e
 
@@ -198,7 +198,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     # Compute adjoint right-hand side using pre-computed DinvSfDs
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):
-        edof = mesh.edofMat[e]
+        edof = mesh.edofMatStructural[e]
         g_e = (x[e]**qStress) * dpn_dinv_sf * B.T @ D[e].T @ DinvSfDs_all[e] * (inv_sf_elems[e]**(pNormExponent-1))
         g[edof] += g_e
 
@@ -211,7 +211,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
                                     **fe_solver.kwargs)
 
     # Compute T2 (indirect sensitivity via adjoint)
-    dofMat = fe_solver.mesh.edofMat
+    dofMat = fe_solver.mesh.edofMatStructural
     nRows = KETemplate.shape[0]
     ce = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) * sol[dofMat].reshape(nelems, nRows)).sum(1)*EDesign
 
@@ -251,7 +251,7 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         youngsModulus = material_properties['Youngs_Modulus']
         EDesign = youngsModulus.detach().numpy()
         compliance = np.einsum('i, i -> ', fe_solver.total_force, sol)
-        ce = (np.dot(sol[fe_solver.mesh.edofMat].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+        ce = (np.dot(sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
         penal = 3.0
         dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
         dJ_dEDesign = np.asarray((x ** penal) * ce)
@@ -337,7 +337,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             youngsModulus = material_properties['Youngs_Modulus']
             EDesign = youngsModulus.detach().numpy()
             compliance = np.einsum('i, i -> ', fe_solver.total_force, sol)
-            ce = (np.dot(sol[fe_solver.mesh.edofMat].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+            ce = (np.dot(sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
             penal = 3.0
             dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
             dJ_dEDesign = np.asarray((x ** penal) * ce)

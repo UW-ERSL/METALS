@@ -28,7 +28,7 @@ def compute_mmto_objective_and_gradient(to_params, uvw, Temp, zeta, fe_solver_st
     if objectiveType == TO_QOI.COMPLIANCE:
         ETensor = matEncoder.getMaterialPropertyAtTemperatureTorch("E", zetaTensor[num_elems:].view(latentDim, -1).T, Temp)
         compliance = np.einsum('i, i -> ', fe_solver_structural.total_force, uvw)
-        ce = (np.dot(uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24), KETemplate) * uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+        ce = (np.dot(uvw[fe_solver_structural.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * uvw[fe_solver_structural.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
         pSIMP = 3.0
         dJ_dxDesign = (-pSIMP * x ** (pSIMP - 1)) * ETensor.detach().numpy() * ce
         dJ_dE = torch.tensor((x ** pSIMP) * ce)
@@ -113,7 +113,7 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             ETensor = matEncoder.getMaterialPropertyAtTemperatureTorch("E", zetaTensor[num_elems:].view(latentDim, -1).T, T)
             compliance = np.einsum('i, i -> ', fe_solver_structural.total_force, uvw)
             complianceConstraint = (compliance / constraintLimit) - 1.0
-            ce = (np.dot(uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24), KETemplate) * uvw[fe_solver_structural.mesh.edofMat].reshape(num_elems, 24)).sum(1)
+            ce = (np.dot(uvw[fe_solver_structural.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * uvw[fe_solver_structural.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
             pSIMP = 3.0
             dJ_dxDesign = (-pSIMP * x ** (pSIMP - 1)) * ETensor.detach().numpy() * ce
             dJ_dE = torch.tensor((x ** pSIMP) * ce)
