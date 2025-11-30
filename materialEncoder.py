@@ -107,6 +107,7 @@ class MaterialEncoder:
             
             print("{:<20} {:>12.1f} {:>12.3e} {:>12.3e} {:>12.2f}".format(name, Temp_Limit, Y0, Y_at_limit, ratio))
         print("=" * 60 + "\n")
+
     def printModulusDropAtTempLimit(self):
         """Print the ratio of E0 to E at Temp_Limit for each material."""
         if 'E0' not in self.materialAttributes or 'Temp_Limit' not in self.materialAttributes:
@@ -196,9 +197,6 @@ class MaterialEncoder:
     def getMaterialPropertyAtTemperature(self, name, zPts, T):
         decoded = self.vaeNet.decoder(zPts)
         material_properties = self.getMaterialProperties(decoded)
-
-        # Temp_Limit = material_properties['Temp_Limit'].detach().numpy()
-
         if name in ['E', 'Y']:
             M0 = material_properties[name + '0'].detach().numpy()
             M1 = material_properties[name + '1'].detach().numpy()
@@ -217,9 +215,6 @@ class MaterialEncoder:
     def getMaterialPropertyAtTemperatureTorch(self, name, zPts, T):
         decoded = self.vaeNet.decoder(zPts)
         material_properties = self.getMaterialProperties(decoded)
-
-        # Temp_Limit = material_properties['Temp_Limit'].detach().numpy()
-
         if name in ['E', 'Y']:
             M0 = material_properties[name + '0']
             M1 = material_properties[name + '1']
@@ -233,11 +228,56 @@ class MaterialEncoder:
             M2 = material_properties[name + '2']
             M3 = material_properties[name + '3']
             M = bezierInterpolation_torch(T, M0, M1, M2, M3)
-        # min_db_value = torch.min(torch.tensor(self.rawData[:, self.materialAttributes[name + '0']['idx']], dtype=M.dtype, device=M.device))
-        # min_allowed = self.RELATIVE_MATERIAL_MIN_VAL * min_db_value
-        # M = torch.maximum(M, min_allowed)
         return M
 
+    def getMaterialPropertiesAtTemperature(self, zPts, T, compute_gradients=False):
+        if compute_gradients:
+            zPts_tensor = torch.tensor(zPts, dtype=torch.float32, requires_grad=True) if not isinstance(zPts, torch.Tensor) else zPts.clone().detach().requires_grad_(True)
+            decoded = self.vaeNet.decoder(zPts_tensor)
+            material_properties = self.getMaterialProperties(decoded)
+            properties_at_T = {}
+            gradients = {}
+            for name in self.materialAttributes.keys():
+                if name in ['E', 'Y']:
+                    M0 = material_properties[name + '0']
+                    M1 = material_properties[name + '1']
+                    M2 = material_properties[name + '2']
+                    M3 = material_properties[name + '3']
+                    M_at_T = logBezierInterpolation_torch(T, M0, M1, M2, M3)
+                elif name == 'K':
+                    M0 = material_properties[name + '0']
+                    M1 = material_properties[name + '1']
+                    M2 = material_properties[name + '2']
+                    M3 = material_properties[name + '3']
+                    M_at_T = bezierInterpolation_torch(T, M0, M1, M2, M3)
+                else:
+                    continue
+                properties_at_T[name] = M_at_T
+                M_at_T.sum().backward(retain_graph=True)
+                gradients[name] = zPts_tensor.grad.clone()
+                zPts_tensor.grad.zero_()
+            return properties_at_T, gradients
+        else:
+            with torch.no_grad():
+                decoded = self.vaeNet.decoder(zPts)
+                material_properties = self.getMaterialProperties(decoded)
+                properties_at_T = {}
+                for name in self.materialAttributes.keys():
+                    if name in ['E', 'Y']:
+                        M0 = material_properties[name + '0']
+                        M1 = material_properties[name + '1']
+                        M2 = material_properties[name + '2']
+                        M3 = material_properties[name + '3']
+                        M_at_T = logBezierInterpolation_torch(T, M0, M1, M2, M3)
+                    elif name == 'K':
+                        M0 = material_properties[name + '0']
+                        M1 = material_properties[name + '1']
+                        M2 = material_properties[name + '2']
+                        M3 = material_properties[name + '3']
+                        M_at_T = bezierInterpolation_torch(T, M0, M1, M2, M3)
+                    else:
+                        continue
+                    
     def getMaterialPropertiesAtLatentPoints(self, zPts, compute_gradients=False):
         if compute_gradients:
             zPts_tensor = torch.tensor(zPts, dtype=torch.float32, requires_grad=True) if not isinstance(zPts, torch.Tensor) else zPts.clone().detach().requires_grad_(True)
@@ -256,6 +296,7 @@ class MaterialEncoder:
                 decoded = self.vaeNet.decoder(zPts)
                 material_properties = self.getMaterialProperties(decoded)
             return material_properties
+        
     def getMaterialProperties(self, decoded):
         properties = {}
         for name, attribute in self.materialAttributes.items():

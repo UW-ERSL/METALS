@@ -2,10 +2,10 @@ import numpy as np
 import torch
 import time
 import os
-from MMTO_T_examples import MMTOTempDependentExamples, getMMTOTempDependentProblem
+from MMTO_T_examples import MMTOTempDependentExamples, getMMTOTempDependentProblem, material_colors
 from materialEncoder import MaterialEncoder
 import matplotlib.pyplot as plt
-from MMTO_T_obj_cons_sensitivities import (
+from MMTO_T_obj_cons_sensitivitiesOld import (
     compute_mmto_objective_and_gradient,
     compute_mmto_constraint_and_gradient,
 )
@@ -21,32 +21,11 @@ class Z0InitMethod(Enum):
     ORIGIN = 'origin'
     UNIFORM = 'uniform'
 
-material_colors = {
-            0: "#080878",  # medium blue
-            1: '#004d00',  # deep forest green
-            2: '#800000',  # dark maroon
-            3: '#e6194b', # vibrant red
-            4: '#b8860b',  # dark goldenrod
-            5: '#1b1b1b',  # charcoal black
-            6: "#49c878", # vibrant magenta
-            7: "#28a3dc",  # bright sky blue
-            8: '#6a5acd',  # slate blue
-            9: "#a35f5f", # brownish
-            10: '#9932cc', # dark orchid
-            11: '#228b22',  # forest green
-            12: '#ffb6c1',  # light pink
-            13: "#e76f5d", # vibrant green
-            14: '#ffe119', # vibrant yellow
-            15: '#008080',  # teal
-            16: '#f58231', # vibrant orange
-            17: '#911eb4', # vibrant purple
-            18: '#42d4f4', # vibrant cyan
-            19: "#505053",  # dim gray
-        }
+
 
 def run_topopt(
     to_problem,
-    nIterations=20,
+    nIterations=150,
     turnOnThermal=True,
     turnOnNonlinearThermal=False,
     use_penalization=True,
@@ -58,7 +37,7 @@ def run_topopt(
     z0_init_method=Z0InitMethod.ORIGIN,
     rel_conv_tol=1e-7,
     gamma_init=1e-6,
-    gamma_max=100,
+    gamma_max=1,
     gamma_factor=1.25):
 
     mesh_structural, mesh_thermal, mat_prop_struct, mat_prop_thermal, \
@@ -155,7 +134,7 @@ def run_topopt(
         xNumpy = xDesign.detach().cpu().numpy()
         grey_elements = np.sum((xNumpy > 0.1) & (xNumpy < 0.9))
         fraction_grey = (grey_elements / num_elems)
-        print(f"Percentange grey elements:", f"{fraction_grey*100:.2f}%")
+        print(f"Percentage grey elements:", f"{fraction_grey*100:.2f}%")
         decoded = matEncoder.vaeNet.decoder(zPts)
         material_properties = matEncoder.getMaterialProperties(decoded)
 
@@ -177,7 +156,7 @@ def run_topopt(
                             name=f"K{i+1}",
                             thermal_conductivity=init_K[i].item())
                         for i in range(num_elems)]
-                    fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
+                    fe_solver_thermal.set_material(fe_solver_thermal.mat_prop)
                     Temp_nodes = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
                 else:
                     Temp_nodes = last_Temp_nodes.copy()
@@ -191,7 +170,7 @@ def run_topopt(
                             name=f"K{i+1}",
                             thermal_conductivity=K_elem[i].item())
                         for i in range(num_elems)]
-                    fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
+                    fe_solver_thermal.set_material(fe_solver_thermal.mat_prop)
                     Temp_nodes_new = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
                     norm_diff = np.linalg.norm(Temp_nodes_new - Temp_nodes)
                     if norm_diff < picard_tol:
@@ -212,7 +191,7 @@ def run_topopt(
                         name=f"K{i+1}",
                         thermal_conductivity=thermalConductivity_elem[i].item())
                     for i in range(num_elems)]
-                fe_solver_thermal.set_thermal_material(fe_solver_thermal.mat_prop)
+                fe_solver_thermal.set_material(fe_solver_thermal.mat_prop)
                 Temp_nodes = fe_solver_thermal.solve(xDesign.detach().cpu().numpy())
                 edofMat = fe_solver_thermal.mesh.edofMatThermal
                 Temp_elem = np.mean(Temp_nodes[edofMat], axis=1)
@@ -230,7 +209,7 @@ def run_topopt(
             )
             for i in range(num_elems)
         ]
-        fe_solver_structural.set_structural_material(fe_solver_structural.mat_prop)
+        fe_solver_structural.set_material(fe_solver_structural.mat_prop)
         
         uvw = fe_solver_structural.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
         fe_solver_structural.postprocess()
@@ -299,7 +278,7 @@ def run_topopt(
         
         return obj, grad_obj, cons, grad_cons
 
-    x0 = 1 * np.ones(num_elems)
+    x0 = 0.5 * np.ones(num_elems)
     x0 = (H * x0) / Hs
 
     z0 = np.zeros(latentDim * num_elems)
@@ -405,14 +384,14 @@ def run_topopt(
     fe_solver_structural.plot_elem_field(Y, title='Yield Strength', colormap='plasma')
 
     elem_colors_RGB = [material_colors_rgb[idx] for idx in closest_index]
-    fe_solver_structural.plot_elem_field(closest_index, show_geometry = True, colors = elem_colors_RGB, title='Material Distribution')
+    fe_solver_structural.plot_elem_field(closest_index, show_geometry = False, colors = elem_colors_RGB, title='Material Distribution')
     fe_solver_structural.plot_elem_field(Temp_elem, title='Temperature', colormap='plasma')
 
 
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zOptimalPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    to_problem = MMTOTempDependentExamples.BliskSection_Mass_MultipleConstraints
+    to_problem = MMTOTempDependentExamples.LBracket_Compliance_Mass
     run_topopt(
         to_problem=to_problem,
         turnOnThermal=True,

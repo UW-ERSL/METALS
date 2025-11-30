@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import time
 import os
-from MMTO_examples import MMTOExamples, getMMTOProblem
+from MMTO_examples import MMTOExamples, getMMTOProblem, material_colors
 from materialEncoder import MaterialEncoder
 from MMTO_obj_cons_sensitivities import (
     compute_mmto_objective_and_gradient,
@@ -314,67 +314,7 @@ def run_topopt(
     plt.grid()
     plt.show()
     material_indices = matEncoder.getClosestRealMaterialIndex(zOptimalPts)  # shape: (num_elems,)
-    excel_file = to_params.MaterialsExcelFile
-
-    if excel_file == './DataConstantTemperature/5MaterialsCantilever.xlsx':
-        material_colors = {
-            0: '#fe4d02', 
-            1: '#e6fd1a',
-            2: '#1dfde1',
-            3: '#004fff',
-            4: '#020a86',
-        }
-    elif excel_file == './DataConstantTemperature/3MaterialsBridgev2.xlsx' or excel_file == './DataConstantTemperature/3MaterialsBridge.xlsx':
-        material_colors = {
-            0: '#04fd05', 
-            1: '#0505f0',
-            2: '#ef0711',
-        }
-    elif excel_file == './DataConstantTemperature/20MaterialsTeledyne.xlsx' or excel_file == './DataConstantTemperature/20MaterialsTeledyneSimple.xlsx':
-        material_colors = {
-            0: '#1b1b1b',  # charcoal black
-            1: '#004d00',  # deep forest green
-            2: '#800000',  # dark maroon
-            3: '#ffb6c1',  # light pink
-            4: '#008080',  # teal
-            5: '#b8860b',  # dark goldenrod
-            6: '#2f4f4f',  # dark slate gray
-            7: '#ff4500',  # orange red
-            8: '#6a5acd',  # slate blue
-            9: '#228b22',  # forest green
-            10: '#9932cc', # dark orchid
-            11: '#8b0000', # dark red
-            12: '#e6194b', # vibrant red
-            13: '#3cb44b', # vibrant green
-            14: '#ffe119', # vibrant yellow
-            15: '#4363d8', # vibrant blue
-            16: '#f58231', # vibrant orange
-            17: '#911eb4', # vibrant purple
-            18: '#42d4f4', # vibrant cyan
-            19: '#f032e6', # vibrant magenta
-
-        }
-    elif excel_file == './DataConstantTemperature/8Materials.xlsx':
-        material_colors = {
-            0: '#e6194b',  # vibrant red
-            1: '#3cb44b',  # vibrant green
-            2: '#ffe119',  # vibrant yellow
-            3: '#4363d8',  # vibrant blue
-            4: '#f58231',  # vibrant orange
-            5: '#911eb4',  # vibrant purple
-            6: '#42d4f4',  # vibrant cyan
-            7: '#f032e6',  # vibrant magenta
-        }
-    elif excel_file == './DataConstantTemperature/3Materials.xlsx':
-        material_colors = {
-            0: '#0201fc', 
-            1: '#f60004',
-            2: '#080101',
-        }
-    else:
-        # Default colors for up to 20 materials
-        default_colors = plt.cm.get_cmap('tab20', matEncoder.nMaterials)
-        material_colors = {i: default_colors(i) for i in range(matEncoder.nMaterials)}
+    
     colors = [material_colors[int(idx.item()) if hasattr(idx, "item") else int(idx)] for idx in material_indices]
     import matplotlib.colors as mcolors
     rgb_colors = np.array([mcolors.to_rgb(c) for c in colors])

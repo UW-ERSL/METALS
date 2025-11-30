@@ -3,6 +3,29 @@ from Structural_examples import *
 from Thermal_examples import *
 from PyTOImports import  *
 
+material_colors = { # these colors can be changed as desired for each example
+            0: "#080878",  # medium blue
+            1: '#004d00',  # deep forest green
+            2: '#800000',  # dark maroon
+            3: '#e6194b', # vibrant red
+            4: '#b8860b',  # dark goldenrod
+            5: '#1b1b1b',  # charcoal black
+            6: "#49c878", # vibrant magenta
+            7: "#28a3dc",  # bright sky blue
+            8: '#6a5acd',  # slate blue
+            9: "#a35f5f", # brownish
+            10: '#9932cc', # dark orchid
+            11: '#228b22',  # forest green
+            12: '#ffb6c1',  # light pink
+            13: "#e76f5d", # vibrant green
+            14: '#ffe119', # vibrant yellow
+            15: '#008080',  # teal
+            16: '#f58231', # vibrant orange
+            17: '#911eb4', # vibrant purple
+            18: '#42d4f4', # vibrant cyan
+            19: "#505053",  # dim gray
+        }
+
 class VAEParams:
     klFactor = 5e-6
     learningRate = 2e-6
@@ -48,12 +71,12 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         kwargs['topload'] = 1e4 
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/3Materials.xlsx'
         to_params.Objective=(TO_QOI.COMPLIANCE, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[(TO_QOI.MASS, None, 150)]
-        vae_params.latentDim = 2
+        to_params.Constraints=[(TO_QOI.MASS, None, 25)]
+        vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 750
         vae_params.numEpochs = 200000
@@ -63,12 +86,12 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         kwargs['topload'] = 1e4 
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
-        to_params.MaterialsExcelFile = './DataVaryingTemperature/3MaterialsTempDependent.xlsx'
+        to_params.MaterialsExcelFile = './DataVaryingTemperature/3Materials.xlsx'
         to_params.Objective=(TO_QOI.COMPLIANCE, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[(TO_QOI.MASS, None, 50), (TO_QOI.COST, None, 200)]
-        vae_params.latentDim = 2
+        to_params.Constraints=[(TO_QOI.MASS, None, 25), (TO_QOI.COST, None, 200)]
+        vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 750
         vae_params.numEpochs = 200000        
@@ -102,7 +125,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.Eliminate_Hanging_Elements = False
         to_params.nDOFDesired =25000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 1)]
-        vae_params.latentDim = 4
+        vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
