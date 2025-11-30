@@ -103,7 +103,7 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         kwargs['topload'] = 1e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials5Attributes.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
@@ -115,22 +115,22 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
         to_params.RelativeFilterRadius = 1.5
-        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials5Attributes.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 60),(TO_QOI.COST, None, 100)] 
+        to_params.Constraints = [(TO_QOI.MASS, None, 60),(TO_QOI.COST, None, 1)] 
         vae_params.latentDim = 3
     elif to_problem == MMTOExamples.LBracketTopLoad_Compliance_MassCriticality:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 1e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials5Attributes.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.MASS, None, 75),(TO_QOI.MAX_CRITICALITY, None, 0.5)] 
+        to_params.Constraints = [(TO_QOI.MASS, None, 75),(TO_QOI.MEAN_CRITICALITY, None, 0.85)] 
         vae_params.latentDim = 3
 
     elif to_problem == MMTOExamples.LBracketTopLoad_Stress_VolumeFraction_Mass:
@@ -139,29 +139,29 @@ def getMMTOProblem(to_problem: MMTOExamples,nDOFDesired = None, **kwargs):
         kwargs['midload'] = 0
         to_params.RelativeFilterRadius = 2.5
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/20MaterialsTeledyne.xlsx'
         to_params.Objective = (TO_QOI.PNORM_STRESS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
         to_params.Constraints = [ (TO_QOI.VOLUME_FRACTION, None, 0.3), (TO_QOI.MASS, None, 30)] 
-        vae_params.latentDim = 2
+        vae_params.latentDim = 6
 
     elif to_problem == MMTOExamples.LBracketTopLoad_Mass_StressFF:
         structural_problem = MMTOStructuralExamples.LBracket
         kwargs['topload'] = 5e4
         kwargs['midload'] = 0
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/20MaterialsTeledyne.xlsx'
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5)] 
-        vae_params.latentDim = 2    
+        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.25)] 
+        vae_params.latentDim = 6
 
     elif to_problem == MMTOExamples.EdgeCantilever_Compliance_MassCost:
         structural_problem = MMTOStructuralExamples.EdgeCantilever
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials.xlsx'
+        to_params.MaterialsExcelFile = './DataConstantTemperature/3Materials5Attributes.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None) 
         to_params.YSymmetry = True
         to_params.nDOFDesired = 20000 if nDOFDesired is None else nDOFDesired

@@ -32,7 +32,7 @@ def run_topopt(
     binarize_topology = True,
     z0_init_method = Z0InitMethod.ORIGIN,  
     gamma_init = 1e-6, # penalization
-    gamma_max = 100,
+    gamma_max = 1,
     gamma_factor = 1.25):#1.1
     
     history = {
@@ -118,7 +118,7 @@ def run_topopt(
         xNumpy = xDesign.detach().cpu().numpy()
         grey_elements = np.sum((xNumpy > 0.1) & (xNumpy < 0.9))
         fraction_grey = (grey_elements / num_elems)
-        print(f"Percentange grey elements:", f"{fraction_grey*100:.2f}%")
+        print(f"Percentage grey elements:", f"{fraction_grey*100:.2f}%")
 
         decoded = matEncoder.vaeNet.decoder(zPoints)
         material_properties = matEncoder.getMaterialProperties(decoded)
@@ -127,7 +127,7 @@ def run_topopt(
         fe_solver_structural.mat_prop = [
             mat_lib.create_material_with_defaults(name=f"Material_{i+1}", youngs_modulus=Youngs_Modulus[i])
             for i in range(len(Youngs_Modulus))]
-        fe_solver_structural.set_structural_material(fe_solver_structural.mat_prop)
+        fe_solver_structural.set_material(fe_solver_structural.mat_prop)
         
         sol = fe_solver_structural.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
         fe_solver_structural.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
@@ -380,27 +380,9 @@ def run_topopt(
     rgb_colors = np.array([mcolors.to_rgb(c) for c in colors])
     fe_solver_structural.plot_elem_field(material_indices, title='Real Materials', colors=rgb_colors)
 if __name__ == "__main__":
-    
     # Temperature independent Mult-Material TO Problems :
     
-    # Example 1 (30000 DOF) uses 3 materials, 4 attributes from './DataConstantTemperature/3MaterialsBridge.xlsx'
-    # Examples 2-5 (13000 DOF) use 3 materials, 5 attributes from './DataConstantTemperature/3Materials.xlsx'
-    # Examples 6-9 (137000 DOF) use 20 materials, 5 attributes from './DataConstantTemperature/20MaterialsTeledyne.xlsx'
-
-    # See MMTO_examples.py for additional details
-
-    # 1. Bridge_Compliance_MassCost (Benchmark Bridge, Minimize Compliance with Mass and Cost constraints)
-
-    # 2. LBracketTopLoad_Compliance_Mass (L-Bracket with Top Load, Minimize Compliance with Mass constraint)
-    # 3. LBracketTopLoad_Compliance_MassCost (L-Bracket with Top Load, Minimize Compliance with Mass and Cost constraints)
-    # 4. LBracketTopLoad_Compliance_MassCriticality (L-Bracket with Top Load, Minimize Compliance with Mass and Criticality constraints)
-    # 5. LBracketTopLoad_Stress_Mass (L-Bracket with Top Load, Minimize Stress with Mass constraint)
-   
-    # 6. BliskSection_Compliance_MassCost (Blisk Section, Minimize Compliance with Mass and Cost constraints)
-    # 7. BliskSection_Compliance_MassCriticality (Blisk Section, Minimize Mass  with Compliance and Criticality constraints)
-    # 8. BliskSection_Stress_Mass (Blisk Section, Minimize Stress with Mass constraints)
-    
-    to_problem = MMTOExamples.Bridge_Compliance_MassCost
+    to_problem = MMTOExamples.CantileverBenchmark_Compliance_Mass
 
 
     run_topopt(

@@ -212,10 +212,6 @@ class MaterialEncoder:
             M2 = material_properties[name + '2'].detach().numpy()
             M3 = material_properties[name + '3'].detach().numpy()
             M = bezierInterpolation(T, M0, M1, M2, M3)
-        #     # Enforce minimum property value
-        # min_db_value = np.min(self.rawData[:, self.materialAttributes[name + '0']['idx']])
-        # min_allowed = self.RELATIVE_MATERIAL_MIN_VAL * min_db_value
-        # M = np.maximum(M, min_allowed)   
         return M
 
     def getMaterialPropertyAtTemperatureTorch(self, name, zPts, T):
@@ -242,6 +238,24 @@ class MaterialEncoder:
         # M = torch.maximum(M, min_allowed)
         return M
 
+    def getMaterialPropertiesAtLatentPoints(self, zPts, compute_gradients=False):
+        if compute_gradients:
+            zPts_tensor = torch.tensor(zPts, dtype=torch.float32, requires_grad=True) if not isinstance(zPts, torch.Tensor) else zPts.clone().detach().requires_grad_(True)
+            decoded = self.vaeNet.decoder(zPts_tensor)
+            material_properties = self.getMaterialProperties(decoded)
+            # Compute gradients for each property
+            gradients = {}
+            for prop_name, prop_value in material_properties.items():
+                # Sum the property to get a scalar for backward()
+                prop_value.sum().backward(retain_graph=True)
+                gradients[prop_name] = zPts_tensor.grad.clone()
+                zPts_tensor.grad.zero_()
+            return material_properties, gradients
+        else:
+            with torch.no_grad():
+                decoded = self.vaeNet.decoder(zPts)
+                material_properties = self.getMaterialProperties(decoded)
+            return material_properties
     def getMaterialProperties(self, decoded):
         properties = {}
         for name, attribute in self.materialAttributes.items():

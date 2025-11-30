@@ -1,7 +1,8 @@
 import numpy as np
+import torch
 from PyTOImports import *
-
 # --- Support Functions ---
+
 def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign, KETemplate, material_model):
     """
     MMTO-compatible: Compute von Mises stress and sensitivity with respect to x for p-norm stress.
@@ -10,7 +11,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     nelems = mesh.num_elems
 
     qStress = SIMP_STRESS_RELAXATION  # STRESS relaxation factor
-    pSIMP = SIMP_STRUCTURAL_PENALTY   # SIMP penalization
+    pSIMP = SIMP_STRUCTURAL_PENALTY    # SIMP penalization
     pNormExponent = PNORM_EXPONENT  # p-norm exponent
 
     # Get element-wise Poisson's ratio
@@ -109,7 +110,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     """
     MMTO-compatible: Compute p-norm of inverse safety factor and its sensitivity with respect to x.
     """
-    pNormExponent = PNORM_EXPONENT  # p-norm exponent
+    pNormExponent = 6  # p-norm exponent
     # Compute inverse safety factor per element
     sigma_vm = fe_solver.vonMisesStress
     Y = YDesign
@@ -128,8 +129,8 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
 
-    qStress = SIMP_STRESS_RELAXATION  # STRESS relaxation factor
-    pSIMP = SIMP_STRUCTURAL_PENALTY    # SIMP penalization
+    qStress = 0.5  # STRESS relaxation factor
+    pSIMP = 3    # SIMP penalization
 
     # Get element-wise Poisson's ratio
     if isinstance(fe_solver.mat_prop, list):
@@ -239,43 +240,49 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
     optionalParam = to_params.Objective[1]
     num_elems = fe_solver.mesh.num_elems
     x = zeta[0:fe_solver.mesh.num_elems]
+    zetaTensor = torch.tensor(zeta).float()
+    zetaTensor.requires_grad = True
 
     latentDim = matEncoder.vae_params.latentDim
-    zPts = zeta[num_elems:].reshape((latentDim, -1)).T
-    material_properties, gradients = matEncoder.getMaterialPropertiesAtLatentPoints(zPts, compute_gradients=True)
-
-    if 'Youngs_Modulus' in material_properties:
-        EDesign = material_properties['Youngs_Modulus'].detach().numpy()
-        dE_dz = gradients['Youngs_Modulus'].detach().numpy().T
-    else:
-        EDesign = None
-        dE_dz = None
-
-    if 'Density' in material_properties:
-        mass_density = material_properties['Density'].detach().numpy()
-        dMassDensity_dz = gradients['Density'].detach().numpy().T
-    else:
-        mass_density = None
-        dMassDensity_dz = None
-
-    penal = SIMP_STRUCTURAL_PENALTY
-    pNormExponent = PNORM_EXPONENT
+    zPts = zetaTensor[num_elems:].view(latentDim,-1).T
+    material_propertiesNew, gradients = matEncoder.getMaterialPropertiesAtLatentPoints(zPts, compute_gradients=True)
+    
     if objectiveType == TO_QOI.COMPLIANCE:
+        decoded = matEncoder.vaeNet.decoder(zPts)
+        material_properties = matEncoder.getMaterialProperties(decoded)
+        youngsModulus = material_properties['Youngs_Modulus']
+        EDesign = youngsModulus.detach().numpy()
         compliance = np.einsum('i, i -> ', fe_solver.total_force, sol)
         ce = (np.dot(sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
+        penal = 3
         dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
         dJ_dEDesign = np.asarray((x ** penal) * ce)
-        dJ_dzeta = (dJ_dEDesign * dE_dz).flatten()
-        grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzeta))
+        dJ_dEDesign_tensor = torch.tensor(dJ_dEDesign)
+        zetaTensor.grad = None
+        youngsModulus.backward(dJ_dEDesign_tensor)
+        dJ_dzeta = zetaTensor.grad.detach().numpy()
+        grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzeta[num_elems:].flatten()))
         return compliance, grad_compliance
+    
     elif objectiveType == TO_QOI.PNORM_STRESS:
+        decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
+        material_properties = matEncoder.getMaterialProperties(decoded)
+        ETensor = material_properties['Youngs_Modulus']
+        EDesign = ETensor.detach().numpy()
+        
         vm_pnorm, grad_vm_density, max_vm = compute_pnorm_stress_and_sensitivity(
             sol, x, fe_solver, EDesign, KETemplate, MaterialModel.SIMP)
+        
         sigma_vm = fe_solver.vonMisesStress
-    
-        outer = (np.sum(sigma_vm ** pNormExponent)) ** (1.0 / pNormExponent - 1)
         d_sigma_vm_dE = sigma_vm / EDesign
-        dE_dz = dE_dz.reshape(num_elems, latentDim)
+        pNormExponent = 6
+        outer = (np.sum(sigma_vm ** pNormExponent)) ** (1.0 / pNormExponent - 1)
+
+        # Backward for dE/dz 
+        zetaTensor.grad = None
+        ETensor.backward(torch.ones_like(ETensor), retain_graph=True)
+        dE_dz = zetaTensor.grad[num_elems:].detach().numpy().reshape(num_elems, latentDim)
+
         grad_vm_z = np.zeros(latentDim*num_elems)
         for d in range(latentDim):
             grad_vm_z[d*num_elems:(d+1)*num_elems] = (pNormExponent * (sigma_vm ** (pNormExponent - 1))) * (d_sigma_vm_dE * dE_dz[:,d])
@@ -283,12 +290,20 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         grad_pnorm_stress = np.zeros_like(zeta)
         grad_pnorm_stress[0:num_elems] = grad_vm_density
         grad_pnorm_stress[num_elems:] = grad_vm_z
+
         return vm_pnorm, grad_pnorm_stress
+    
     elif objectiveType == TO_QOI.MASS:
+        decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
+        mass_density = matEncoder.getMaterialProperties(decoded)['Density']
+        pseudodensity = zetaTensor[0:num_elems]
         elemVolume =  fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
-        totalMass = np.einsum('m,m->m', mass_density, x).sum()*elemVolume 
-        grad_mass = np.concatenate((mass_density*elemVolume, (dMassDensity_dz*x*elemVolume).flatten()))
-        return totalMass, grad_mass
+        zetaTensor.grad = None
+        totalMass = torch.einsum('m,m->m', mass_density, pseudodensity).sum()*elemVolume 
+        totalMass.backward(retain_graph=True)
+        obj_mass = totalMass.detach().numpy()
+        grad_mass = zetaTensor.grad.detach().numpy()
+        return obj_mass, grad_mass
     else:
         raise NotImplementedError(f"Objective {objectiveType} is not implemented yet.")
     
@@ -305,48 +320,10 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
     nConstraints = len(to_params.Constraints)
     num_elems = fe_solver.mesh.num_elems
     x = zeta[0:num_elems]
+    zetaTensor = torch.tensor(zeta).float()
+    zetaTensor.requires_grad = True
+
     latentDim = matEncoder.vae_params.latentDim
-
-    zPts = zeta[num_elems:].reshape((latentDim, -1)).T
-    material_properties, gradients = matEncoder.getMaterialPropertiesAtLatentPoints(zPts, compute_gradients=True)
-
-    if 'Youngs_Modulus' in material_properties:
-        EDesign = material_properties['Youngs_Modulus'].detach().numpy()
-        dE_dz = gradients['Youngs_Modulus'].detach().numpy().T
-    else:
-        EDesign = None
-        dE_dz = None
-
-    if 'Density' in material_properties:
-        mass_density = material_properties['Density'].detach().numpy()
-        dMassDensity_dz = gradients['Density'].detach().numpy().T
-    else:
-        mass_density = None
-        dMassDensity_dz = None
-
-    if 'Cost' in material_properties:
-        cost_per_unitmass = material_properties['Cost'].detach().numpy()
-        dCost_dz = gradients['Cost'].detach().numpy().T
-    else:
-        cost_per_unitmass = None
-        dCost_dz = None
-
-    if 'Criticality' in material_properties:
-        criticality = material_properties['Criticality'].detach().numpy()
-        dCriticality_dz = gradients['Criticality'].detach().numpy().T
-    else:
-        criticality = None
-        dCriticality_dz = None
-
-    if 'Yield_Strength' in material_properties:
-        YDesign = material_properties['Yield_Strength'].detach().numpy()
-        dY_dz = gradients['Yield_Strength'].detach().numpy().T
-    else:
-        YDesign = None
-        dY_dz = None
-
-    penal = SIMP_STRUCTURAL_PENALTY
-    pNormExponent = PNORM_EXPONENT
 
     c = np.zeros((nConstraints, 1))
     num_design_var = zeta.size
@@ -355,15 +332,27 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
         constraintType = to_params.Constraints[m][0]
         optionalParam = to_params.Constraints[m][1]
         constraintLimit = to_params.Constraints[m][2]
+
         if constraintType == TO_QOI.COMPLIANCE:
+            decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
+            material_properties = matEncoder.getMaterialProperties(decoded)
+            youngsModulus = material_properties['Youngs_Modulus']
+            EDesign = youngsModulus.detach().numpy()
             compliance = np.einsum('i, i -> ', fe_solver.total_force, sol)
             ce = (np.dot(sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
+            penal = 3.0
             dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
             dJ_dEDesign = np.asarray((x ** penal) * ce)
-            dJ_dzeta = (dJ_dEDesign * dE_dz).flatten()
-            grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzeta))
-            c[m, 0] = compliance/constraintLimit-1
-            dc[m, :] = grad_compliance / constraintLimit
+            dJ_dEDesign_tensor = torch.tensor(dJ_dEDesign)
+            zetaTensor.grad = None
+            youngsModulus.backward(dJ_dEDesign_tensor)
+            dJ_dzeta = zetaTensor.grad.detach().numpy()
+            grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzeta[num_elems:].flatten()))
+            complianceConstraint = ((compliance / constraintLimit) - 1.0)
+            grad_complianceConstraint = grad_compliance / constraintLimit
+            c[m, 0] = complianceConstraint
+            dc[m, :] = grad_complianceConstraint
+
         elif constraintType == TO_QOI.VOLUME_FRACTION:
             volfracConstraint, volfracConstraint_gradient = compute_volumefraction_constraint_and_gradient(
                 x, constraintLimit)
@@ -371,63 +360,84 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             grad_volfracConstraint[0:num_elems] = volfracConstraint_gradient
             c[m, 0] = volfracConstraint
             dc[m, :] = grad_volfracConstraint
+            
         elif constraintType == TO_QOI.MASS:
-            elemVolume =  fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
-            totalMass =  (mass_density * x).sum()*elemVolume 
-            grad_mass = np.concatenate((mass_density*elemVolume, (dMassDensity_dz*x*elemVolume).flatten()))
-            c[m, 0] = totalMass/constraintLimit - 1.0
-            dc[m, :] = grad_mass / constraintLimit
+            decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
+            mass_density = matEncoder.getMaterialProperties(decoded)['Density']
+            pseudodensity = zetaTensor[0:num_elems]
+            elemVolume = fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
+            totalMass = torch.einsum('m,m->m', mass_density, pseudodensity).sum()*elemVolume 
+            zetaTensor.grad = None
+            massConstraint = ((totalMass / constraintLimit) - 1.0)
+            massConstraint.backward(retain_graph=True)
+            cons_mass = massConstraint.detach().numpy()
+            grad_cons_mass = zetaTensor.grad.detach().numpy()
+            c[m, 0] = cons_mass
+            dc[m, :] = grad_cons_mass
+        
         elif constraintType == TO_QOI.COST:
-            elemVolume =  fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
-            totalCost =  (mass_density* cost_per_unitmass * x).sum()*elemVolume 
-            dTotalCost_dz = (dMassDensity_dz * cost_per_unitmass + mass_density * dCost_dz)*x*elemVolume
-            dTotalCost_dx = mass_density * cost_per_unitmass * elemVolume
-            grad_cost = np.concatenate((dTotalCost_dx, (dTotalCost_dz).flatten()))
-            c[m, 0] = totalCost/constraintLimit - 1.0
-            dc[m, :] = grad_cost / constraintLimit
+            decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
+            mass_density = matEncoder.getMaterialProperties(decoded)['Density']
+            costperunitmass = matEncoder.getMaterialProperties(decoded)['Cost']
+            pseudodensity = zetaTensor[0:fe_solver.mesh.num_elems]
+            elemVolume = fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
+            totalCost = torch.einsum('m,m,m->m', mass_density, costperunitmass, pseudodensity).sum()*elemVolume
+            costConstraint = ((totalCost /constraintLimit) - 1.0)
+            zetaTensor.grad = None
+            costConstraint.backward(retain_graph=True)
+            cons_cost = costConstraint.detach().numpy()
+            grad_cons_cost = zetaTensor.grad.detach().numpy()
+            c[m, 0] = cons_cost
+            dc[m, :] = grad_cons_cost
         elif constraintType == TO_QOI.MAX_CRITICALITY:
-            pnorm_criticality = np.sum(criticality ** pNormExponent) ** (1.0 / pNormExponent)
-            maxCriticality = pnorm_criticality
-            dpnorm_dcriticality = (criticality ** (pNormExponent - 1)) / (pnorm_criticality ** (pNormExponent - 1))
-            dpnorm_dz = dCriticality_dz * dpnorm_dcriticality[np.newaxis, :]  # Broadcasting
-            grad_crit_z = dpnorm_dz.flatten()
-            grad_cons_criticality = np.zeros_like(zeta)
-            grad_cons_criticality[num_elems:] = grad_crit_z / constraintLimit
-            c[m, 0] = ((maxCriticality / constraintLimit) - 1.0)
+            decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
+            criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
+            maxCriticality = torch.max(criticality)
+            criticalityConstraint = ((maxCriticality / constraintLimit) - 1.0)
+            zetaTensor.grad = None
+            criticalityConstraint.backward(retain_graph=True)
+            cons_criticality = criticalityConstraint.detach().numpy()
+            grad_cons_criticality = zetaTensor.grad.detach().numpy()
+            c[m, 0] = cons_criticality
             dc[m, :] = grad_cons_criticality
         elif constraintType == TO_QOI.MEAN_CRITICALITY:
-            # Compute mean criticality
-            mean_criticality = np.mean(criticality)
-            grad_cons_mean_criticality = np.zeros_like(zeta)
-            grad_cons_mean_criticality[num_elems:] = dCriticality_dz.flatten() / constraintLimit/len(criticality)
-            c[m, 0] = ((mean_criticality / constraintLimit) - 1.0)
-            dc[m, :] = grad_cons_mean_criticality
+            decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
+            criticality = matEncoder.getMaterialProperties(decoded)['Criticality']
+            meanCriticality = torch.mean(criticality)
+            criticalityConstraint = ((meanCriticality / constraintLimit) - 1.0)
+            zetaTensor.grad = None
+            criticalityConstraint.backward(retain_graph=True)
+            cons_criticality = criticalityConstraint.detach().numpy()
+            grad_cons_criticality = zetaTensor.grad.detach().numpy()
+            print(np.max(np.abs(grad_cons_criticality)))
+            c[m, 0] = cons_criticality
+            dc[m, :] = grad_cons_criticality
         elif constraintType == TO_QOI.STRESS_FAILURE_FACTOR:
-            ff_pNorm, grad_ff_density,stress_ff_max = compute_pnorm_safety_factor_and_sensitivity(
+            decoded = matEncoder.vaeNet.decoder(zetaTensor[num_elems:].view(latentDim,-1).T)
+            material_properties = matEncoder.getMaterialProperties(decoded)
+            ETensor = material_properties['Youngs_Modulus']
+            YTensor = material_properties['Yield_Strength']
+            YDesign= YTensor.detach().numpy()
+            EDesign = ETensor.detach().numpy()
+
+            inv_sf_pnorm, grad_ff_density,stress_ff_max = compute_pnorm_safety_factor_and_sensitivity(
                 sol, x, fe_solver,EDesign,YDesign, KETemplate, MaterialModel.SIMP)
             safety_constraint = stress_ff_max/constraintLimit - 1.0
             c[m, 0] = safety_constraint
             grad_stress_ff = np.zeros_like(zeta)
             grad_stress_ff[:num_elems] = grad_ff_density/constraintLimit
-            
-            # 2. Compute latent variable part of gradient (manual approach using dY_dz)
+
+            # 2. Compute latent variable part of gradient (simple approach)
+            # we assume that latent variables have a more direct influence on yield strength than on von Mises stress via E
             sigma_vm = fe_solver.vonMisesStress
-            P = pNormExponent
-
-            # Compute p-norm
-            stress_ff_np = sigma_vm / YDesign
-            sum_term = np.sum(stress_ff_np ** P)
-
-            # d(ff_pNorm)/dY for each element
-            outer = sum_term ** ((1.0 / P) - 1)
-            d_ff_pNorm_dY = outer * (stress_ff_np ** (P - 1)) * (-sigma_vm / (YDesign ** 2))
-            # Shape: (num_elems,)
-
-            # dY_dz is shape (latentDim, num_elems)
-            d_ff_pNorm_dz = (d_ff_pNorm_dY[:, np.newaxis] * dY_dz.T).flatten(order='F')
-            # Shape: (num_elems * latentDim,)
-
-            grad_stress_ff[num_elems:] = d_ff_pNorm_dz / constraintLimit
+            pNormExponent = 6
+            stress_ff = torch.tensor(sigma_vm) / YTensor
+            # we can use max directly, but to keep consistent with p-norm approach used above
+            ff_pNorm= torch.sum(stress_ff ** pNormExponent) ** (1.0 / pNormExponent)
+            zetaTensor.grad = None
+            ff_pNorm.backward(retain_graph=True)
+            grad_stress_ff[num_elems:] = zetaTensor.grad[num_elems:].detach().numpy()/constraintLimit
+            
             dc[m, :] = grad_stress_ff
         else:
             raise NotImplementedError(f"Constraint {constraintType} is not implemented yet.")
