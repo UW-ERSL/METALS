@@ -360,8 +360,8 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             ce = (np.dot(sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
             dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
             dJ_dEDesign = np.asarray((x ** penal) * ce)
-            dJ_dzeta = (dJ_dEDesign * dE_dz).flatten()
-            grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzeta))
+            dJ_dz = (dJ_dEDesign * dE_dz).flatten()
+            grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dz))
             c[m, 0] = compliance/constraintLimit-1
             dc[m, :] = grad_compliance / constraintLimit
         elif constraintType == TO_QOI.VOLUME_FRACTION:

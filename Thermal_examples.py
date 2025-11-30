@@ -167,7 +167,7 @@ def createBliskSectionThermalProblem_TempBC(mesh=None, nDOFDesired: int = 10000,
     return mesh, mat_prop, bc
 
 def createLBracketThermalProblem(mesh=None, nDOFDesired: int = 10000, 
-                                 temp_at_load=800, temp_at_wall=50, thermal_conductivity=1.0):
+                                 temp_at_load=500, temp_at_wall=50, thermal_conductivity=1.0):
     """
     Creates a thermal problem setup for an L-bracket topology optimization.
     If mesh is not provided, creates it using the structural LBracket problem.

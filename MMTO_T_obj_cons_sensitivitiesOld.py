@@ -216,8 +216,9 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             TempLimit = matEncoder.getMaterialProperties(decoded)['Temp_Limit']
             pseudodensity = zetaTensor[0:num_elems]
             T_tensor = torch.tensor(T).float()
-            inv_T_SF_elem = (pseudodensity > 0.5) * T_tensor / TempLimit
-            inv_T_SF = torch.max(inv_T_SF_elem)
+            FF_elem = T_tensor / TempLimit
+            pNormExponent = 6
+            inv_T_SF = torch.sum(FF_elem ** pNormExponent) ** (1.0 / pNormExponent)
             safety_constraint = inv_T_SF/constraintLimit - 1.0 
             zetaTensor.grad = None
             safety_constraint.backward(retain_graph=True)
@@ -247,7 +248,7 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, T, zeta, fe_solver_stru
             # 2. Compute latent variable part of gradient (chain rule)
             sigma_vm = fe_solver_structural.vonMisesStress
             pNormExponent = 6
-            stress_ff = torch.tensor(sigma_vm) / YTensor
+            stress_ff = torch.tensor(sigma_vm) / Fatigue_limit_Tensor
             # we can use max directly, but to keep consistent with p-norm approach used above
             ff_pNorm= torch.sum(stress_ff ** pNormExponent) ** (1.0 / pNormExponent)
             zetaTensor.grad = None

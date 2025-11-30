@@ -4,8 +4,7 @@ import time
 import os
 from MMTO_T_examples import MMTOTempDependentExamples, getMMTOTempDependentProblem, material_colors
 from materialEncoder import MaterialEncoder
-import matplotlib.pyplot as plt
-from MMTO_T_obj_cons_sensitivitiesOld import (
+from MMTO_T_obj_cons_sensitivities import (
     compute_mmto_objective_and_gradient,
     compute_mmto_constraint_and_gradient,
 )
@@ -20,8 +19,6 @@ class Z0InitMethod(Enum):
     BEST_STRENGTH_TO_DENSITY = 'best_strength_to_density'
     ORIGIN = 'origin'
     UNIFORM = 'uniform'
-
-
 
 def run_topopt(
     to_problem,
@@ -53,9 +50,9 @@ def run_topopt(
     matEncoder.printModulusDropAtTempLimit()
     matEncoder.printYieldStrengthDropAtTempLimit()
     
-    matEncoder.plotTemperatureVsMaterialPropertyRaw("E", semilogy=True, colors=material_colors)
-    matEncoder.plotTemperatureVsMaterialPropertyRaw("Y", semilogy=True, colors=material_colors)
-    matEncoder.plotTemperatureVsMaterialPropertyRaw("K", semilogy=True, colors=material_colors)
+    # matEncoder.plotTemperatureVsMaterialPropertyRaw("E", semilogy=True, colors=material_colors)
+    # matEncoder.plotTemperatureVsMaterialPropertyRaw("Y", semilogy=True, colors=material_colors)
+    # matEncoder.plotTemperatureVsMaterialPropertyRaw("K", semilogy=True, colors=material_colors)
 
    
     if saveNet is None:
@@ -78,7 +75,7 @@ def run_topopt(
     # Print encoding errors for all attributes after training
     matEncoder.printEncodingErrors()
     zRealTorch = matEncoder.training_latents
-    matEncoder.plotLSR(zRealTorch.detach().cpu().numpy())
+    #matEncoder.plotLSR(zRealTorch.detach().cpu().numpy())
 
 
     solver = linear_solvers.Solvers.PARDISO
@@ -377,7 +374,7 @@ def run_topopt(
     Y = matEncoder.getMaterialPropertyAtTemperature("Y", zOptimalPts, Temp_elem)
     Temp_Limit = matEncoder.getValuesAtLatentPoints("Temp_Limit", zOptimalPts)
     isTemperatureWithinLimits = (Temp_elem <= Temp_Limit.flatten()) | (xDesign < 0.9)
-    print(f"Number of elements exceeding Temp Limit: {np.sum(~isTemperatureWithinLimits)} out of {num_elems}")
+    print(f"#Elements exceeding Temp Limit: {np.sum(~isTemperatureWithinLimits)} / {num_elems}")
 
     fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Is Within Limits', colormap='RdYlGn')
     fe_solver_structural.plot_elem_field(E, title='Young\'s Modulus', colormap='plasma')
@@ -391,7 +388,7 @@ def run_topopt(
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zOptimalPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    to_problem = MMTOTempDependentExamples.LBracket_Compliance_Mass
+    to_problem = MMTOTempDependentExamples.LBracket_Mass_MultipleConstraints
     run_topopt(
         to_problem=to_problem,
         turnOnThermal=True,

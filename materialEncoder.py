@@ -230,53 +230,55 @@ class MaterialEncoder:
             M = bezierInterpolation_torch(T, M0, M1, M2, M3)
         return M
 
-    def getMaterialPropertiesAtTemperature(self, zPts, T, compute_gradients=False):
+    def getValueOfAttributeAtZLocationAtTemperature(self, attributeName, zPts, T, compute_gradients=False):
         if compute_gradients:
             zPts_tensor = torch.tensor(zPts, dtype=torch.float32, requires_grad=True) if not isinstance(zPts, torch.Tensor) else zPts.clone().detach().requires_grad_(True)
             decoded = self.vaeNet.decoder(zPts_tensor)
             material_properties = self.getMaterialProperties(decoded)
-            properties_at_T = {}
-            gradients = {}
-            for name in self.materialAttributes.keys():
-                if name in ['E', 'Y']:
-                    M0 = material_properties[name + '0']
-                    M1 = material_properties[name + '1']
-                    M2 = material_properties[name + '2']
-                    M3 = material_properties[name + '3']
-                    M_at_T = logBezierInterpolation_torch(T, M0, M1, M2, M3)
-                elif name == 'K':
-                    M0 = material_properties[name + '0']
-                    M1 = material_properties[name + '1']
-                    M2 = material_properties[name + '2']
-                    M3 = material_properties[name + '3']
-                    M_at_T = bezierInterpolation_torch(T, M0, M1, M2, M3)
-                else:
-                    continue
-                properties_at_T[name] = M_at_T
-                M_at_T.sum().backward(retain_graph=True)
-                gradients[name] = zPts_tensor.grad.clone()
-                zPts_tensor.grad.zero_()
-            return properties_at_T, gradients
+            
+            # Get the specific attribute value at temperature T
+            if attributeName in ['E', 'Y']:
+                M0 = material_properties[attributeName + '0']
+                M1 = material_properties[attributeName + '1']
+                M2 = material_properties[attributeName + '2']
+                M3 = material_properties[attributeName + '3']
+                value_at_T = logBezierInterpolation_torch(T, M0, M1, M2, M3)
+            elif attributeName == 'K':
+                M0 = material_properties[attributeName + '0']
+                M1 = material_properties[attributeName + '1']
+                M2 = material_properties[attributeName + '2']
+                M3 = material_properties[attributeName + '3']
+                value_at_T = bezierInterpolation_torch(T, M0, M1, M2, M3)
+            else:
+                # For non-temperature dependent attributes, return the attribute directly
+                value_at_T = material_properties[attributeName]
+            
+            # Compute gradient
+            value_at_T.sum().backward()
+            gradient = zPts_tensor.grad.clone()
+            
+            return value_at_T.detach().numpy(), gradient.detach().numpy().T
         else:
             with torch.no_grad():
                 decoded = self.vaeNet.decoder(zPts)
                 material_properties = self.getMaterialProperties(decoded)
-                properties_at_T = {}
-                for name in self.materialAttributes.keys():
-                    if name in ['E', 'Y']:
-                        M0 = material_properties[name + '0']
-                        M1 = material_properties[name + '1']
-                        M2 = material_properties[name + '2']
-                        M3 = material_properties[name + '3']
-                        M_at_T = logBezierInterpolation_torch(T, M0, M1, M2, M3)
-                    elif name == 'K':
-                        M0 = material_properties[name + '0']
-                        M1 = material_properties[name + '1']
-                        M2 = material_properties[name + '2']
-                        M3 = material_properties[name + '3']
-                        M_at_T = bezierInterpolation_torch(T, M0, M1, M2, M3)
-                    else:
-                        continue
+                
+                if attributeName in ['E', 'Y']:
+                    M0 = material_properties[attributeName + '0']
+                    M1 = material_properties[attributeName + '1']
+                    M2 = material_properties[attributeName + '2']
+                    M3 = material_properties[attributeName + '3']
+                    value_at_T = logBezierInterpolation_torch(T, M0, M1, M2, M3)
+                elif attributeName == 'K':
+                    M0 = material_properties[attributeName + '0']
+                    M1 = material_properties[attributeName + '1']
+                    M2 = material_properties[attributeName + '2']
+                    M3 = material_properties[attributeName + '3']
+                    value_at_T = bezierInterpolation_torch(T, M0, M1, M2, M3)
+                else:
+                    value_at_T = material_properties[attributeName]
+                
+            return value_at_T.detach().numpy()
                     
     def getMaterialPropertiesAtLatentPoints(self, zPts, compute_gradients=False):
         if compute_gradients:

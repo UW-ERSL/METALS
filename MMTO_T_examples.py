@@ -40,7 +40,7 @@ class MMTOTempDependentExamples(enum.Enum):
     LBracket_Stress_MassVolumeTemp = enum.auto()
     LBracket_Stress_MassCompliance = enum.auto()
     LBracket_Stress_MultipleConstraints = enum.auto()
-    LBracket_Mass_StressFF = enum.auto()    
+    LBracket_Mass_StressFF_Compliance = enum.auto()    
     LBracket_Mass_MultipleConstraints = enum.auto()    
 
 
@@ -78,7 +78,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.Constraints=[(TO_QOI.MASS, None, 25)]
         vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
-        vae_params.vae_hiddenDim = 750
+        vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
     elif to_problem == MMTOTempDependentExamples.LBracket_Compliance_MassCost:
         structural_problem=MMTOStructuralExamples.LBracket
@@ -93,7 +93,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.Constraints=[(TO_QOI.MASS, None, 25), (TO_QOI.COST, None, 200)]
         vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
-        vae_params.vae_hiddenDim = 750
+        vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000        
     elif to_problem == MMTOTempDependentExamples.LBracket_Stress_MassVolumeTemp:
         structural_problem=MMTOStructuralExamples.LBracket
@@ -112,10 +112,10 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
-    elif to_problem == MMTOTempDependentExamples.LBracket_Mass_StressFF:
+    elif to_problem == MMTOTempDependentExamples.LBracket_Mass_StressFF_Compliance:
         structural_problem=MMTOStructuralExamples.LBracket
         thermal_problem=MMTOThermalExamples.LBracketThermal
-        Force = 250
+        Force = 500
         kwargs['topload'] = Force
         kwargs['midload'] = 0
         to_params.Comment  = "Thermal + Structural TO Problem"
@@ -124,7 +124,8 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         to_params.ExtrudeZ = True
         to_params.Eliminate_Hanging_Elements = False
         to_params.nDOFDesired =25000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 1)]
+        to_params.Constraints=[ (TO_QOI.STRESS_FAILURE_FACTOR, None, 1),
+                               (TO_QOI.COMPLIANCE, None, 0.0001*Force)]
         vae_params.latentDim = 6
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
@@ -188,7 +189,7 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
         vae_params.learningRate = 2e-5
         vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
-        vae_params.latentDim = 3
+        vae_params.latentDim = 6
     elif to_problem == MMTOTempDependentExamples.BliskSection_Compliance_Mass:
         structural_problem = MMTOStructuralExamples.BliskSection
         thermal_problem=MMTOThermalExamples.BliskSection
@@ -202,9 +203,9 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
 
         # for large number of materials and attributes, we need to train the VAE longer
         vae_params.learningRate = 2e-5
-        vae_params.vae_hiddenDim = 750
+        vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
-        vae_params.latentDim = 2
+        vae_params.latentDim = 6
 
     elif to_problem == MMTOTempDependentExamples.BliskSection_Stress_MassComplianceCriticality:
         structural_problem = MMTOStructuralExamples.BliskSection
@@ -219,9 +220,9 @@ def getMMTOTempDependentProblem(to_problem: MMTOTempDependentExamples,nDOFDesire
 
         # for large number of materials and attributes, we need to train the VAE longer
         vae_params.learningRate = 2e-5
-        vae_params.vae_hiddenDim = 750
+        vae_params.vae_hiddenDim = 500
         vae_params.numEpochs = 200000
-        vae_params.latentDim = 3
+        vae_params.latentDim = 6
 
     elif to_problem == MMTOTempDependentExamples.BliskSection_Mass_MultipleConstraints:
         structural_problem = MMTOStructuralExamples.BliskSection
