@@ -9,10 +9,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
 
-    qStress = SIMP_STRESS_RELAXATION  # STRESS relaxation factor
-    pSIMP = SIMP_STRUCTURAL_PENALTY   # SIMP penalization
-    pNormExponent = PNORM_EXPONENT  # p-norm exponent
-
+    pNormExponent = get_pNorm_exponent()
     # Get element-wise Poisson's ratio
     if isinstance(fe_solver.mat_prop, list):
         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
@@ -74,7 +71,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     for e in range(nelems):
         edof = mesh.edofMatStructural[e]
         u_e = sol[edof]
-        beta[e] = qStress * (x[e]**(qStress-1)) * (vm_elems[e]**(pNormExponent-1)) * DvmDs_all[e] @ D[e] @ B @ u_e
+        beta[e] = get_stress_relaxation_factor_sensitivity(x[e]) * (vm_elems[e]**(pNormExponent-1)) * DvmDs_all[e] @ D[e] @ B @ u_e
     
     T1 = dpn_dvms * beta
     
@@ -82,7 +79,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):
         edof = mesh.edofMatStructural[e]
-        g_e = (x[e]**qStress) * dpn_dvms * B.T @ D[e].T @ DvmDs_all[e] * (vm_elems[e]**(pNormExponent-1))
+        g_e = get_stress_relaxation_correction(x[e]) * dpn_dvms * B.T @ D[e].T @ DvmDs_all[e] * (vm_elems[e]**(pNormExponent-1))
         g[edof] += g_e
     
     # Solve adjoint equation
@@ -98,7 +95,7 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
     nRows = KETemplate.shape[0]
     ce = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) * sol[dofMat].reshape(nelems, nRows)).sum(1)*EDesign
     
-    T2 = -pSIMP * (x**(pSIMP-1)) * ce  # Note the negative sign from MATLAB
+    T2 = -get_structural_material_model_sensitivity(x,material_model) * ce  # Note the negative sign from MATLAB
     
     vm_pnorm_sensitivity = T1 + T2
     max_vm = np.max(vm_elems)
@@ -109,7 +106,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     """
     MMTO-compatible: Compute p-norm of inverse safety factor and its sensitivity with respect to x.
     """
-    pNormExponent = PNORM_EXPONENT  # p-norm exponent
+    pNormExponent = get_pNorm_exponent()  # p-norm exponent
     # Compute inverse safety factor per element
     sigma_vm = fe_solver.vonMisesStress
     Y = YDesign
@@ -127,9 +124,6 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
 
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
-
-    qStress = SIMP_STRESS_RELAXATION  # STRESS relaxation factor
-    pSIMP = SIMP_STRUCTURAL_PENALTY    # SIMP penalization
 
     # Get element-wise Poisson's ratio
     if isinstance(fe_solver.mat_prop, list):
@@ -190,7 +184,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     for e in range(nelems):
         edof = mesh.edofMatStructural[e]
         u_e = sol[edof]
-        beta[e] = qStress * (x[e]**(qStress-1)) * (inv_sf_elems[e]**(pNormExponent-1)) * DinvSfDs_all[e] @ D[e] @ B @ u_e
+        beta[e] = get_stress_relaxation_factor_sensitivity(x[e]) * (inv_sf_elems[e]**(pNormExponent-1)) * DinvSfDs_all[e] @ D[e] @ B @ u_e
 
     T1 = dpn_dinv_sf * beta
 
@@ -198,7 +192,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):
         edof = mesh.edofMatStructural[e]
-        g_e = (x[e]**qStress) * dpn_dinv_sf * B.T @ D[e].T @ DinvSfDs_all[e] * (inv_sf_elems[e]**(pNormExponent-1))
+        g_e = get_stress_relaxation_correction(x[e]) * dpn_dinv_sf * B.T @ D[e].T @ DinvSfDs_all[e] * (inv_sf_elems[e]**(pNormExponent-1))
         g[edof] += g_e
 
     # Solve adjoint equation
@@ -214,7 +208,7 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     nRows = KETemplate.shape[0]
     ce = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) * sol[dofMat].reshape(nelems, nRows)).sum(1)*EDesign
 
-    T2 = -pSIMP * (x**(pSIMP-1)) * ce  # Note the negative sign from MATLAB
+    T2 = -get_structural_material_model_sensitivity(x, material_model) * ce  # Note the negative sign from MATLAB
 
     inv_sf_pnorm_sensitivity = T1 + T2
     max_inv_sf = np.max(inv_sf_elems)
@@ -240,6 +234,7 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
     num_elems = fe_solver.mesh.num_elems
     x = zeta[0:fe_solver.mesh.num_elems]
 
+    material_model = to_params.materialModel
     latentDim = matEncoder.vae_params.latentDim
     zPts = zeta[num_elems:].reshape((latentDim, -1)).T
     material_properties, gradients = matEncoder.getMaterialPropertiesAtLatentPoints(zPts, compute_gradients=True)
@@ -258,13 +253,13 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         mass_density = None
         dMassDensity_dz = None
 
-    penal = SIMP_STRUCTURAL_PENALTY
-    pNormExponent = PNORM_EXPONENT
+   
+    pNormExponent = get_pNorm_exponent()
     if objectiveType == TO_QOI.COMPLIANCE:
         compliance = np.einsum('i, i -> ', fe_solver.total_force, sol)
         ce = (np.dot(sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
-        dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
-        dJ_dEDesign = np.asarray((x ** penal) * ce)
+        dJ_dxDesign = (-get_structural_material_model_sensitivity(x, material_model)) * EDesign * ce
+        dJ_dEDesign = np.asarray((get_structural_material_model_scaling(x, material_model)) * ce)
         dJ_dzeta = (dJ_dEDesign * dE_dz).flatten()
         grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzeta))
         return compliance, grad_compliance
@@ -309,6 +304,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
 
     zPts = zeta[num_elems:].reshape((latentDim, -1)).T
     material_properties, gradients = matEncoder.getMaterialPropertiesAtLatentPoints(zPts, compute_gradients=True)
+    material_model = to_params.materialModel
 
     if 'Youngs_Modulus' in material_properties:
         EDesign = material_properties['Youngs_Modulus'].detach().numpy()
@@ -345,8 +341,8 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
         YDesign = None
         dY_dz = None
 
-    penal = SIMP_STRUCTURAL_PENALTY
-    pNormExponent = PNORM_EXPONENT
+    
+    pNormExponent = get_pNorm_exponent()
 
     c = np.zeros((nConstraints, 1))
     num_design_var = zeta.size
@@ -358,8 +354,8 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
         if constraintType == TO_QOI.COMPLIANCE:
             compliance = np.einsum('i, i -> ', fe_solver.total_force, sol)
             ce = (np.dot(sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
-            dJ_dxDesign = (-penal * x ** (penal - 1)) * EDesign * ce
-            dJ_dEDesign = np.asarray((x ** penal) * ce)
+            dJ_dxDesign = (-get_structural_material_model_sensitivity(x, material_model)) * EDesign * ce
+            dJ_dEDesign = np.asarray((get_structural_material_model_scaling(x)) * ce)
             dJ_dz = (dJ_dEDesign * dE_dz).flatten()
             grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dz))
             c[m, 0] = compliance/constraintLimit-1

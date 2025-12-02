@@ -154,6 +154,8 @@ class MaterialEncoder:
     def loadAutoencoderFromFile(self, fileName):
         self.vaeNet.load_state_dict(torch.load(fileName))
         self.vaeNet.eval()
+        self.training_latents = self.vaeNet.encoder(self.scaledMaterialData).cpu()
+
 
     def trainAutoencoder(self, numEpochs, klFactor, savedNet, learningRate, maxAttributeErrorPercent=0.0005):
         opt = torch.optim.AdamW(self.vaeNet.parameters(), learningRate)
@@ -181,6 +183,7 @@ class MaterialEncoder:
             opt.step()
         self.vaeNet.encoder.isTraining = False
         torch.save(self.vaeNet.state_dict(), savedNet)
+        self.training_latents = self.vaeNet.encoder(self.scaledMaterialData).cpu()
         return convgHistory
 
     def getMaterialName(self, index):

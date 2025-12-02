@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import time
 import os
+import matplotlib.colors as mcolors
 from MMTO_examples import MMTOExamples, getMMTOProblem, material_colors
 from materialEncoder import MaterialEncoder
 from MMTO_obj_cons_sensitivities import (
@@ -314,9 +315,8 @@ def run_topopt(
     plt.grid()
     plt.show()
     material_indices = matEncoder.getClosestRealMaterialIndex(zOptimalPts)  # shape: (num_elems,)
-    
     colors = [material_colors[int(idx.item()) if hasattr(idx, "item") else int(idx)] for idx in material_indices]
-    import matplotlib.colors as mcolors
+    
     rgb_colors = np.array([mcolors.to_rgb(c) for c in colors])
     fe_solver_structural.plot_elem_field(material_indices, title='Real Materials', colors=rgb_colors)
 if __name__ == "__main__":

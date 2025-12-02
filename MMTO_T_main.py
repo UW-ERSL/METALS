@@ -15,8 +15,8 @@ class Z0InitMethod(Enum):
     LIGHTEST = 'lightest'
     HEAVIEST = 'heaviest'
     STRONGEST = 'strongest'
-    BEST_STIFFNESS_TO_DENSITY = 'best_stiffness_to_density'
-    BEST_STRENGTH_TO_DENSITY = 'best_strength_to_density'
+    HIGHEST_STIFFNESS_TO_DENSITY = 'highest_stiffness_to_density'
+    HIGHEST_STRENGTH_TO_DENSITY = 'highest_strength_to_density'
     ORIGIN = 'origin'
     UNIFORM = 'uniform'
 
@@ -50,9 +50,9 @@ def run_topopt(
     matEncoder.printModulusDropAtTempLimit()
     matEncoder.printYieldStrengthDropAtTempLimit()
     
-    # matEncoder.plotTemperatureVsMaterialPropertyRaw("E", semilogy=True, colors=material_colors)
-    # matEncoder.plotTemperatureVsMaterialPropertyRaw("Y", semilogy=True, colors=material_colors)
-    # matEncoder.plotTemperatureVsMaterialPropertyRaw("K", semilogy=True, colors=material_colors)
+    matEncoder.plotTemperatureVsMaterialPropertyRaw("E", semilogy=True, colors=material_colors)
+    matEncoder.plotTemperatureVsMaterialPropertyRaw("Y", semilogy=True, colors=material_colors)
+    matEncoder.plotTemperatureVsMaterialPropertyRaw("K", semilogy=True, colors=material_colors)
 
    
     if saveNet is None:
@@ -291,11 +291,11 @@ def run_topopt(
         zStrongest = matEncoder.getStrongestMaterial()
         for i in range(latentDim):
             z0[i*num_elems:(i+1)*num_elems] = zStrongest[i]
-    elif z0_init_method == Z0InitMethod.BEST_STIFFNESS_TO_DENSITY:
+    elif z0_init_method == Z0InitMethod.HIGHEST_STIFFNESS_TO_DENSITY:
         zBest = matEncoder.getBestStiffnessToDensityMaterial()
         for i in range(latentDim):
             z0[i*num_elems:(i+1)*num_elems] = zBest[i]
-    elif z0_init_method == Z0InitMethod.BEST_STRENGTH_TO_DENSITY:
+    elif z0_init_method == Z0InitMethod.HIGHEST_STRENGTH_TO_DENSITY:
         zBest = matEncoder.getBestStrengthToDensityMaterial()
         for i in range(latentDim):
             z0[i*num_elems:(i+1)*num_elems] = zBest[i]
@@ -376,9 +376,9 @@ def run_topopt(
     isTemperatureWithinLimits = (Temp_elem <= Temp_Limit.flatten()) | (xDesign < 0.9)
     print(f"#Elements exceeding Temp Limit: {np.sum(~isTemperatureWithinLimits)} / {num_elems}")
 
-    fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Is Within Limits', colormap='RdYlGn')
+    fe_solver_structural.plot_elem_field(isTemperatureWithinLimits, title='Temperature Within Limits', colormap='RdYlGn')
     fe_solver_structural.plot_elem_field(E, title='Young\'s Modulus', colormap='plasma')
-    fe_solver_structural.plot_elem_field(Y, title='Yield Strength', colormap='plasma')
+    fe_solver_structural.plot_elem_field(Y, title='Yield Strength', colormap='plasma',annotate_max_min=True)
 
     elem_colors_RGB = [material_colors_rgb[idx] for idx in closest_index]
     fe_solver_structural.plot_elem_field(closest_index, show_geometry = False, colors = elem_colors_RGB, title='Material Distribution')
@@ -388,7 +388,7 @@ def run_topopt(
     matEncoder.plotLSR(zRealTorch.detach().cpu().numpy(), zOptimalPts, xDesign=xDesign)
 
 if __name__ == "__main__":
-    to_problem = MMTOTempDependentExamples.LBracket_Mass_MultipleConstraints
+    to_problem = MMTOTempDependentExamples.LBracket_Compliance_Mass
     run_topopt(
         to_problem=to_problem,
         turnOnThermal=True,
