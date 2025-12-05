@@ -3,6 +3,7 @@ import torch
 import time
 import os
 import matplotlib.colors as mcolors
+
 from MMTO_TS_examples import MMTOThermostructuralExamples, getMMTOThermostructuralProblem, material_colors
 from materialEncoder import MaterialEncoder
 from MMTO_obj_cons_sensitivities_TS import (
@@ -31,9 +32,11 @@ def run_topopt_TS(
     maxIterations = 150,
     binarize_topology = True,
     z0_init_method = Z0InitMethod.ORIGIN,  
+    use_continuation = True,
     gamma_init = 1e-6,
     gamma_max = 1,
-    gamma_factor = 1.25):
+    gamma_factor = 1.25, 
+    plotter=None ):
 
     history = {
         "objective": [],
@@ -43,6 +46,7 @@ def run_topopt_TS(
     # Get problem setup
     mesh, mat_prop, structural_bc,thermal_bc, elem_body_force, to_params, vae_params = getMMTOThermostructuralProblem(to_problem)
 
+  
     if to_params.MaterialsExcelFile is None:
         print("Please provide a valid MaterialsExcelFile in to_params.")
         return
@@ -68,6 +72,7 @@ def run_topopt_TS(
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
     matEncoder.printEncodingErrors()
+    #matEncoder.plotLSR(matEncoder.training_latents.detach().cpu().numpy())
     zRealPoints = matEncoder.training_latents
 
     solver = linear_solvers.Solvers.PARDISO
@@ -101,15 +106,22 @@ def run_topopt_TS(
     print("Creating filter...")
     [H, Hs] = createFilters(fe_solver_structural, to_params)
 
-    iterationCount = 0
+    mmaIterations = 0
     obj0 = None
     gamma = gamma_init
 
+    if (use_continuation):
+        initialize_SIMP_STRUCTURAL_PENALTY(1.5)
+        initialize_SIMP_THERMAL_PENALTY(1)
+    else:
+        initialize_SIMP_STRUCTURAL_PENALTY(3)   
+        initialize_SIMP_THERMAL_PENALTY(1)
+
     def MMTO_TS_optimization_function(zeta):
-        nonlocal iterationCount, obj0, gamma, zRealPoints
+        nonlocal mmaIterations, obj0, gamma, zRealPoints
 
         zeta = np.asarray(zeta).flatten()
-        print("-------------- Iteration", iterationCount, "-----------------")
+        print("-------------- Iteration", mmaIterations, "-----------------")
         
         # Prepare tensors and decode material properties
         xDesign = zeta[0:num_elems]
@@ -132,13 +144,16 @@ def run_topopt_TS(
             mat_lib.create_material_with_defaults(
                 name=f"Material_{i+1}",
                 youngs_modulus=Youngs_Modulus[i],
-                thermal_expansion_coefficient=Thermal_Expansion[i]
+                thermal_expansion_coefficient=Thermal_Expansion[i],
+                thermal_conductivity=Thermal_Conductivity[i]
             )
             for i in range(len(Youngs_Modulus))]
         fe_solver_structural.set_material(fe_solver_structural.mat_prop)
         fe_solver_thermal.mat_prop = [
             mat_lib.create_material_with_defaults(
                 name=f"Material_{i+1}",
+                youngs_modulus=Youngs_Modulus[i],
+                thermal_expansion_coefficient=Thermal_Expansion[i],
                 thermal_conductivity=Thermal_Conductivity[i]
             )
             for i in range(len(Thermal_Conductivity))]
@@ -154,7 +169,12 @@ def run_topopt_TS(
         displacement = fe_solver_structural.solve(xDesign, MaterialModel.SIMP)
         fe_solver_structural.mesh.setPseudoDensity(xDesign)
         fe_solver_structural.postprocess()
-
+        
+        if (plot_progress):
+           fe_solver_structural.plot_pseudo_density_realtime(
+                   title=f"Iter {mmaIterations + 1}",
+                   external_plotter=plotter  # Pass GUI plotter if available
+               )
         # Compute sensitivities
         obj, grad_obj = compute_mmto_objective_and_gradient(
             to_params,
@@ -222,7 +242,10 @@ def run_topopt_TS(
             obj = obj + penalty.item()
             gamma = min(gamma*gamma_factor, gamma_max)
 
-        iterationCount += 1
+        mmaIterations += 1
+        if (use_continuation) and (mmaIterations % 10 == 0):
+            increment_SIMP_THERMAL_PENALTY(0.25)
+            increment_SIMP_STRUCTURAL_PENALTY(0.5)
         return obj, grad_obj, cons, grad_cons
 
     # Initial design variable setup

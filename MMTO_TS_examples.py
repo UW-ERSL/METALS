@@ -59,7 +59,7 @@ def getMMTOThermostructuralProblem(to_problem: MMTOThermostructuralExamples, **k
 		# subjected to thermo‑mechanical loading", by Ooms, et al., 2023
 		print("Creating Thermo-structural MBB Beam problem...")
 		thermostructural_problem = ThermoStructuralExamples.MBBBeam 
-		kwargs['structural_load'] = 10000
+		kwargs['structural_load'] = 1e8
 		kwargs['Ta'] = 23  # Ambient temperature
 		kwargs['Tf'] = 73 # Base temperature
 		to_params.Comment = "Thermo-structural MBB Beam example"

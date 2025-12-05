@@ -34,7 +34,8 @@ def run_topopt(
     z0_init_method = Z0InitMethod.ORIGIN,  
     gamma_init = 1e-6, # penalization
     gamma_max = 1,
-    gamma_factor = 1.25):#1.1
+    gamma_factor = 1.25,
+    plotter = None):
     
     history = {
         "objective": [],
@@ -100,15 +101,15 @@ def run_topopt(
     print("Creating filter...")
     [H, Hs] = createFilters(fe_solver_structural, to_params)
 
-    iterationCount = 0
+    mmaIterations = 0
     obj0 = None
     gamma = gamma_init
 
     def MMTO_optimization_function(zeta):
-        nonlocal iterationCount, obj0, gamma, zRealPoints
+        nonlocal mmaIterations, obj0, gamma, zRealPoints
 
         zeta = np.asarray(zeta).flatten()
-        print("-------------- Iteration", iterationCount, "-----------------")
+        print("-------------- Iteration", mmaIterations, "-----------------")
         
         # Prepare tensors and decode material properties
         zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
@@ -135,10 +136,9 @@ def run_topopt(
         fe_solver_structural.postprocess()
 
         if (plot_progress):
-           fe_solver_structural.plot_pseudo_density(
-                    plotter=None,
-                   auto_close=False,
-                   title=f"Iter {len(history['objective']) + 1} - Density"
+           fe_solver_structural.plot_pseudo_density_realtime(
+                   title=f"Iter {mmaIterations + 1}",
+                   external_plotter=plotter  # Pass GUI plotter if available
                )
 
 
@@ -206,7 +206,7 @@ def run_topopt(
             obj = obj + penalty.item()
             gamma = min(gamma*gamma_factor, gamma_max)
 
-        iterationCount += 1
+        mmaIterations += 1
         #print(np.linalg.norm(grad_obj[:num_elems]), np.linalg.norm(grad_obj[num_elems:]),np.linalg.norm(grad_cons))
         return obj, grad_obj, cons, grad_cons
 

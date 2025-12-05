@@ -3,7 +3,7 @@ import numpy as np
 from PyTOImports import *
 
 # --- Support Functions ---
-from MMTO_obj_cons_sensitivitiesOld import (
+from MMTO_obj_cons_sensitivities import (
         compute_pnorm_safety_factor_and_sensitivity, 
         compute_pnorm_stress_and_sensitivity,
         compute_volumefraction_constraint_and_gradient

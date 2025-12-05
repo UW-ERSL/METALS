@@ -1,6 +1,4 @@
 import numpy as np
-import linear_solvers
-import bound_cond
 from PyTOImports import *
 
 # --- Support Functions ---
@@ -198,7 +196,6 @@ def compute_mmto_objective_and_gradient(
     if 'Youngs_Modulus' in material_properties:
         EDesign = material_properties['Youngs_Modulus'].detach().cpu().numpy()
         dE_dz = gradients['Youngs_Modulus'].detach().cpu().numpy().T
-        print("shape dE_dz:", dE_dz.shape)
     else:
         EDesign = None
         dE_dz = None
@@ -264,8 +261,8 @@ def compute_mmto_objective_and_gradient(
             lambda_T=lambda_T
         )    
         grad_obj = np.concatenate([dJdx, dJdz])
-        print("Min of dj/dx:", np.min(np.abs(dJdx)), " Max of dj/dx:", np.max(np.abs(dJdx)))
-        print("Min of dj/dz:", np.min(np.abs(dJdz)), " Max of dj/dz:", np.max(np.abs(dJdz)))
+        #print("Min of dj/dx:", np.min(np.abs(dJdx)), " Max of dj/dx:", np.max(np.abs(dJdx)))
+        #print("Min of dj/dz:", np.min(np.abs(dJdz)), " Max of dj/dz:", np.max(np.abs(dJdz)))
         return J, grad_obj
 
     elif objectiveType == TO_QOI.PNORM_STRESS:
