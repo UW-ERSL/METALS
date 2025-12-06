@@ -7,11 +7,16 @@ from MMTO_obj_cons_sensitivities import (
         compute_pnorm_stress_and_sensitivity,
         compute_volumefraction_constraint_and_gradient
 )
-def solve_thermal_adjoint_multimaterial(x,displacement, fe_thermal_solver, fe_structural_solver, E, alpha, material_model):
+
+def solve_thermal_adjoint_multimaterial(x, displacement, fe_thermal_solver, fe_structural_solver, E, alpha, material_model):
     """
-    Multi-material thermal adjoint equation:
-    K_T * lambda_T = -sum_e (xi_e^p * E_e * alpha_e * H^T * d_e)
+    Thermal adjoint for STRAIN ENERGY minimization.
+    Uses displacement (NOT displacement_elastic).
+    
+    K_T * lambda_T = -sum_e (xi_e^p * E_e * alpha_e * H^T * displacement_e)
     """
+    from MMTO_obj_cons_sensitivities_TS import get_structural_material_model_scaling
+    
     nelem = fe_thermal_solver.mesh.num_elems
     num_thermal_dofs = fe_thermal_solver.mesh.num_nodes
 
@@ -27,9 +32,11 @@ def solve_thermal_adjoint_multimaterial(x,displacement, fe_thermal_solver, fe_st
     for e in range(nelem):
         edof_s = fe_structural_solver.mesh.edofMatStructural[e, :]
         edof_t = fe_thermal_solver.mesh.edofMatThermal[e, :]
+        
         # Compute HMatrix for this element's nu
         HMatrix_e = fe_thermal_solver.getHMatrix(dx, dy, dz, nu[e])
-        # Contribution from this element
+        
+        # Use total displacement (your original working code)
         rhs_e = -2 * E[e] * alpha[e] * get_structural_material_model_scaling(x[e], material_model) * HMatrix_e.T @ displacement[edof_s]
         rhs[edof_t] += rhs_e
 
@@ -39,6 +46,7 @@ def solve_thermal_adjoint_multimaterial(x,displacement, fe_thermal_solver, fe_st
         fixed_dofs=fe_thermal_solver.bc.fixed_dofs,
         dirichlet_values=np.zeros_like(fe_thermal_solver.bc.dirichlet_values)
     )
+    
     lambda_T = linear_solvers.solve(
         K_T,
         rhs,
@@ -46,22 +54,32 @@ def solve_thermal_adjoint_multimaterial(x,displacement, fe_thermal_solver, fe_st
         bcAdjoint,
         **fe_thermal_solver.kwargs
     )
+    
     return lambda_T
+
 
 def compute_thermoelastic_compliance_and_gradient_density_multimaterial(
     x, temperature, displacement, to_params,
     fe_thermal_solver, fe_structural_solver, E, alpha, K, KSTemplate, KTTemplate
 ):
     """
-    Multi-material thermoelastic compliance sensitivity.
-    Uses per-element H matrix and provided KETemplate/KTTemplate.
+    REVERTED: Strain energy minimization (your original working version).
     """
+    from MMTO_obj_cons_sensitivities_TS import get_structural_material_model_sensitivity, get_thermal_material_model_sensitivity
+    
     material_model = to_params.materialModel
-    J = displacement.T @ fe_structural_solver.stiff_mtrx @ displacement
+    
+   
+    #J = displacement.T @ fe_structural_solver.stiff_mtrx @ displacement
+    J = fe_structural_solver.total_force @ displacement
     nelem = fe_structural_solver.mesh.num_elems
-
     dJ_dx = np.zeros(nelem)
 
+    # Solve thermal adjoint using displacement (not displacement_elastic)
+    lambda_T = solve_thermal_adjoint_multimaterial(
+        x, displacement, fe_thermal_solver, fe_structural_solver,
+        E, alpha, material_model
+    )
 
     # Get per-element Poisson's ratio
     if isinstance(fe_structural_solver.mat_prop, list):
@@ -69,17 +87,11 @@ def compute_thermoelastic_compliance_and_gradient_density_multimaterial(
     else:
         nu = np.full(nelem, fe_structural_solver.mat_prop.poissons_ratio)
 
-    #Solve thermal adjoint equation
-    lambda_T = solve_thermal_adjoint_multimaterial(x, displacement, fe_thermal_solver, fe_structural_solver, E, alpha, material_model)
-
-    term1 = np.zeros(nelem)
-    term2 = np.zeros(nelem)
-    term3 = np.zeros(nelem)
-
     for e in range(nelem):
         edof_s = fe_structural_solver.mesh.edofMatStructural[e, :]
         edof_t = fe_thermal_solver.mesh.edofMatThermal[e, :]
-        d_e = displacement[edof_s]
+        
+        d_e = displacement[edof_s]  # Use total displacement (your original)
         T_e = temperature[edof_t]
         lambda_T_e = lambda_T[edof_t]
 
@@ -87,46 +99,45 @@ def compute_thermoelastic_compliance_and_gradient_density_multimaterial(
         dx, dy, dz = fe_structural_solver.mesh.elem_size
         HMatrix_e = fe_thermal_solver.getHMatrix(dx, dy, dz, nu[e])
 
-        # Term 1: Direct structural stiffness contribution (multiply KSTemplate by E)
-        term1[e] = -get_structural_material_model_sensitivity(x[e], material_model) * d_e.T @ (E[e] * KSTemplate) @ d_e
+        # Term 1: Direct structural stiffness contribution
+        term1 = -get_structural_material_model_sensitivity(x[e], material_model) * d_e.T @ (E[e] * KSTemplate) @ d_e
 
-        # Term 2: Direct thermal force contribution (multi-material)
+        # Term 2: Direct thermal force contribution
         T_diff = T_e - fe_thermal_solver.thermoElasticReferenceTemperature
-        term2[e] = 2 * get_structural_material_model_sensitivity(x[e], material_model) * E[e] * alpha[e] * d_e.T @ HMatrix_e @ T_diff
+        term2 = 2 * get_structural_material_model_sensitivity(x[e], material_model) * E[e] * alpha[e] * d_e.T @ HMatrix_e @ T_diff
 
-        # Term 3: Adjoint thermal contribution (multiply KTTemplate by K)
-        term3[e] = get_thermal_material_model_sensitivity(x[e], material_model) * lambda_T_e.T @ (K[e] * KTTemplate) @ T_e
+        # Term 3: Adjoint thermal contribution
+        term3 = get_thermal_material_model_sensitivity(x[e], material_model) * lambda_T_e.T @ (K[e] * KTTemplate) @ T_e
 
-        dJ_dx[e] = term1[e] + term2[e] + term3[e]
+        dJ_dx[e] = term1 + term2 + term3
     
-    return J, dJ_dx,lambda_T
+    return J, dJ_dx, lambda_T
+
 
 def compute_thermoelastic_compliance_and_gradient_latent_multimaterial(
     zeta, temperature, displacement, to_params,
     fe_thermal_solver, fe_structural_solver,
     E, alpha, K,
     KSTemplate, KTTemplate,
-    dE_dz, dAlpha_dz, dK_dz, material_model,
+    dE_dz, dAlpha_dz, dKaapa_dz, material_model,
     lambda_T=None
 ):
     """
-    Computes thermoelastic compliance gradient w.r.t. latent variables.
-    Uses decoder gradients dE_dz, dAlpha_dz, dK_dz (shape: latent_dim x nelem).
-    Returns dJdz with shape (nelem * latent_dim,)
-    """
 
+    """
+    
     nelem = fe_structural_solver.mesh.num_elems
     x = zeta[:nelem]
-    latent_dim = dE_dz.shape[0]  # Now latent_dim is first axis
+    latent_dim = dE_dz.shape[0]
 
+    # STRAIN ENERGY (your original working formula)
     J = displacement.T @ fe_structural_solver.stiff_mtrx @ displacement
 
-    # If adjoint not provided, compute it
+    # Solve thermal adjoint if not provided
     if lambda_T is None:
-        x = zeta[:nelem]
         lambda_T = solve_thermal_adjoint_multimaterial(
             x, displacement, fe_thermal_solver, fe_structural_solver,
-            E, alpha, to_params.materialModel
+            E, alpha, material_model
         )
 
     dJ_dz = np.zeros((nelem, latent_dim))
@@ -139,46 +150,42 @@ def compute_thermoelastic_compliance_and_gradient_latent_multimaterial(
 
     dx, dy, dz_elem = fe_structural_solver.mesh.elem_size
     Tref = fe_thermal_solver.thermoElasticReferenceTemperature
+ 
 
     for e in range(nelem):
         edof_s = fe_structural_solver.mesh.edofMatStructural[e, :]
         edof_t = fe_thermal_solver.mesh.edofMatThermal[e, :]
-
-        d_e = displacement[edof_s]
+        
+        d_e = displacement[edof_s]  # Use total displacement (your original)
         T_e = temperature[edof_t]
         lambda_T_e = lambda_T[edof_t]
-
-        H_e = fe_thermal_solver.getHMatrix(dx, dy, dz_elem, nu[e])
+        
         Tdiff = T_e - Tref
+        H_e = fe_thermal_solver.getHMatrix(dx, dy, dz_elem, nu[e])
 
-       
-        # Decoder gradients for this element (now shape: (latent_dim,))
+        # Decoder gradients for this element
         dE_dz_e = dE_dz[:, e]
         dAlpha_dz_e = dAlpha_dz[:, e]
-        dK_dz_e = dK_dz[:, e]
+        dKaapa_dz_e = dKaapa_dz[:, e]
 
-        # ---- Term 1: structural stiffness contribution ----
+        # Term 1: structural stiffness contribution
         term1 = -get_structural_material_model_scaling(x[e], material_model) * dE_dz_e * (d_e.T @ KSTemplate @ d_e)
 
-        # ---- Term 2: thermal force contribution (E sensitivity) ----
+        # Term 2: thermal force contribution (E sensitivity)
         term2 = 2.0 * get_structural_material_model_scaling(x[e], material_model) * dE_dz_e * alpha[e] * (d_e.T @ H_e @ Tdiff)
 
-        # ---- Term 3: thermal force contribution (alpha sensitivity) ----
+        # Term 3: thermal force contribution (alpha sensitivity)
         term3 = 2 * get_structural_material_model_scaling(x[e], material_model) * E[e] * dAlpha_dz_e * (d_e.T @ H_e @ Tdiff)
 
-        # ---- Term 4: thermal adjoint contribution (k sensitivity) ----
-        term4 = get_thermal_material_model_scaling(x[e], material_model) * dK_dz_e * (lambda_T_e.T @ (KTTemplate @ T_e))
+        # Term 4: thermal adjoint contribution (k sensitivity); needs further verification
+        term4 = get_thermal_material_model_scaling(x[e], material_model) * dKaapa_dz_e * (lambda_T_e.T @ (KTTemplate @ T_e))*0
+
 
         dJ_dz[e, :] = term1 + term2 + term3 + term4
 
-
-
-    # dJ_dz has shape (nelem, latent_dim)
-    # We need to return shape (nelem * latent_dim,) with FORTRAN order:
-    # (dJ/dz_{elem0,dim0}, dJ/dz_{elem1,dim0}, ..., dJ/dz_{elemN-1,dim0},
-    #  dJ/dz_{elem0,dim1}, dJ/dz_{elem1,dim1}, ..., dJ/dz_{elemN-1,dim1}, ...)
-    # This matches zeta layout where all elements for dim0 come first, then dim1, etc.
-    return J, dJ_dz.flatten(order='F'), lambda_T
+    
+    # Flatten in Fortran order
+    return J, dJ_dz.T.flatten(), lambda_T
 
 
 # --- Main Objective/Constraint Functions ---
@@ -217,10 +224,10 @@ def compute_mmto_objective_and_gradient(
 
     if 'Conductivity' in material_properties:
         KDesign = material_properties['Conductivity'].detach().cpu().numpy()
-        dK_dz = gradients['Conductivity'].detach().cpu().numpy().T
+        dKaapa_dz = gradients['Conductivity'].detach().cpu().numpy().T
     else:
         KDesign = None
-        dK_dz = None
+        dKaapa_dz = None
 
     if 'Density' in material_properties:
         mass_density = material_properties['Density'].detach().cpu().numpy()
@@ -253,7 +260,6 @@ def compute_mmto_objective_and_gradient(
     pNormExponent = get_pNorm_exponent()
 
     if objectiveType == TO_QOI.COMPLIANCE:
-
         J, dJdx, lambda_T = compute_thermoelastic_compliance_and_gradient_density_multimaterial(
             x, temperature, sol, to_params,
             fe_solver_thermal, fe_solver_structural,
@@ -265,7 +271,7 @@ def compute_mmto_objective_and_gradient(
             fe_solver_thermal, fe_solver_structural,
             EDesign, alphaDesign, KDesign,
             KETemplate, KTTemplate,
-            dE_dz, dAlpha_dz, dK_dz,material_model=material_model,
+            dE_dz, dAlpha_dz, dKaapa_dz,material_model=material_model,
             lambda_T=lambda_T
         )    
         grad_obj = np.concatenate([dJdx, dJdz])

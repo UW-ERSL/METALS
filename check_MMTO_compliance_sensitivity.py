@@ -47,7 +47,7 @@ num_design_var = num_elems + num_elems * latentDim
 
 zeta = np.zeros(num_design_var).flatten()
 zeta[0:num_elems] = 0.5
-
+zeta[num_elems:] = 0
 # Helper function to solve FEA and compute objective
 def solve_fea_and_compute_objective(zeta_input):
     """Solve FEA and return objective value."""
@@ -60,6 +60,8 @@ def solve_fea_and_compute_objective(zeta_input):
     Youngs_Modulus = material_properties['Youngs_Modulus'].detach().cpu().numpy()
     Thermal_Conductivity = material_properties['Conductivity'].detach().cpu().numpy()
     Thermal_Expansion = material_properties['Thermal_Expansion'].detach().cpu().numpy()
+    mass_density = material_properties['Density'].detach().cpu().numpy()
+   
     
     # Set per-element material properties
     fe_solver_structural.mat_prop = [
@@ -67,7 +69,8 @@ def solve_fea_and_compute_objective(zeta_input):
             name=f"Material_{i+1}",
             youngs_modulus=Youngs_Modulus[i],
             thermal_expansion_coefficient=Thermal_Expansion[i],
-            thermal_conductivity=Thermal_Conductivity[i]
+            thermal_conductivity=Thermal_Conductivity[i],
+            mass_density=mass_density[i]
         )
         for i in range(len(Youngs_Modulus))]
     fe_solver_structural.set_material(fe_solver_structural.mat_prop)
@@ -77,7 +80,8 @@ def solve_fea_and_compute_objective(zeta_input):
             name=f"Material_{i+1}",
             youngs_modulus=Youngs_Modulus[i],
             thermal_expansion_coefficient=Thermal_Expansion[i],
-            thermal_conductivity=Thermal_Conductivity[i]
+            thermal_conductivity=Thermal_Conductivity[i],
+            mass_density=mass_density[i]
         )
         for i in range(len(Thermal_Conductivity))]
     fe_solver_thermal.set_material(fe_solver_thermal.mat_prop)
@@ -123,7 +127,7 @@ print(f"Testing random elements: {random_elements}\n")
 
 # Adaptive step sizes
 step_sizes = {
-    'density': 1e-3,
+    'SIMPdensity': 1e-3,
     'latent_0': 1e-3,
     'latent_1': 1e-3,
 }
@@ -137,8 +141,8 @@ for jj in range(latentDim + 1):
     
     # Determine step size and variable type
     if jj == 0:
-        var_type = 'density'
-        perturbation = step_sizes['density']
+        var_type = 'SIMPdensity'
+        perturbation = step_sizes['SIMPdensity']
         var_name = "DENSITY"
     else:
         var_type = f'latent_{jj-1}'

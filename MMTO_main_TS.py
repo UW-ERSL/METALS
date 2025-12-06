@@ -30,7 +30,7 @@ def run_topopt_TS(
     snap_to_real_material=True,
     rel_conv_tol = 1e-7,
     maxIterations = 150,
-    binarize_topology = True,
+    binarize_topology = False,
     z0_init_method = Z0InitMethod.ORIGIN,  
     use_continuation = True,
     gamma_init = 1e-6,
@@ -72,7 +72,7 @@ def run_topopt_TS(
         matEncoder.training_latents = matEncoder.vaeNet.encoder(matEncoder.scaledMaterialData).cpu()
 
     matEncoder.printEncodingErrors()
-    #matEncoder.plotLSR(matEncoder.training_latents.detach().cpu().numpy())
+    matEncoder.plotLSR(matEncoder.training_latents.detach().cpu().numpy())
     zRealPoints = matEncoder.training_latents
 
     solver = linear_solvers.Solvers.PARDISO
