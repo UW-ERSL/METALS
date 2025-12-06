@@ -151,16 +151,17 @@ def compute_thermoelastic_compliance_and_gradient_latent_multimaterial(
         H_e = fe_thermal_solver.getHMatrix(dx, dy, dz_elem, nu[e])
         Tdiff = T_e - Tref
 
+       
         # Decoder gradients for this element (now shape: (latent_dim,))
         dE_dz_e = dE_dz[:, e]
         dAlpha_dz_e = dAlpha_dz[:, e]
         dK_dz_e = dK_dz[:, e]
 
         # ---- Term 1: structural stiffness contribution ----
-        term1 = get_structural_material_model_scaling(x[e], material_model) * dE_dz_e * (d_e.T @ KSTemplate @ d_e)
+        term1 = -get_structural_material_model_scaling(x[e], material_model) * dE_dz_e * (d_e.T @ KSTemplate @ d_e)
 
         # ---- Term 2: thermal force contribution (E sensitivity) ----
-        term2 = -2.0 * get_structural_material_model_scaling(x[e], material_model) * dE_dz_e * alpha[e] * (d_e.T @ H_e @ Tdiff)
+        term2 = 2.0 * get_structural_material_model_scaling(x[e], material_model) * dE_dz_e * alpha[e] * (d_e.T @ H_e @ Tdiff)
 
         # ---- Term 3: thermal force contribution (alpha sensitivity) ----
         term3 = 2 * get_structural_material_model_scaling(x[e], material_model) * E[e] * dAlpha_dz_e * (d_e.T @ H_e @ Tdiff)
@@ -170,8 +171,15 @@ def compute_thermoelastic_compliance_and_gradient_latent_multimaterial(
 
         dJ_dz[e, :] = term1 + term2 + term3 + term4
 
-    # Return as flat array (ordering: [z_0, z_1, ..., z_{nelem-1}], each of length latent_dim)
-    return J, dJ_dz.flatten(), lambda_T
+
+
+    # dJ_dz has shape (nelem, latent_dim)
+    # We need to return shape (nelem * latent_dim,) with FORTRAN order:
+    # (dJ/dz_{elem0,dim0}, dJ/dz_{elem1,dim0}, ..., dJ/dz_{elemN-1,dim0},
+    #  dJ/dz_{elem0,dim1}, dJ/dz_{elem1,dim1}, ..., dJ/dz_{elemN-1,dim1}, ...)
+    # This matches zeta layout where all elements for dim0 come first, then dim1, etc.
+    return J, dJ_dz.flatten(order='F'), lambda_T
+
 
 # --- Main Objective/Constraint Functions ---
 def compute_mmto_objective_and_gradient(

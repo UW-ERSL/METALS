@@ -1,5 +1,6 @@
 from networks import VariationalAutoencoder
 import torch
+from torch.func import vmap, jacrev
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -284,24 +285,46 @@ class MaterialEncoder:
             return value_at_T.detach().numpy()
                     
     def getMaterialPropertiesAtLatentPoints(self, zPts, compute_gradients=False):
+        """
+        Ultra-fast version using torch.vmap for true parallelization.
+        Requires PyTorch 2.0+
+        """
         if compute_gradients:
-            zPts_tensor = torch.tensor(zPts, dtype=torch.float32, requires_grad=True) if not isinstance(zPts, torch.Tensor) else zPts.clone().detach().requires_grad_(True)
-            decoded = self.vaeNet.decoder(zPts_tensor)
-            material_properties = self.getMaterialProperties(decoded)
-            # Compute gradients for each property
+            zPts_tensor = torch.tensor(zPts, dtype=torch.float32) \
+                        if not isinstance(zPts, torch.Tensor) \
+                        else zPts.clone().detach()
+            
+            # Define function to compute properties for a single element
+            def compute_single_element(z_elem):
+                """Compute properties for one element's latent vector."""
+                z_batch = z_elem.unsqueeze(0)  # Add batch dimension
+                decoded = self.vaeNet.decoder(z_batch)
+                props = self.getMaterialProperties(decoded)
+                # Return as tensor (concatenate all properties)
+                return torch.stack([props[name][0] for name in sorted(props.keys())])
+            
+            # Compute Jacobian using vmap (vectorized map)
+            # This parallelizes over all elements!
+            jac_fn = vmap(jacrev(compute_single_element))
+            jacobians = jac_fn(zPts_tensor)  # Shape: (num_elements, num_properties, latent_dim)
+            
+            # Forward pass for properties (without gradients)
+            with torch.no_grad():
+                decoded = self.vaeNet.decoder(zPts_tensor)
+                material_properties = self.getMaterialProperties(decoded)
+            
+            # Extract gradients per property
             gradients = {}
-            for prop_name, prop_value in material_properties.items():
-                # Sum the property to get a scalar for backward()
-                prop_value.sum().backward(retain_graph=True)
-                gradients[prop_name] = zPts_tensor.grad.clone()
-                zPts_tensor.grad.zero_()
+            for idx, prop_name in enumerate(sorted(material_properties.keys())):
+                gradients[prop_name] = jacobians[:, idx, :]  # Shape: (num_elements, latent_dim)
+            
             return material_properties, gradients
         else:
             with torch.no_grad():
                 decoded = self.vaeNet.decoder(zPts)
                 material_properties = self.getMaterialProperties(decoded)
             return material_properties
-        
+    
     def getMaterialProperties(self, decoded):
         properties = {}
         for name, attribute in self.materialAttributes.items():
