@@ -30,12 +30,12 @@ def run_topopt_TS(
     snap_to_real_material=True,
     rel_conv_tol = 1e-7,
     maxIterations = 150,
-    binarize_topology = False,
+    binarize_topology = True,
     z0_init_method = Z0InitMethod.ORIGIN,  
     use_continuation = True,
-    gamma_init = 1e-6,
-    gamma_max = 1,
-    gamma_factor = 1.25, 
+    gamma_init = 1e-3,
+    gamma_max = 25,
+    gamma_factor = 1.1, 
     plotter=None ):
 
     history = {
@@ -124,11 +124,12 @@ def run_topopt_TS(
         print("-------------- Iteration", mmaIterations, "-----------------")
         
         # Prepare tensors and decode material properties
-        xDesign = zeta[0:num_elems]
-        zDesign = zeta[num_elems:]
-        zPoints = torch.tensor(zDesign, dtype=torch.float32).view(latentDim, -1).T
+        zetaTensor = torch.tensor(zeta, dtype=torch.float32, requires_grad=True)
+        xDesign = zetaTensor[0:num_elems]
+        zDesign = zetaTensor[num_elems:]
+        zPoints = zDesign.view(latentDim, -1).T
 
-        xNumpy = xDesign
+        xNumpy = xDesign.detach().cpu().numpy()
         grey_elements = np.sum((xNumpy > 0.1) & (xNumpy < 0.9))
         fraction_grey = (grey_elements / num_elems)
         print(f"Percentage grey elements:", f"{fraction_grey*100:.2f}%")
@@ -160,14 +161,14 @@ def run_topopt_TS(
         fe_solver_thermal.set_material(fe_solver_thermal.mat_prop)
 
         # Solve thermal problem
-        temperature = fe_solver_thermal.solve(xDesign, MaterialModel.SIMP)
+        temperature = fe_solver_thermal.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
         fe_solver_thermal.postprocess()
 
         # Get thermoelastic force and solve structural problem
-        thermo_elastic_force = fe_solver_thermal.get_thermoelastic_force(xDesign, MaterialModel.SIMP)
+        thermo_elastic_force = fe_solver_thermal.get_thermoelastic_force(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
         fe_solver_structural.set_thermal_forces(thermo_elastic_force)
-        displacement = fe_solver_structural.solve(xDesign, MaterialModel.SIMP)
-        fe_solver_structural.mesh.setPseudoDensity(xDesign)
+        displacement = fe_solver_structural.solve(xDesign.detach().cpu().numpy(), MaterialModel.SIMP)
+        fe_solver_structural.mesh.setPseudoDensity(xDesign.detach().cpu().numpy())
         fe_solver_structural.postprocess()
         
         if (plot_progress):
@@ -238,10 +239,19 @@ def run_topopt_TS(
             avgClosestDistance = torch.sum(min_i) / nActiveElems   
             maxClosestDistance = torch.max(min_i).item()
             penalty = gamma * avgClosestDistance
-            # If you want to add penalty gradient, do so here
+            zetaTensor.grad = None
+            penalty.backward(retain_graph=True)
+            gradMeanDistance = zetaTensor.grad[num_elems:].detach().numpy()
+            # for i in range(latentDim):
+            #     gradMeanDistance[i*num_elems:(i+1)*num_elems] = \
+            #         (H * gradMeanDistance[i*num_elems:(i+1)*num_elems]) / Hs
+            grad_obj[num_elems:,0] += gradMeanDistance
             obj = obj + penalty.item()
             gamma = min(gamma*gamma_factor, gamma_max)
 
+        print(f"Gamma value: {gamma:.5g}")
+        print(f"Actual objective: {obj-penalty:.5g}")
+        print(f"Penalizeation: {penalty:.5g}")
         mmaIterations += 1
         if (use_continuation) and (mmaIterations % 10 == 0):
             increment_SIMP_THERMAL_PENALTY(0.25)
@@ -364,5 +374,5 @@ if __name__ == "__main__":
         to_problem=to_problem,
         use_penalization=True,
         use_pretrained_vae=True,
-        snap_to_real_material=True,
+        snap_to_real_material=False,
     )
