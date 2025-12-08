@@ -176,25 +176,6 @@ def compute_mmto_constraint_and_gradient(to_params, uvw, Temp, zeta, fe_solver_s
             grad_cons_mean_criticality[num_elems:] = dCriticality_dz.flatten() / constraintLimit/len(criticality)
             c[m, 0] = ((mean_criticality / constraintLimit) - 1.0)
             dc[m, :] = grad_cons_mean_criticality
-        elif constraintType == TO_QOI.TEMPERATURE_FAILURE_FACTOR:
-            temp_limit, dTempLimit_dz = matEncoder.getValueOfAttributeAtZLocationAtTemperature("Temp_Limit",zPts, Temp, compute_gradients = True)
-        
-            # Compute p-norm of temperature failure factor
-            temp_ff = Temp / temp_limit
-            temp_ff_pnorm = np.sum(temp_ff ** pNormExponent) ** (1.0 / pNormExponent)
-            temp_ff_max = temp_ff_pnorm
-            c[m, 0] = temp_ff_max / constraintLimit - 1.0
-
-            # Compute gradient with respect to temp_limit
-            outer = np.sum(temp_ff ** pNormExponent) ** ((1.0 / pNormExponent) - 1)
-            d_temp_ff_pNorm_dTempLimit = outer * (temp_ff ** (pNormExponent - 1)) * (-Temp / (temp_limit ** 2))
-
-            # Compute gradient with respect to latent variables
-            d_temp_ff_pNorm_dz = (d_temp_ff_pNorm_dTempLimit[:, np.newaxis] * dTempLimit_dz.T).flatten(order='F')
-
-            grad_temp_ff = np.zeros_like(zeta)
-            grad_temp_ff[num_elems:] = d_temp_ff_pNorm_dz / constraintLimit
-            dc[m, :] = grad_temp_ff
         elif constraintType == TO_QOI.PBR:
             pbr, dPbr_dz = matEncoder.getValueOfAttributeAtZLocationAtTemperature("PBR",zPts, Temp, compute_gradients = True)
             mean_pbr = np.mean(pbr)

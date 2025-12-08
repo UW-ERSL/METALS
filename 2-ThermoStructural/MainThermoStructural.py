@@ -37,7 +37,7 @@ def run_topopt_ThermoStructural(
     use_penalization=False,
     snap_to_real_material=True,
     rel_conv_tol = 1e-7,
-    maxIterations = 25,
+    maxIterations = 150,
     binarize_topology = False,
     z0_init_method = Z0InitMethod.ORIGIN,  
     use_continuation = True,
