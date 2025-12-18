@@ -41,7 +41,7 @@ def run_topopt(
     binarize_topology = True,
     z0_init_method = Z0InitMethod.ORIGIN,  
     gamma_init = 1e-4, # penalization
-    gamma_max = 1,
+    gamma_max = 100,
     gamma_factor = 1.25,
     plotter = None):
     
@@ -355,12 +355,12 @@ def run_topopt(
 
 if __name__ == "__main__":
 
-    to_problem = MMTOExamplesPureStructural.Bridge_Compliance_MassCost
+    to_problem = MMTOExamplesPureStructural.LBracketTopLoad_Stress_VolumeFraction_Mass
 
 
     run_topopt(
         to_problem=to_problem,
         use_penalization=True,
         use_pretrained_vae=True,
-        snap_to_real_material=True,
+        snap_to_real_material=False,
     )

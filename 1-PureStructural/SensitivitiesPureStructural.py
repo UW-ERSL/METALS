@@ -9,35 +9,46 @@ from PyTOImports import (get_pNorm_exponent, hex_element_stiffness, get_stress_r
         MaterialModel,get_structural_material_model_scaling) # type: ignore
 
 # --- Support Functions ---
-def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign, KETemplate, material_model):
+def compute_pnorm_stress_and_sensitivities(sol: np.ndarray, x, fe_solver, EDesign, dE_dz, KETemplate, material_model):
     """
-    MMTO-compatible: Compute von Mises stress and sensitivity with respect to x for p-norm stress.
+    Compute p-norm von Mises stress and sensitivities w.r.t.
+      (i) density-like variables x (length nelems) and
+      (ii) latent variables z via decoded Young's modulus E(z).
+
+    Returns:
+        vm_pnorm: float
+        d_vm_pnorm_dx: (nelems,)
+        d_vm_pnorm_dz_flat: (latentDim*nelems,) in blocks of length nelems per latent dim
+        max_vm: float
     """
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
-
     pNormExponent = get_pNorm_exponent()
-    # Get element-wise Poisson's ratio
+
+    # Ensure element-wise Poisson's ratio array
     if isinstance(fe_solver.mat_prop, list):
         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
     else:
-        nu = fe_solver.mat_prop.poissons_ratio
+        nu = np.full(nelems, fe_solver.mat_prop.poissons_ratio)
 
-    # Build element-wise constitutive matrices
+    # Build element-wise constitutive matrices D(E,nu) and templates D0(nu) built with E=1
     D_list = []
+    D0_list = []
     for Ei, nui in zip(EDesign, nu):
-        D = hex_element_stiffness.isotropic_constitutive_matrix(Ei, nui)
-        D_list.append(D)
+        D0i = hex_element_stiffness.isotropic_constitutive_matrix(1.0, float(nui))
+        D0_list.append(D0i)
+        D_list.append(float(Ei) * D0i)
     D = np.stack(D_list)
+    D0 = np.stack(D0_list)
 
-    # B matrix setup
+    # B matrix setup (match HexStructuralFEA.postprocess)
     gradN = (1 / 8) * np.array([
         [-1, 1, 1, -1, -1, 1, 1, -1],
         [-1, -1, 1, 1, -1, -1, 1, 1],
         [-1, -1, -1, -1, 1, 1, 1, 1]
     ])
     for i in range(3):
-        gradN[i, :] = 2*gradN[i,:] / fe_solver.mesh.elem_size[i]
+        gradN[i, :] = 2 * gradN[i, :] / fe_solver.mesh.elem_size[i]
     B = np.zeros((6, 24))
     Bi = np.zeros((6, 3, 8))
     Bi[0, 0, :] = gradN[0, :]
@@ -54,105 +65,126 @@ def compute_pnorm_stress_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,
 
     vm_elems = fe_solver.vonMisesStress
     vm_pnorm = fe_solver.pNormStress
-    
-    # Compute dpn_dvms = (sum(vm^p))^(1/p - 1)
     dpn_dvms = (np.sum(vm_elems ** pNormExponent)) ** (1/pNormExponent - 1)
-    
-    # Pre-compute DvmDs for all elements
+
+    # DvmDs for all elements (safe division)
     DvmDs_all = np.zeros((nelems, 6))
     for e in range(nelems):
         stress_elem = fe_solver.stressComponents[e]
         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
-        
-        # DvmDs - derivative of von Mises w.r.t. stress components
-        DvmDs_all[e, 0] = 1/(2*vm_elems[e]) * (2*sigma11 - sigma22 - sigma33)
-        DvmDs_all[e, 1] = 1/(2*vm_elems[e]) * (2*sigma22 - sigma11 - sigma33)
-        DvmDs_all[e, 2] = 1/(2*vm_elems[e]) * (2*sigma33 - sigma11 - sigma22)
-        DvmDs_all[e, 3] = 3/vm_elems[e] * sigma12
-        DvmDs_all[e, 4] = 3/vm_elems[e] * sigma13
-        DvmDs_all[e, 5] = 3/vm_elems[e] * sigma23
-    
-    # Compute T1 (direct sensitivity)
-    beta = np.zeros(nelems)
-    x = np.maximum(x, 1e-12) # avoid division by zero
-    for e in range(nelems):
-        edof = mesh.edofMatStructural[e]
-        u_e = sol[edof]
-        beta[e] = get_stress_relaxation_factor_sensitivity(x[e]) * (vm_elems[e]**(pNormExponent-1)) * DvmDs_all[e] @ D[e] @ B @ u_e
-    
-    T1 = dpn_dvms * beta
-    
-    # Compute adjoint right-hand side using pre-computed DvmDs
+        vm_safe = max(vm_elems[e], 1e-12)
+        DvmDs_all[e, 0] = 1/(2*vm_safe) * (2*sigma11 - sigma22 - sigma33)
+        DvmDs_all[e, 1] = 1/(2*vm_safe) * (2*sigma22 - sigma11 - sigma33)
+        DvmDs_all[e, 2] = 1/(2*vm_safe) * (2*sigma33 - sigma11 - sigma22)
+        DvmDs_all[e, 3] = 3/vm_safe * sigma12
+        DvmDs_all[e, 4] = 3/vm_safe * sigma13
+        DvmDs_all[e, 5] = 3/vm_safe * sigma23
+
+    x_safe = np.maximum(x, 1e-12)
+
+    # --- Adjoint RHS (same regardless of which design variable we differentiate w.r.t.) ---
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):
         edof = mesh.edofMatStructural[e]
-        g_e = get_stress_relaxation_correction(x[e]) * dpn_dvms * B.T @ D[e].T @ DvmDs_all[e] * (vm_elems[e]**(pNormExponent-1))
-        g[edof] += g_e
-    
-    # Solve adjoint equation
-    adjointSol = linear_solvers.solve(fe_solver.stiff_mtrx,
-                                       g,
-                                       fe_solver.solver,
-                                       fe_solver.bc,
-                                       dsolver=fe_solver.dsolver,
-                                       **fe_solver.kwargs)
-    
-    # Compute T2 (indirect sensitivity via adjoint)
-    dofMat = fe_solver.mesh.edofMatStructural
+        g_e = (get_stress_relaxation_correction(x_safe[e]) *
+               dpn_dvms *
+               (B.T @ D[e].T @ DvmDs_all[e]) *
+               (vm_elems[e] ** (pNormExponent - 1)))
+        g[edof] += np.asarray(g_e).reshape(-1)
+
+    adjointSol = linear_solvers.solve(
+        fe_solver.stiff_mtrx,
+        g,
+        fe_solver.solver,
+        fe_solver.bc,
+        dsolver=fe_solver.dsolver,
+        **fe_solver.kwargs
+    )
+
+    # Common ce_base = adj_e^T * KE_template * u_e (per element)
+    dofMat = mesh.edofMatStructural
     nRows = KETemplate.shape[0]
-    ce = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) * sol[dofMat].reshape(nelems, nRows)).sum(1)*EDesign
-    
-    T2 = -get_structural_material_model_sensitivity(x,material_model) * ce  # Note the negative sign from MATLAB
-    
-    vm_pnorm_sensitivity = T1 + T2
-    max_vm = np.max(vm_elems)
-    
-    return vm_pnorm, vm_pnorm_sensitivity, max_vm
+    ce_base = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) *
+               sol[dofMat].reshape(nelems, nRows)).sum(1)
 
-def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, EDesign,YDesign, KETemplate, material_model):
+    # --- Sensitivity w.r.t. x (density-like) ---
+    beta_x = np.zeros(nelems)
+    for e in range(nelems):
+        edof = mesh.edofMatStructural[e]
+        u_e = sol[edof]
+        beta_x[e] = (get_stress_relaxation_factor_sensitivity(x_safe[e]) *
+                     (vm_elems[e] ** (pNormExponent - 1)) *
+                     (DvmDs_all[e] @ D[e] @ B @ u_e))
+    T1_x = dpn_dvms * beta_x
+
+    # Indirect term: dK/dx = sensitivity(x)*E*KE
+    T2_x = -get_structural_material_model_sensitivity(x_safe, material_model) * (EDesign * ce_base)
+    d_vm_pnorm_dx = T1_x + T2_x
+
+    # --- Sensitivity w.r.t. E (per element) ---
+    # Direct term: stress depends on D(E)=E*D0, holding u fixed.
+    beta_E = np.zeros(nelems)
+    for e in range(nelems):
+        edof = mesh.edofMatStructural[e]
+        u_e = sol[edof]
+        beta_E[e] = (get_stress_relaxation_correction(x_safe[e]) *
+                     (vm_elems[e] ** (pNormExponent - 1)) *
+                     (DvmDs_all[e] @ D0[e] @ B @ u_e))
+    T1_E = dpn_dvms * beta_E
+
+    # Indirect term: dK/dE = scaling(x)*KE
+    T2_E = -get_structural_material_model_scaling(x_safe, material_model) * ce_base
+    d_vm_pnorm_dE = T1_E + T2_E
+
+    # Chain to latent (dE_dz provided as (latentDim, nelems))
+    if dE_dz is None:
+        d_vm_pnorm_dz_flat = np.zeros(0)
+    else:
+        d_vm_pnorm_dz_flat = (dE_dz * d_vm_pnorm_dE[None, :]).reshape(-1)
+
+    max_vm = float(np.max(vm_elems))
+    return vm_pnorm, d_vm_pnorm_dx, d_vm_pnorm_dz_flat, max_vm
+
+def compute_pnorm_failure_factor_and_sensitivities(sol: np.ndarray, x, fe_solver, EDesign, YDesign, dE_dz, dY_dz, KETemplate, material_model):
     """
-    MMTO-compatible: Compute p-norm of inverse safety factor and its sensitivity with respect to x.
+    Compute p-norm failure factor (inverse safety factor) and sensitivities w.r.t.
+      (i) x (density-like) and
+      (ii) latent z via E(z) and Y(z).
+
+    Returns:
+        ff_pnorm: float
+        d_ff_pnorm_dx: (nelems,)
+        d_ff_pnorm_dz_flat: (latentDim*nelems,)
+        max_ff: float
     """
-    pNormExponent = get_pNorm_exponent()  # p-norm exponent
-    # Compute inverse safety factor per element
-    sigma_vm = fe_solver.vonMisesStress
-    Y = YDesign
-    inv_sf_elems = sigma_vm / Y
-    
-    inv_sf_pnorm = np.sum(inv_sf_elems ** pNormExponent) ** (1.0 / pNormExponent)
-
-    # d (inv_sf_pnorm) / d (x) = d (inv_sf_pnorm) / d (inv_sf) * d (inv_sf) / d (x)
-
-    # Compute dpn_dinv_sf = (sum(inv_sf^p))^(1/p - 1)
-    dpn_dinv_sf = (np.sum(inv_sf_elems ** pNormExponent)) ** (1.0 / pNormExponent - 1)
-
-    # d(inv_sf) / d (x) = d (sigma_vm / Y) / d (x) = (1/Y) * d (sigma_vm) / d (x)
-    # d (sigma_vm) / d (x) is computed similarly to p-norm stress sensitivity, exccept we scale by (1/Y) and we don' take pNorm
-
     mesh = fe_solver.mesh
     nelems = mesh.num_elems
+    pNormExponent = get_pNorm_exponent()
 
-    # Get element-wise Poisson's ratio
+    # Ensure element-wise Poisson's ratio array
     if isinstance(fe_solver.mat_prop, list):
         nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
     else:
-        nu = fe_solver.mat_prop.poissons_ratio
+        nu = np.full(nelems, fe_solver.mat_prop.poissons_ratio)
 
-    # Build element-wise constitutive matrices
+    # Build D(E,nu) and D0(nu)
     D_list = []
+    D0_list = []
     for Ei, nui in zip(EDesign, nu):
-        D = hex_element_stiffness.isotropic_constitutive_matrix(Ei, nui)
-        D_list.append(D)
+        D0i = hex_element_stiffness.isotropic_constitutive_matrix(1.0, float(nui))
+        D0_list.append(D0i)
+        D_list.append(float(Ei) * D0i)
     D = np.stack(D_list)
+    D0 = np.stack(D0_list)
 
-    # B matrix setup
+    # B matrix setup (match HexStructuralFEA.postprocess)
     gradN = (1 / 8) * np.array([
         [-1, 1, 1, -1, -1, 1, 1, -1],
         [-1, -1, 1, 1, -1, -1, 1, 1],
         [-1, -1, -1, -1, 1, 1, 1, 1]
     ])
     for i in range(3):
-        gradN[i, :] = 2*gradN[i,:] / fe_solver.mesh.elem_size[i]
+        gradN[i, :] = 2 * gradN[i, :] / fe_solver.mesh.elem_size[i]
     B = np.zeros((6, 24))
     Bi = np.zeros((6, 3, 8))
     Bi[0, 0, :] = gradN[0, :]
@@ -167,60 +199,90 @@ def compute_pnorm_safety_factor_and_sensitivity(sol: np.ndarray, x, fe_solver, E
     idx = np.arange(8)
     B[:, (3 * idx)[:, None] + np.arange(3)] = Bi.transpose(0, 2, 1)
 
-    
-    # Pre-compute DinvSfDs for all elements
+    # Inverse safety factor per element (sigma_vm already includes stress relaxation correction)
+    sigma_vm = np.maximum(fe_solver.vonMisesStress, 1e-12)
+    Y_safe = np.maximum(YDesign, 1e-12)
+    inv_sf_elems = sigma_vm / Y_safe
+
+    ff_pnorm = (np.sum(inv_sf_elems ** pNormExponent) / nelems) ** (1.0 / pNormExponent)
+    dpn_dinv = ((np.sum(inv_sf_elems ** pNormExponent) / nelems) ** (1.0 / pNormExponent - 1)) / nelems
+
+    # D(inv_sf)/D(stress) = (1/Y) * D(vm)/D(stress)
     DinvSfDs_all = np.zeros((nelems, 6))
     for e in range(nelems):
         stress_elem = fe_solver.stressComponents[e]
         sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
-        vm = sigma_vm[e]
-        Y_e = Y[e]
-        # Derivative of inv_sf w.r.t. stress components
-        DvmDs = np.zeros(6)
-        DvmDs[0] = 1/(2*vm) * (2*sigma11 - sigma22 - sigma33)
-        DvmDs[1] = 1/(2*vm) * (2*sigma22 - sigma11 - sigma33)
-        DvmDs[2] = 1/(2*vm) * (2*sigma33 - sigma11 - sigma22)
-        DvmDs[3] = 3/vm * sigma12
-        DvmDs[4] = 3/vm * sigma13
-        DvmDs[5] = 3/vm * sigma23
-        DinvSfDs_all[e, :] = DvmDs / Y_e
+        denom = max(fe_solver.vonMisesStress[e], 1e-12) * Y_safe[e]
+        DinvSfDs_all[e, 0] = 1/(2*denom) * (2*sigma11 - sigma22 - sigma33)
+        DinvSfDs_all[e, 1] = 1/(2*denom) * (2*sigma22 - sigma11 - sigma33)
+        DinvSfDs_all[e, 2] = 1/(2*denom) * (2*sigma33 - sigma11 - sigma22)
+        DinvSfDs_all[e, 3] = 3/denom * sigma12
+        DinvSfDs_all[e, 4] = 3/denom * sigma13
+        DinvSfDs_all[e, 5] = 3/denom * sigma23
 
-    # Compute T1 (direct sensitivity)
-    beta = np.zeros(nelems)
-    x = np.maximum(x, 1e-12) # avoid division by zero
-    for e in range(nelems):
-        edof = mesh.edofMatStructural[e]
-        u_e = sol[edof]
-        beta[e] = get_stress_relaxation_factor_sensitivity(x[e]) * (inv_sf_elems[e]**(pNormExponent-1)) * DinvSfDs_all[e] @ D[e] @ B @ u_e
-
-    T1 = dpn_dinv_sf * beta
-
-    # Compute adjoint right-hand side using pre-computed DinvSfDs
+    # --- Adjoint RHS ---
+    x_safe = np.maximum(x, 1e-12)
     g = np.zeros(fe_solver.bc.num_dofs)
     for e in range(nelems):
         edof = mesh.edofMatStructural[e]
-        g_e = get_stress_relaxation_correction(x[e]) * dpn_dinv_sf * B.T @ D[e].T @ DinvSfDs_all[e] * (inv_sf_elems[e]**(pNormExponent-1))
-        g[edof] += g_e
+        g_e = (get_stress_relaxation_correction(x_safe[e]) *
+               dpn_dinv *
+               (B.T @ D[e].T @ DinvSfDs_all[e]) *
+               (inv_sf_elems[e] ** (pNormExponent - 1)))
+        g[edof] += np.asarray(g_e).reshape(-1)
 
-    # Solve adjoint equation
-    adjointSol = linear_solvers.solve(fe_solver.stiff_mtrx,
-                                    g,
-                                    fe_solver.solver,
-                                    fe_solver.bc,
-                                    dsolver=fe_solver.dsolver,
-                                    **fe_solver.kwargs)
+    adjointSol = linear_solvers.solve(
+        fe_solver.stiff_mtrx,
+        g,
+        fe_solver.solver,
+        fe_solver.bc,
+        dsolver=fe_solver.dsolver,
+        **fe_solver.kwargs
+    )
 
-    # Compute T2 (indirect sensitivity via adjoint)
-    dofMat = fe_solver.mesh.edofMatStructural
+    # Common ce_base = adj_e^T * KE_template * u_e
+    dofMat = mesh.edofMatStructural
     nRows = KETemplate.shape[0]
-    ce = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) * sol[dofMat].reshape(nelems, nRows)).sum(1)*EDesign
+    ce_base = (np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) *
+               sol[dofMat].reshape(nelems, nRows)).sum(1)
 
-    T2 = -get_structural_material_model_sensitivity(x, material_model) * ce  # Note the negative sign from MATLAB
+    # --- Sensitivity w.r.t. x ---
+    beta_x = np.zeros(nelems)
+    for e in range(nelems):
+        edof = mesh.edofMatStructural[e]
+        u_e = sol[edof]
+        beta_x[e] = (get_stress_relaxation_factor_sensitivity(x_safe[e]) *
+                     (inv_sf_elems[e] ** (pNormExponent - 1)) *
+                     (DinvSfDs_all[e] @ D[e] @ B @ u_e))
+    T1_x = dpn_dinv * beta_x
+    T2_x = -get_structural_material_model_sensitivity(x_safe, material_model) * (EDesign * ce_base)
+    d_ff_pnorm_dx = T1_x + T2_x
 
-    inv_sf_pnorm_sensitivity = T1 + T2
-    max_inv_sf = np.max(inv_sf_elems)
+    # --- Sensitivity w.r.t. E ---
+    beta_E = np.zeros(nelems)
+    for e in range(nelems):
+        edof = mesh.edofMatStructural[e]
+        u_e = sol[edof]
+        beta_E[e] = (get_stress_relaxation_correction(x_safe[e]) *
+                     (inv_sf_elems[e] ** (pNormExponent - 1)) *
+                     (DinvSfDs_all[e] @ D0[e] @ B @ u_e))
+    T1_E = dpn_dinv * beta_E
+    T2_E = -get_structural_material_model_scaling(x_safe, material_model) * ce_base
+    d_ff_pnorm_dE = T1_E + T2_E
 
-    return inv_sf_pnorm, inv_sf_pnorm_sensitivity, max_inv_sf
+    # --- Sensitivity w.r.t. Y (no adjoint term; K does not depend on Y) ---
+    d_inv_dY = -sigma_vm / (Y_safe ** 2)
+    d_ff_pnorm_dY = dpn_dinv * (inv_sf_elems ** (pNormExponent - 1)) * d_inv_dY
+
+    # Chain to latent
+    if (dE_dz is None) or (dY_dz is None):
+        d_ff_pnorm_dz_flat = np.zeros(0)
+    else:
+        d_ff_dz_mat = (dE_dz * d_ff_pnorm_dE[None, :]) + (dY_dz * d_ff_pnorm_dY[None, :])
+        d_ff_pnorm_dz_flat = d_ff_dz_mat.reshape(-1)
+
+    max_ff = float(np.max(inv_sf_elems))
+    return ff_pnorm, d_ff_pnorm_dx, d_ff_pnorm_dz_flat, max_ff
 
 def compute_volumefraction_constraint_and_gradient(x: np.ndarray, volfracUpper: float) -> tuple:
     volFracConstraint = ((np.mean(x)/volfracUpper) - 1.0)
@@ -271,20 +333,19 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dzeta))
         return compliance, grad_compliance
     elif objectiveType == TO_QOI.PNORM_STRESS:
-        vm_pnorm, grad_vm_density, max_vm = compute_pnorm_stress_and_sensitivity(
-            sol, x, fe_solver, EDesign, KETemplate, MaterialModel.SIMP)
-        sigma_vm = fe_solver.vonMisesStress
-    
-        outer = (np.sum(sigma_vm ** pNormExponent)) ** (1.0 / pNormExponent - 1)
-        d_sigma_vm_dE = sigma_vm / EDesign
-        dE_dz = dE_dz.reshape(num_elems, latentDim)
-        grad_vm_z = np.zeros(latentDim*num_elems)
-        for d in range(latentDim):
-            grad_vm_z[d*num_elems:(d+1)*num_elems] = (pNormExponent * (sigma_vm ** (pNormExponent - 1))) * (d_sigma_vm_dE * dE_dz[:,d])
-        grad_vm_z = (1.0 / pNormExponent) * outer * grad_vm_z
+        # P-norm von Mises stress objective
+        pNormExponent = get_pNorm_exponent()
+
+        # Density + latent sensitivities in a single call (one adjoint solve)
+        vm_pnorm, grad_vm_density, grad_vm_z, max_vm = compute_pnorm_stress_and_sensitivities(
+            sol, x, fe_solver, EDesign, dE_dz, KETemplate, material_model
+        )
+
+        # Objective gradient w.r.t zeta = [x; z]
         grad_pnorm_stress = np.zeros_like(zeta)
-        grad_pnorm_stress[0:num_elems] = grad_vm_density
+        grad_pnorm_stress[:num_elems] = grad_vm_density
         grad_pnorm_stress[num_elems:] = grad_vm_z
+
         return vm_pnorm, grad_pnorm_stress
     elif objectiveType == TO_QOI.MASS:
         elemVolume =  fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
@@ -362,7 +423,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             compliance = np.einsum('i, i -> ', fe_solver.total_force, sol)
             ce = (np.dot(sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24), KETemplate) * sol[fe_solver.mesh.edofMatStructural].reshape(num_elems, 24)).sum(1)
             dJ_dxDesign = (-get_structural_material_model_sensitivity(x, material_model)) * EDesign * ce
-            dJ_dEDesign = np.asarray((get_structural_material_model_scaling(x)) * ce)
+            dJ_dEDesign = np.asarray((get_structural_material_model_scaling(x, material_model)) * ce)
             dJ_dz = (dJ_dEDesign * dE_dz).flatten()
             grad_compliance = np.concatenate((dJ_dxDesign, -dJ_dz))
             c[m, 0] = compliance/constraintLimit-1
@@ -406,31 +467,19 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
             c[m, 0] = ((mean_criticality / constraintLimit) - 1.0)
             dc[m, :] = grad_cons_mean_criticality
         elif constraintType == TO_QOI.STRESS_FAILURE_FACTOR:
-            ff_pNorm, grad_ff_density,stress_ff_max = compute_pnorm_safety_factor_and_sensitivity(
-                sol, x, fe_solver,EDesign,YDesign, KETemplate, MaterialModel.SIMP)
-            safety_constraint = stress_ff_max/constraintLimit - 1.0
-            c[m, 0] = safety_constraint
+            # Agglomerated (p-norm) failure factor = inverse safety factor
+            ff_pNorm, grad_ff_density, grad_ff_z, max_inv_sf = compute_pnorm_failure_factor_and_sensitivities(
+                sol, x, fe_solver, EDesign, YDesign, dE_dz, dY_dz, KETemplate, material_model
+            )
+
+            # Standard MMA inequality form: g(zeta) = FF_PN/FF_limit - 1 <= 0
+            safety_constraint = ff_pNorm / constraintLimit - 1.0
+
             grad_stress_ff = np.zeros_like(zeta)
-            grad_stress_ff[:num_elems] = grad_ff_density/constraintLimit
-            
-            # 2. Compute latent variable part of gradient (manual approach using dY_dz)
-            sigma_vm = fe_solver.vonMisesStress
-            P = pNormExponent
+            grad_stress_ff[:num_elems] = grad_ff_density / constraintLimit
+            grad_stress_ff[num_elems:] = grad_ff_z / constraintLimit
 
-            # Compute p-norm
-            stress_ff_np = sigma_vm / YDesign
-            sum_term = np.sum(stress_ff_np ** P)
-
-            # d(ff_pNorm)/dY for each element
-            outer = sum_term ** ((1.0 / P) - 1)
-            d_ff_pNorm_dY = outer * (stress_ff_np ** (P - 1)) * (-sigma_vm / (YDesign ** 2))
-            # Shape: (num_elems,)
-
-            # dY_dz is shape (latentDim, num_elems)
-            d_ff_pNorm_dz = (d_ff_pNorm_dY[:, np.newaxis] * dY_dz.T).flatten(order='F')
-            # Shape: (num_elems * latentDim,)
-
-            grad_stress_ff[num_elems:] = d_ff_pNorm_dz / constraintLimit
+            c[m] = safety_constraint
             dc[m, :] = grad_stress_ff
         else:
             raise NotImplementedError(f"Constraint {constraintType} is not implemented yet.")

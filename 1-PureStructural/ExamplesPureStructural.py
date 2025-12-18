@@ -161,8 +161,8 @@ def getMMTOProblemPureStructural(to_problem: MMTOExamplesPureStructural,nDOFDesi
         to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/20MaterialsTeledyne.xlsx'
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 25000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.25)] 
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5)] 
         vae_params.latentDim = 6
 
     elif to_problem == MMTOExamplesPureStructural.EdgeCantilever_Compliance_MassCost:
