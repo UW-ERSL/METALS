@@ -77,8 +77,8 @@ def compute_thermoelastic_compliance_and_gradient_density_multimaterial(
     material_model = to_params.materialModel
     
    
-    #J = displacement.T @ fe_structural_solver.stiff_mtrx @ displacement
-    J = fe_structural_solver.total_force @ displacement
+    J = displacement.T @ fe_structural_solver.stiff_mtrx @ displacement
+    # J = fe_structural_solver.total_force @ displacement
     nelem = fe_structural_solver.mesh.num_elems
     dJ_dx = np.zeros(nelem)
 
@@ -185,7 +185,7 @@ def compute_thermoelastic_compliance_and_gradient_latent_multimaterial(
         term3 = 2 * get_structural_material_model_scaling(x[e], material_model) * E[e] * dAlpha_dz_e * (d_e.T @ H_e @ Tdiff)
 
         # Term 4: thermal adjoint contribution (k sensitivity); needs further verification
-        term4 = get_thermal_material_model_scaling(x[e], material_model) * dKaapa_dz_e * (lambda_T_e.T @ (KTTemplate @ T_e))*0
+        term4 = get_thermal_material_model_scaling(x[e], material_model) * dKaapa_dz_e * (lambda_T_e.T @ (KTTemplate @ T_e))
 
 
         dJ_dz[e, :] = term1 + term2 + term3 + term4

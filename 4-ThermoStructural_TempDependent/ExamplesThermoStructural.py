@@ -40,7 +40,7 @@ def getMMTOThermostructuralProblem(to_problem: MMTOThermostructuralExamples, **k
 		to_params.nDOFDesired = 25000
 		to_params.Objective = (TO_QOI.COMPLIANCE, None)
 		to_params.Constraints = [(TO_QOI.VOLUME_FRACTION, None, 0.25)]
-		to_params.MaterialsExcelFile = './2-ThermoStructural/MaterialDataThermoStructural/3Materials.xlsx'
+		to_params.MaterialsExcelFile = './4-ThermoStructural_TempDependent/MaterialDataThermoStructural_TempDependent/3Materials.xlsx'
 	elif to_problem == MMTOThermostructuralExamples.MBBBeam:
 		# See paper: "Compliance‑based topology optimization of structural components
 		# subjected to thermo‑mechanical loading", by Ooms, et al., 2023
@@ -54,7 +54,7 @@ def getMMTOThermostructuralProblem(to_problem: MMTOThermostructuralExamples, **k
 		to_params.nDOFDesired = 25000
 		to_params.Objective = (TO_QOI.COMPLIANCE, None)
 		to_params.Constraints = [(TO_QOI.VOLUME_FRACTION, None, 0.4)]
-		to_params.MaterialsExcelFile = './2-ThermoStructural/MaterialDataThermoStructural/3Materials.xlsx'
+		to_params.MaterialsExcelFile = './4-ThermoStructural_TempDependent/MaterialDataThermoStructural_TempDependent/3Materials.xlsx'
 	else:
 		raise ValueError("Invalid Thermo-structural Topology Optimization problem specified.")
 	mesh, mat_prop, bcStructural,bcThermal, elem_body_force = getThermoStructuralFEAProblem(thermostructural_problem, **kwargs)

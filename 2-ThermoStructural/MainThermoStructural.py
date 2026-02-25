@@ -147,7 +147,9 @@ def run_topopt_ThermoStructural(
         Youngs_Modulus = material_properties['Youngs_Modulus'].detach().cpu().numpy()
         Thermal_Conductivity = material_properties['Conductivity'].detach().cpu().numpy()
         Thermal_Expansion = material_properties['Thermal_Expansion'].detach().cpu().numpy()
-
+        # print(f"Young's Modulus: min={Youngs_Modulus.min():.4g}, max={Youngs_Modulus.max():.4g}")
+        # print(f"Thermal Conductivity: min={Thermal_Conductivity.min():.4g}, max={Thermal_Conductivity.max():.4g}")
+        # print(f"Thermal Expansion: min={Thermal_Expansion.min():.4g}, max={Thermal_Expansion.max():.4g}")
         # Set per-element material properties
         fe_solver_structural.mat_prop = [
             mat_lib.create_material_with_defaults(

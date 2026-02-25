@@ -33,7 +33,11 @@ class MMTOExamplesPureStructural(enum.Enum):
     LBracketTopLoad_Compliance_MassCriticality = enum.auto()
     LBracketTopLoad_Stress_VolumeFraction_Mass = enum.auto()
     LBracketTopLoad_Mass_StressFF = enum.auto()
-
+    ##
+    LBracketTopLoad_Stress_BM1 = enum.auto()
+    LBracketTopLoad_Mass_StressFF_BM2 = enum.auto()
+    CorbelMidLoad_Mass_StressFF_BM2 = enum.auto()
+    ##
     EdgeCantilever_Compliance_MassCost = enum.auto()
     
     BliskSection_Compliance_MassCost = enum.auto()
@@ -105,6 +109,8 @@ def getMMTOProblemPureStructural(to_problem: MMTOExamplesPureStructural,nDOFDesi
         to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/5MaterialsCantilever.xlsx'
         to_params.Objective = (TO_QOI.COMPLIANCE, None)
         to_params.Constraints = [(TO_QOI.VOLUME_FRACTION, None,  0.5)]
+
+########### L Bracket Problems #############        
     elif to_problem == MMTOExamplesPureStructural.LBracketTopLoad_Compliance_Mass:
         structural_problem = StructuralFEAExamples.LBracket
         kwargs['topload'] = 1e4
@@ -161,9 +167,68 @@ def getMMTOProblemPureStructural(to_problem: MMTOExamplesPureStructural,nDOFDesi
         to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/20MaterialsTeledyne.xlsx'
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 25000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.25)] 
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5)] 
         vae_params.latentDim = 6
+
+#%% MMTO Benchmarks
+    elif to_problem == MMTOExamplesPureStructural.LBracketTopLoad_Stress_BM1:
+
+        structural_problem = StructuralFEAExamples.LBracket_BM1
+        kwargs['topload'] = 0
+        kwargs['midload'] = 4
+
+        to_params.ExtrudeZ = True
+        to_params.RelativeFilterRadius = 1.5
+        to_params.nDOFDesired = 25000 if nDOFDesired is None else nDOFDesired
+
+        to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/BM1_3Mats_2Attr.xlsx'
+
+        to_params.Objective = (TO_QOI.PNORM_STRESS, None)
+        # to_params.Constraints = [(TO_QOI.VOLUME_FRACTION, None, 0.40)]
+        to_params.Constraints = [
+            (TO_QOI.VOLUME_FRACTION, {"material_id":0, "tau":0.5}, 0.15),
+            (TO_QOI.VOLUME_FRACTION, {"material_id":1, "tau":0.5}, 0.15),
+            (TO_QOI.VOLUME_FRACTION, {"material_id":2, "tau":0.5}, 0.10),
+        ]
+
+        vae_params.latentDim = 6
+
+    elif to_problem == MMTOExamplesPureStructural.LBracketTopLoad_Mass_StressFF_BM2:
+
+        structural_problem = StructuralFEAExamples.LBracket_BM2
+        kwargs['topload'] = 1.0
+        kwargs['midload'] = 0
+
+        to_params.ExtrudeZ = True
+        to_params.RelativeFilterRadius = 1.5
+
+        to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/BM2_3Mats_3Attr.xlsx'
+
+        to_params.Objective = (TO_QOI.MASS, None) 
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 1.0)] 
+        vae_params.latentDim = 2
+
+    elif to_problem == MMTOExamplesPureStructural.CorbelMidLoad_Mass_StressFF_BM2:
+
+        structural_problem = StructuralFEAExamples.Corbel_BM2
+        kwargs['topload'] = 0
+        kwargs['midload'] = 250.0
+        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
+
+        to_params.ExtrudeZ = True
+        to_params.RelativeFilterRadius = 1.5
+
+        to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/BM2_Ding24_3Mats_3Attr.xlsx'
+
+        to_params.Objective = (TO_QOI.MASS, None) 
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 25000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 1.0)] 
+        vae_params.latentDim = 2
+#%%
 
     elif to_problem == MMTOExamplesPureStructural.EdgeCantilever_Compliance_MassCost:
         structural_problem = StructuralFEAExamples.EdgeCantilever
