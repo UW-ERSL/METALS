@@ -641,7 +641,7 @@ def run_topopt(
 #     )
 
 if __name__ == "__main__":
-    to_problem = MMTOExamplesPureStructural.CorbelMidLoad_Mass_StressFF_BM2
+    to_problem = MMTOExamplesPureStructural.LBracketTopLoad_Mass_StressFF_BM2
 
     run_topopt(
         to_problem=to_problem,
