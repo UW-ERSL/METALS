@@ -14,6 +14,12 @@ class StructuralFEAExamples(enum.Enum):
 	BridgeSaitou = enum.auto()
 	LBracket = enum.auto()
 	CantileverBenchmark = enum.auto()
+  ######
+	LBracket_BM1 = enum.auto()
+	LBracket_BM2 = enum.auto()
+	Corbel_BM2 = enum.auto()
+
+	######
 
   
 def getStructuralFEAProblem(problem: StructuralFEAExamples,nDOFDesired: int = 20000, **kwargs):
@@ -42,6 +48,17 @@ def getStructuralFEAProblem(problem: StructuralFEAExamples,nDOFDesired: int = 20
   
   elif problem == StructuralFEAExamples.LBracket:
     return createLBracketProblem(nDOFDesired=nDOFDesired,**kwargs)
+  
+  ######
+  elif problem == StructuralFEAExamples.LBracket_BM1:
+    return createLBracket_BM1_Problem(nDOFDesired=nDOFDesired,**kwargs)
+  
+  elif problem == StructuralFEAExamples.LBracket_BM2:
+    return createLBracket_BM2_Problem(nDOFDesired=nDOFDesired,**kwargs)
+  
+  elif problem == StructuralFEAExamples.Corbel_BM2:
+    return createCorbel_BM2_Problem(nDOFDesired=nDOFDesired,**kwargs)
+  ######
   
   elif problem == StructuralFEAExamples.BridgeHalf:
     return createBridgeProblemHalf(nDOFDesired=nDOFDesired,**kwargs)
@@ -172,6 +189,145 @@ def createLBracketProblem(nDOFDesired: int = 10000, topload = 1000,midload = 0):
 
   return mesh, mat_prop, bc, elem_body_force
 
+######################
+def createLBracket_BM1_Problem(nDOFDesired: int = 10000, topload = 0,midload = 1000):
+  stl_file = os.path.join(script_dir, './Models/LBracket_BM1/LBracket_BM1.STL')
+
+  nElemsDesired = nDOFDesired/3
+
+  mesh = hex_mesher.HexMesher()
+  mesh.createMeshFromSTLFile(stl_file, nElemsDesired=nElemsDesired)
+
+  mesh.createEdofMatStructural()
+
+  triList0 = [12,13]
+  fixed_nodes = mesh.get_nodes_on_triangles(triList0)
+
+  fixed_dofs = np.array([3 * fixed_nodes,
+              3 * fixed_nodes + 1,
+              3 * fixed_nodes + 2]).flatten().astype(int)
+  
+  dirichlet_values = 0*np.ones_like(fixed_dofs, dtype = float)
+  mesh.node_indices[fixed_nodes, 3] = 1 # for plotting
+
+  force = np.zeros(3*mesh.num_nodes)
+
+  if(abs(topload) > 0):
+    triList1 = [12,13]
+    topload_nodes = mesh.get_nodes_on_triangles(triList1)
+    topload_dofs = 3 * topload_nodes + 1  
+    mesh.node_indices[topload_nodes, 3] = 2 # for plotting
+    force[topload_dofs] = -topload/len(topload_nodes)
+
+  if(abs(midload) > 0):
+    triList2 = [6,7]
+    midload_nodes = mesh.get_nodes_on_triangles(triList2)
+    midload_dofs = 3 * midload_nodes + 1
+    force[midload_dofs] = -midload/len(midload_nodes)
+
+  bc = bound_cond.BC(force = force,fixed_dofs = fixed_dofs,dirichlet_values = dirichlet_values)
+
+  # Define material properties
+  mat_prop = mat_lib.create_material_with_defaults("CustomMaterial", youngs_modulus=1.0, poissons_ratio=0.3, mass_density=1.0, yield_strength=1.0)
+
+  elem_body_force = None
+
+  return mesh, mat_prop, bc, elem_body_force
+
+
+def createLBracket_BM2_Problem(nDOFDesired: int = 10000, topload = 1000 ,midload = 0):
+  stl_file = os.path.join(script_dir, './Models/LBracket_BM2/LBracket_BM2_A.STL')
+
+  nElemsDesired = nDOFDesired/3
+
+  mesh = hex_mesher.HexMesher()
+  mesh.createMeshFromSTLFile(stl_file, nElemsDesired=nElemsDesired)
+
+  mesh.createEdofMatStructural()
+
+  triList0 = [4,5]
+  fixed_nodes = mesh.get_nodes_on_triangles(triList0)
+
+  fixed_dofs = np.array([3 * fixed_nodes,
+              3 * fixed_nodes + 1,
+              3 * fixed_nodes + 2]).flatten().astype(int)
+  
+  dirichlet_values = 0*np.ones_like(fixed_dofs, dtype = float)
+  mesh.node_indices[fixed_nodes, 3] = 1 # for plotting
+
+  force = np.zeros(3*mesh.num_nodes)
+
+  if(abs(topload) > 0):
+    triList1 = [16,17]  #right side
+    # triList1 = [8,9] #left side
+    topload_nodes = mesh.get_nodes_on_triangles(triList1)
+    topload_dofs = 3 * topload_nodes + 1  
+    mesh.node_indices[topload_nodes, 3] = 2 # for plotting
+    force[topload_dofs] = -topload/len(topload_nodes)
+
+  if(abs(midload) > 0):
+    triList1 = [16,17]  #right side
+    # triList1 = [8,9] #left side
+    topload_nodes = mesh.get_nodes_on_triangles(triList1)
+    topload_dofs = 3 * topload_nodes + 1  
+    mesh.node_indices[topload_nodes, 3] = 2 # for plotting
+    force[topload_dofs] = -topload/len(topload_nodes)
+
+  bc = bound_cond.BC(force = force,fixed_dofs = fixed_dofs,dirichlet_values = dirichlet_values)
+
+  # Define material properties
+  mat_prop = mat_lib.create_material_with_defaults("CustomMaterial", youngs_modulus=1.0, poissons_ratio=0.3, mass_density=1.0, yield_strength=1.0)
+
+  elem_body_force = None
+
+  return mesh, mat_prop, bc, elem_body_force
+
+def createCorbel_BM2_Problem(nDOFDesired: int = 10000, topload = 0 ,midload = 1000):
+  stl_file = os.path.join(script_dir, './Models/Corbel_BM2_Ding24/Corbel_BM2_Ding24.STL')
+
+  nElemsDesired = nDOFDesired/3
+
+  mesh = hex_mesher.HexMesher()
+  mesh.createMeshFromSTLFile(stl_file, nElemsDesired=nElemsDesired)
+
+  mesh.createEdofMatStructural()
+
+  triList0 = [14,15,10,11]
+  fixed_nodes = mesh.get_nodes_on_triangles(triList0)
+
+  fixed_dofs = np.array([3 * fixed_nodes,
+              3 * fixed_nodes + 1,
+              3 * fixed_nodes + 2]).flatten().astype(int)
+  
+  dirichlet_values = 0*np.ones_like(fixed_dofs, dtype = float)
+  mesh.node_indices[fixed_nodes, 3] = 1 # for plotting
+
+  force = np.zeros(3*mesh.num_nodes)
+
+  if(abs(topload) > 0):
+    triList1 = [4,5]
+    topload_nodes = mesh.get_nodes_on_triangles(triList1)
+    topload_dofs = 3 * topload_nodes + 1  
+    mesh.node_indices[topload_nodes, 3] = 2 # for plotting
+    force[topload_dofs] = -topload/len(topload_nodes)
+
+  if(abs(midload) > 0):
+    triList1 = [4,5]
+    midload_nodes = mesh.get_nodes_on_triangles(triList1)
+    midload_dofs = 3 * midload_nodes + 1  
+    mesh.node_indices[midload_nodes, 3] = 2 # for plotting
+    force[midload_dofs] = -midload/len(midload_nodes)
+
+  bc = bound_cond.BC(force = force,fixed_dofs = fixed_dofs,dirichlet_values = dirichlet_values)
+
+  # Define material properties
+  mat_prop = mat_lib.create_material_with_defaults("CustomMaterial", youngs_modulus=1.0, poissons_ratio=0.3, mass_density=1.0, yield_strength=1.0)
+
+  elem_body_force = None
+
+  return mesh, mat_prop, bc, elem_body_force
+
+#######################
   # ----------------------------------------
 
 def createBliskSectionProblem(nDOFDesired: int = 50000, rpm = 5000, radialForce = 0, downwardForce = 300, 
