@@ -8,17 +8,18 @@ sys.path.insert(0, os.path.abspath(common_path))
 from materialColors import material_colors # type: ignore[reportMissingImports]
 # Now you can import normally
 from StructuralFEAExamples import StructuralFEAExamples, getStructuralFEAProblem # type: ignore
-from PyTOImports import  TOParams, TO_QOI, find_elements_with_fixedDOF # type: ignore
+from PyTOImports import  TO_QOI, find_elements_with_fixedDOF # type: ignore
+from mmto_common import MMTOParams # type: ignore
 from dataclasses import dataclass, field
 
 @dataclass(slots=True) # avoid accidental modification
 class VAEParams: #default VAE parameters
     klFactor: float = 5e-6
     learningRate: float = 2e-6
-    numEpochs: int = 125000 # max epochs
+    numEpochs: int = 200000 # max epochs
     vae_hiddenDim: int = 500
     latentDim: int = 2 # default latent dimension
-    maxAttributeErrorPercent: float = 0.001 # termination criteria for VAE training
+    maxAttributeErrorPercent: float = 1 # termination criteria for VAE training
 
 class MMTOExamplesPureStructural(enum.Enum):
     Bridge_Compliance_MassCost = enum.auto()
@@ -33,6 +34,7 @@ class MMTOExamplesPureStructural(enum.Enum):
     LBracketTopLoad_Compliance_MassCriticality = enum.auto()
     LBracketTopLoad_Stress_VolumeFraction_Mass = enum.auto()
     LBracketTopLoad_Mass_StressFF = enum.auto()
+    LBracketTopLoad_LocalStressFF = enum.auto()
     ##
     LBracketTopLoad_Stress_BM1 = enum.auto()
     LBracketTopLoad_Mass_StressFF_BM2 = enum.auto()
@@ -56,7 +58,7 @@ def getMMTOProblemPureStructural(to_problem: MMTOExamplesPureStructural,nDOFDesi
         StructuralTOProblem: The structural topology optimization problem.
     """
     
-    to_params = TOParams()
+    to_params = MMTOParams()
     vae_params = VAEParams()
     if to_problem == MMTOExamplesPureStructural.Bridge_Compliance_MassCost:
         structural_problem = StructuralFEAExamples.Bridge
@@ -163,14 +165,27 @@ def getMMTOProblemPureStructural(to_problem: MMTOExamplesPureStructural,nDOFDesi
         structural_problem = StructuralFEAExamples.LBracket
         kwargs['topload'] = 5e4
         kwargs['midload'] = 0
+        to_params.RelativeFilterRadius = 3.5
         to_params.Comment  = "Stress Safety Factor"
-        to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/20MaterialsTeledyne.xlsx'
+        to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/20MaterialsTeledyne2.xlsx'
         to_params.Objective = (TO_QOI.MASS, None) 
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.5)] 
-        vae_params.latentDim = 6
-
+        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 0.15)] 
+        vae_params.latentDim = 3
+    elif to_problem == MMTOExamplesPureStructural.LBracketTopLoad_LocalStressFF:
+        structural_problem = StructuralFEAExamples.LBracket
+        kwargs['topload'] = 5e4
+        kwargs['midload'] = 0
+        to_params.RelativeFilterRadius = 3.5
+        to_params.Comment  = "Stress Safety Factor - Local Stress Formulation"
+        to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/20MaterialsTeledyne2.xlsx'
+        to_params.Objective = (TO_QOI.MASS_AL_LOCAL_STRESS, None)
+        to_params.ExtrudeZ = True
+        to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
+        to_params.Constraints = [(TO_QOI.DUMMY_ZERO, None, 0.0)]
+        vae_params.latentDim = 3
+        vae_params.numEpochs = 350000
 #%% MMTO Benchmarks
     elif to_problem == MMTOExamplesPureStructural.LBracketTopLoad_Stress_BM1:
 
@@ -192,7 +207,12 @@ def getMMTOProblemPureStructural(to_problem: MMTOExamplesPureStructural,nDOFDesi
             (TO_QOI.VOLUME_FRACTION, {"material_id":2, "tau":0.5}, 0.10),
         ]
 
-        vae_params.latentDim = 6
+        vae_params.latentDim = 2
+        vae_params.learningRate = 5e-4
+        vae_params.vae_hiddenDim = 50
+        vae_params.maxAttributeErrorPercent = 0.1
+        vae_params.klFactor = 1e-4
+        vae_params.numEpochs = 30000
 
     elif to_problem == MMTOExamplesPureStructural.LBracketTopLoad_Mass_StressFF_BM2:
 
@@ -201,33 +221,49 @@ def getMMTOProblemPureStructural(to_problem: MMTOExamplesPureStructural,nDOFDesi
         kwargs['midload'] = 0
 
         to_params.ExtrudeZ = True
-        to_params.RelativeFilterRadius = 1.5
+        to_params.RelativeFilterRadius = 3.5   # paper-like filter radius
 
         to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/BM2_3Mats_3Attr.xlsx'
 
-        to_params.Objective = (TO_QOI.MASS, None) 
+        # AL local stress formulation: stress goes into the objective, not Constraints
+        to_params.Objective = (TO_QOI.MASS_AL_LOCAL_STRESS, None)
         to_params.ExtrudeZ = True
         to_params.nDOFDesired = 50000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 1.0)] 
+        to_params.Constraints = [(TO_QOI.DUMMY_ZERO, None, 0.0)]
         vae_params.latentDim = 2
+        # vae_params.learningRate = 5e-4
+        # vae_params.vae_hiddenDim = 50
+        vae_params.maxAttributeErrorPercent = 0.1
+        # vae_params.klFactor = 1e-4
+        vae_params.numEpochs = 30000
 
     elif to_problem == MMTOExamplesPureStructural.CorbelMidLoad_Mass_StressFF_BM2:
 
         structural_problem = StructuralFEAExamples.Corbel_BM2
         kwargs['topload'] = 0
         kwargs['midload'] = 250.0
-        to_params.nDOFDesired = 10000 if nDOFDesired is None else nDOFDesired
-
         to_params.ExtrudeZ = True
-        to_params.RelativeFilterRadius = 1.5
-
+        to_params.RelativeFilterRadius = 5
+        to_params.MaterialFilterRadius = 3.5 # smaller filter radius for material distribution can help capture fine features in the material distribution, which is important for criticality-based constraints
         to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/BM2_Ding24_3Mats_3Attr.xlsx'
+        # to_params.MaterialsExcelFile = './1-PureStructural/MaterialDataPureStructural/20MaterialsTeledyne2.xlsx' # for testing with same materials as LBracket
 
-        to_params.Objective = (TO_QOI.MASS, None) 
+        to_params.Objective = (TO_QOI.MASS_AL_LOCAL_STRESS, None)
+        to_params.Constraints = [(TO_QOI.DUMMY_ZERO, None, 0.0)]
+        # to_params.Objective = (TO_QOI.MASS, None)
+        # to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 1.0)]
         to_params.ExtrudeZ = True
-        to_params.nDOFDesired = 25000 if nDOFDesired is None else nDOFDesired
-        to_params.Constraints = [(TO_QOI.STRESS_FAILURE_FACTOR, None, 1.0)] 
-        vae_params.latentDim = 2
+        to_params.YSymmetry = True
+        to_params.nDOFDesired = 40000 if nDOFDesired is None else nDOFDesired
+        
+
+        to_params.RemoveHangingElems = True
+        vae_params.latentDim =2
+        vae_params.learningRate = 5e-4
+        vae_params.vae_hiddenDim = 50
+        vae_params.maxAttributeErrorPercent = 0.5
+        vae_params.klFactor = 1e-8
+        vae_params.numEpochs = 500000
 #%%
 
     elif to_problem == MMTOExamplesPureStructural.EdgeCantilever_Compliance_MassCost:

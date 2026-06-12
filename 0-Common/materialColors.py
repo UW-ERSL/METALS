@@ -23,3 +23,9 @@ material_colors = { # these colors can be changed as desired for each example
             18: '#42d4f4', # vibrant cyan
             19: "#505053",  # dim gray
         }
+
+material_colors = [
+    "#00FFFF",  # material id 0 -> green
+    "#FF0000",  # material id 1 -> red
+    "#23FF24",  # material id 2 -> blue (slightly darker than neon)
+]

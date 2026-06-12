@@ -13,30 +13,30 @@ def set_seed(manualSeed):
   np.random.seed(manualSeed)
   random.seed(manualSeed)
 
-#%%
 class Encoder(nn.Module):
-  def __init__(self, encoderSettings):
-    super(Encoder, self).__init__()
-    set_seed(1234)
-    self.linear1 = nn.Linear(encoderSettings['inputDim'], encoderSettings['hiddenDim'])
-    self.linear2 = nn.Linear(encoderSettings['hiddenDim'], encoderSettings['latentDim'])
-    self.linear3 = nn.Linear(encoderSettings['hiddenDim'], encoderSettings['latentDim'])
-    
-    self.N = torch.distributions.Normal(0, 1)
-    self.kl = 0
-    self.isTraining = False
-    
-  def forward(self, x):
-    x = F.relu(self.linear1(x))
-    mu =  self.linear2(x)
-    sigma = torch.exp(self.linear3(x))
-    if(self.isTraining):
-      self.z = mu + sigma*self.N.sample(mu.shape)
-    else:
-      self.z = mu
+    def __init__(self, encoderSettings):
+        super(Encoder, self).__init__()
+        self.linear1 = nn.Linear(encoderSettings['inputDim'], encoderSettings['hiddenDim'])
+        self.linear2 = nn.Linear(encoderSettings['hiddenDim'], encoderSettings['latentDim'])   # mu
+        self.linear3 = nn.Linear(encoderSettings['hiddenDim'], encoderSettings['latentDim'])   # logvar
 
-    self.kl = (sigma**2 + mu**2 - torch.log(sigma) - 1/2).sum()
-    return self.z
+        self.kl = 0.0
+        self.isTraining = False
+
+    def forward(self, x):
+        h = F.softplus(self.linear1(x))
+        mu = self.linear2(h)
+        logvar = self.linear3(h)
+        std = torch.exp(0.5 * logvar)
+
+        if self.isTraining:
+            eps = torch.randn_like(std)
+            z = mu + std * eps
+        else:
+            z = mu
+
+        self.kl = 0.5 * torch.sum(torch.exp(logvar) + mu**2 - 1.0 - logvar)
+        return z
 
 class Decoder(nn.Module):
   def __init__(self, decoderSettings):
@@ -45,7 +45,7 @@ class Decoder(nn.Module):
     self.linear2 = nn.Linear(decoderSettings['hiddenDim'], decoderSettings['outputDim'])
 
   def forward(self, z):
-    z = F.relu(self.linear1(z))
+    z = F.softplus(self.linear1(z))
     z = torch.sigmoid(self.linear2(z)) # decoder op in range [0,1]
     return z
     

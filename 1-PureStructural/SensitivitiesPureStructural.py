@@ -1,3 +1,24 @@
+"""
+Objective / constraint values and analytic sensitivities for structural MMTO.
+
+Two public entry points consumed by the driver:
+    compute_mmto_objective_and_gradient(...)   -> (obj, grad)        over zeta=[x; z]
+    compute_mmto_constraint_and_gradient(...)  -> (c, dc)            MMA form g<=0
+
+Supported objectives: COMPLIANCE, PNORM_STRESS, MASS, MASS_AL_LOCAL_STRESS.
+Supported constraints: COMPLIANCE, VOLUME_FRACTION (global or per-material),
+    MASS, COST, MAX/MEAN_CRITICALITY, STRESS_FAILURE_FACTOR, DUMMY_ZERO, GRAYNESS.
+
+Stress model (see topopt_material_model): displacements use SIMP stiffness x**p,
+but the recovered stress is relaxed, sigma = x**q * D @ strain (q < 1), so the
+von Mises in fe_solver.vonMisesStress is ALREADY relaxed. Failure factor is
+    FF_e = sigma_vm_e / Y_e,   local constraint Q_e = FF_e - 1 <= 0.
+
+The three stress-sensitivity routines (p-norm vM, p-norm FF, weighted local FF)
+share the same adjoint structure; only their adjoint right-hand side and the
+quantity being aggregated differ. The MASS_AL_LOCAL_STRESS objective wraps the
+weighted-local-FF routine in a Powell-Hestenes-Rockafellar augmented Lagrangian.
+"""
 import numpy as np
 import sys
 import os
@@ -148,6 +169,35 @@ def hex8_stiffness_matrix_structural_dnu(E: float, nu: float, elem_size, gauss_o
         dke += b.T @ dc @ b * np.linalg.det(jac) * gauss_wts[ctr]
 
     return dke
+def _structural_B_matrix(elem_size):
+    """Constant 6x24 strain-displacement matrix B at the hex element center.
+
+    Identical construction used by every stress-sensitivity routine below.
+    Depends only on elem_size = (dx, dy, dz). Returns B with shape (6, 24).
+    """
+    gradN = (1 / 8) * np.array([
+        [-1, 1, 1, -1, -1, 1, 1, -1],
+        [-1, -1, 1, 1, -1, -1, 1, 1],
+        [-1, -1, -1, -1, 1, 1, 1, 1]
+    ])
+    for i in range(3):
+        gradN[i, :] = 2 * gradN[i, :] / elem_size[i]
+    B = np.zeros((6, 24))
+    Bi = np.zeros((6, 3, 8))
+    Bi[0, 0, :] = gradN[0, :]
+    Bi[1, 1, :] = gradN[1, :]
+    Bi[2, 2, :] = gradN[2, :]
+    Bi[3, 0, :] = gradN[1, :]
+    Bi[3, 1, :] = gradN[0, :]
+    Bi[4, 0, :] = gradN[2, :]
+    Bi[4, 2, :] = gradN[0, :]
+    Bi[5, 1, :] = gradN[2, :]
+    Bi[5, 2, :] = gradN[1, :]
+    idx = np.arange(8)
+    B[:, (3 * idx)[:, None] + np.arange(3)] = Bi.transpose(0, 2, 1)
+    return B
+
+
 # --- Support Functions ---
 def compute_pnorm_stress_and_sensitivities(sol: np.ndarray, x, fe_solver, EDesign, dE_dz, KETemplate, material_model,
                                            dnu_dz=None,
@@ -186,26 +236,7 @@ def compute_pnorm_stress_and_sensitivities(sol: np.ndarray, x, fe_solver, EDesig
     D0 = np.stack(D0_list)
 
     # B matrix setup (match HexStructuralFEA.postprocess)
-    gradN = (1 / 8) * np.array([
-        [-1, 1, 1, -1, -1, 1, 1, -1],
-        [-1, -1, 1, 1, -1, -1, 1, 1],
-        [-1, -1, -1, -1, 1, 1, 1, 1]
-    ])
-    for i in range(3):
-        gradN[i, :] = 2 * gradN[i, :] / fe_solver.mesh.elem_size[i]
-    B = np.zeros((6, 24))
-    Bi = np.zeros((6, 3, 8))
-    Bi[0, 0, :] = gradN[0, :]
-    Bi[1, 1, :] = gradN[1, :]
-    Bi[2, 2, :] = gradN[2, :]
-    Bi[3, 0, :] = gradN[1, :]
-    Bi[3, 1, :] = gradN[0, :]
-    Bi[4, 0, :] = gradN[2, :]
-    Bi[4, 2, :] = gradN[0, :]
-    Bi[5, 1, :] = gradN[2, :]
-    Bi[5, 2, :] = gradN[1, :]
-    idx = np.arange(8)
-    B[:, (3 * idx)[:, None] + np.arange(3)] = Bi.transpose(0, 2, 1)
+    B = _structural_B_matrix(fe_solver.mesh.elem_size)
 
     vm_elems = fe_solver.vonMisesStress
     vm_pnorm = fe_solver.pNormStress
@@ -392,26 +423,7 @@ def compute_pnorm_failure_factor_and_sensitivities(sol: np.ndarray, x, fe_solver
     D0 = np.stack(D0_list)
 
     # B matrix setup (match HexStructuralFEA.postprocess)
-    gradN = (1 / 8) * np.array([
-        [-1, 1, 1, -1, -1, 1, 1, -1],
-        [-1, -1, 1, 1, -1, -1, 1, 1],
-        [-1, -1, -1, -1, 1, 1, 1, 1]
-    ])
-    for i in range(3):
-        gradN[i, :] = 2 * gradN[i, :] / fe_solver.mesh.elem_size[i]
-    B = np.zeros((6, 24))
-    Bi = np.zeros((6, 3, 8))
-    Bi[0, 0, :] = gradN[0, :]
-    Bi[1, 1, :] = gradN[1, :]
-    Bi[2, 2, :] = gradN[2, :]
-    Bi[3, 0, :] = gradN[1, :]
-    Bi[3, 1, :] = gradN[0, :]
-    Bi[4, 0, :] = gradN[2, :]
-    Bi[4, 2, :] = gradN[0, :]
-    Bi[5, 1, :] = gradN[2, :]
-    Bi[5, 2, :] = gradN[1, :]
-    idx = np.arange(8)
-    B[:, (3 * idx)[:, None] + np.arange(3)] = Bi.transpose(0, 2, 1)
+    B = _structural_B_matrix(fe_solver.mesh.elem_size)
 
     # Inverse safety factor per element (sigma_vm already includes stress relaxation correction)
     sigma_vm = np.maximum(fe_solver.vonMisesStress, 1e-12)
@@ -562,7 +574,372 @@ def compute_volumefraction_constraint_and_gradient(x: np.ndarray, volfracUpper: 
     volFracConstraint = ((np.mean(x)/volfracUpper) - 1.0)
     volFracConstraint_gradient = np.ones_like(x) / volfracUpper/ x.size
     return volFracConstraint, volFracConstraint_gradient
+# =====================================================================
+# AUGMENTED LAGRANGIAN (Powell-Hestenes-Rockafellar) FOR LOCAL STRESS
+#   Local inequality per element:  Q_e = FF_e - 1 <= 0
+#   Shifted constraint:            h_e = max(Q_e, -lambda_e/mu)
+#   AL value:                      phi = sum_e (lambda_e h_e + 0.5 mu h_e^2) / N
+#   Multiplier update (per major): lambda_e <- max(lambda_e + mu*h_e, 0)
+#                                  mu <- min(theta*mu, mu_max)
+# =====================================================================
+def _init_al_state_if_needed(to_params, num_elems: int):
+    """Lazily (idempotently) initialize the persistent AL state dict on to_params.
 
+    Holds lambda_local (per-element multipliers), penalty mu, growth theta,
+    mu_max, lambda_max, and the cached Q_local / h_local from the previous
+    evaluation. first_eval_done guards the very first evaluation, which has no
+    prior iterate to update from.
+    """
+    if not hasattr(to_params, "AL_state") or to_params.AL_state is None:
+        to_params.AL_state = {}
+
+    s = to_params.AL_state
+    if not s.get("initialized", False):
+        s["initialized"] = True
+        s["lambda_local"] = np.zeros(num_elems, dtype=float)
+        s["mu"] = 1.0
+        s["mu_max"] = 1.0e3          # was 1.0e4 — cap penalty stiffness
+        s["theta"] = 1.1
+        s["lambda_max"] = 1.0e3     # hard upper bound on per-element multiplier
+        s["N"] = float(num_elems)
+        s["first_eval_done"] = False
+        s["cached_Q_local"] = np.zeros(num_elems, dtype=float)
+        s["cached_h_local"] = np.zeros(num_elems, dtype=float)
+
+
+def _update_al_multipliers(to_params):
+    """Update AL multipliers/penalty once per objective evaluation (PHR rule).
+
+    Assumes one objective eval per iterate (plain MMA, not GCMMA). Uses the
+    previous iterate's cached Q_local:
+        lambda <- clip(lambda + mu*h, 0, lambda_max),
+        mu     <- min(theta*mu, mu_max),   with h = max(Q_prev, -lambda/mu).
+    Skips the very first evaluation: there is no prior iterate to pull Q from,
+    and running the update there would otherwise bump mu one step early.
+    """
+    s = to_params.AL_state
+
+    # First evaluation: no previous iterate yet -> nothing to update.
+    if not s["first_eval_done"]:
+        s["first_eval_done"] = True
+        return
+
+    lam = s["lambda_local"]
+    mu = float(s["mu"])
+    theta = float(s["theta"])
+    mu_max = float(s["mu_max"])
+    lambda_max = float(s.get("lambda_max", 1.0e2))
+
+    Q_prev = s["cached_Q_local"]
+    h_prev = np.maximum(Q_prev, -lam / mu)
+
+    # PHR inequality multiplier update: lambda <- clip(lambda + mu*h_prev, 0, lambda_max).
+    s["lambda_local"] = np.clip(lam + mu * h_prev, 0.0, lambda_max)
+    print(f"[AL] mu={s['mu']:.3g} | max_lam={float(np.max(s['lambda_local'])):.3g} "
+          f"| n_at_cap={int(np.sum(s['lambda_local'] >= lambda_max - 1e-9))}")
+    s["mu"] = min(theta * mu, mu_max)
+    s["cached_h_local"] = h_prev.copy()
+    
+
+def compute_weighted_local_failure_factor_and_sensitivities(
+    sol: np.ndarray,
+    x: np.ndarray,
+    fe_solver,
+    EDesign: np.ndarray,
+    YDesign: np.ndarray,
+    dE_dz: np.ndarray,
+    dY_dz: np.ndarray,
+    KETemplate: np.ndarray,
+    material_model,
+    elem_weights: np.ndarray,
+    dnu_dz=None,
+    use_constant_poissons_ratio: bool = True,
+    constant_poissons_ratio: float = 0.3,
+    nu_round_decimals: int = 6,
+):
+    """
+    Compute J = sum_e elem_weights[e] * FF_e
+    where FF_e = sigma_vm_e / Y_e
+
+    Returns
+    -------
+    J_weighted : float
+    dJ_dx : (nelems,)
+    dJ_dz_flat : (latentDim*nelems,)
+    FF_elems : (nelems,)
+    """
+    mesh = fe_solver.mesh
+    nelems = mesh.num_elems
+
+    if isinstance(fe_solver.mat_prop, list):
+        nu = np.array([fe_solver.mat_prop[i].poissons_ratio for i in range(nelems)])
+    else:
+        nu = np.full(nelems, fe_solver.mat_prop.poissons_ratio)
+
+    D_list = []
+    D0_list = []
+    for Ei, nui in zip(EDesign, nu):
+        D0i = hex_element_stiffness.isotropic_constitutive_matrix(1.0, float(nui))
+        D0_list.append(D0i)
+        D_list.append(float(Ei) * D0i)
+    D = np.stack(D_list)
+    D0 = np.stack(D0_list)
+
+    B = _structural_B_matrix(fe_solver.mesh.elem_size)
+
+    sigma_vm = np.maximum(fe_solver.vonMisesStress, 1e-12)
+    Y_safe = np.maximum(YDesign, 1e-12)
+    FF_elems = sigma_vm / Y_safe
+
+    J_weighted = float(np.dot(elem_weights, FF_elems))
+
+    DinvSfDs_all = np.zeros((nelems, 6))
+    for e in range(nelems):
+        stress_elem = fe_solver.stressComponents[e]
+        sigma11, sigma22, sigma33, sigma12, sigma13, sigma23 = stress_elem
+        denom = max(fe_solver.vonMisesStress[e], 1e-12) * Y_safe[e]
+        DinvSfDs_all[e, 0] = 1/(2*denom) * (2*sigma11 - sigma22 - sigma33)
+        DinvSfDs_all[e, 1] = 1/(2*denom) * (2*sigma22 - sigma11 - sigma33)
+        DinvSfDs_all[e, 2] = 1/(2*denom) * (2*sigma33 - sigma11 - sigma22)
+        DinvSfDs_all[e, 3] = 3/denom * sigma12
+        DinvSfDs_all[e, 4] = 3/denom * sigma13
+        DinvSfDs_all[e, 5] = 3/denom * sigma23
+
+    x_safe = np.maximum(x, 1e-12)
+
+    g = np.zeros(fe_solver.bc.num_dofs)
+    for e in range(nelems):
+        if abs(elem_weights[e]) < 1e-30:
+            continue
+        edof = mesh.edofMatStructural[e]
+        g_e = (
+            get_stress_relaxation_correction(x_safe[e]) *
+            elem_weights[e] *
+            (B.T @ D[e].T @ DinvSfDs_all[e])
+        )
+        g[edof] += np.asarray(g_e).reshape(-1)
+
+    adjointSol = linear_solvers.solve(
+        fe_solver.stiff_mtrx,
+        g,
+        fe_solver.solver,
+        fe_solver.bc,
+        dsolver=fe_solver.dsolver,
+        **fe_solver.kwargs
+    )
+
+    dofMat = mesh.edofMatStructural
+
+    if use_constant_poissons_ratio:
+        nu = np.full(nelems, float(constant_poissons_ratio))
+
+    if use_constant_poissons_ratio:
+        nRows = KETemplate.shape[0]
+        ce_base = (
+            np.dot(adjointSol[dofMat].reshape(nelems, nRows), KETemplate) *
+            sol[dofMat].reshape(nelems, nRows)
+        ).sum(1)
+        ce_K = EDesign * ce_base
+        ce_K0 = ce_base
+        ce_dK_dnu = np.zeros(nelems)
+    else:
+        u_elems = sol[dofMat].reshape(nelems, 24)
+        lam_elems = adjointSol[dofMat].reshape(nelems, 24)
+
+        KE_elems = fe_solver.elem_stiff
+        if KE_elems.ndim == 2:
+            KE_elems = np.repeat(KE_elems[None, :, :], nelems, axis=0)
+
+        ce_K = np.einsum('ei,eij,ej->e', lam_elems, KE_elems, u_elems)
+        E_safe2 = np.maximum(EDesign, 1e-12)
+        ce_K0 = ce_K / E_safe2
+
+        ce_dK_dnu = np.zeros(nelems)
+        elem_size = tuple(float(v) for v in mesh.elem_size)
+        nu_keys = np.round(nu.astype(float), int(nu_round_decimals))
+        unique_nu = np.unique(nu_keys)
+        dKE0_cache = {}
+        for nu_k in unique_nu:
+            nu_val = float(nu_k)
+            if nu_val not in dKE0_cache:
+                dKE0_cache[nu_val] = hex8_stiffness_matrix_structural_dnu(1.0, nu_val, elem_size)
+            dKE0_dnu = dKE0_cache[nu_val]
+            idxs = np.where(nu_keys == nu_k)[0]
+            lam_g = lam_elems[idxs]
+            u_g = u_elems[idxs]
+            ce0 = np.einsum('ei,ij,ej->e', lam_g, dKE0_dnu, u_g)
+            ce_dK_dnu[idxs] = EDesign[idxs] * ce0
+
+    beta_x = np.zeros(nelems)
+    for e in range(nelems):
+        if abs(elem_weights[e]) < 1e-30:
+            continue
+        edof = mesh.edofMatStructural[e]
+        u_e = sol[edof]
+        beta_x[e] = (
+            get_stress_relaxation_factor_sensitivity(x_safe[e]) *
+            (DinvSfDs_all[e] @ D[e] @ B @ u_e)
+        )
+
+    dJ_dx = elem_weights * beta_x \
+          - get_structural_material_model_sensitivity(x_safe, material_model) * ce_K
+
+    beta_E = np.zeros(nelems)
+    for e in range(nelems):
+        if abs(elem_weights[e]) < 1e-30:
+            continue
+        edof = mesh.edofMatStructural[e]
+        u_e = sol[edof]
+        beta_E[e] = (
+            get_stress_relaxation_correction(x_safe[e]) *
+            (DinvSfDs_all[e] @ D0[e] @ B @ u_e)
+        )
+
+    dJ_dE = elem_weights * beta_E \
+          - get_structural_material_model_scaling(x_safe, material_model) * ce_K0
+
+    if use_constant_poissons_ratio:
+        dJ_dnu = np.zeros(nelems)
+    else:
+        dJ_dnu = np.zeros(nelems)
+        for e in range(nelems):
+            if abs(elem_weights[e]) < 1e-30:
+                continue
+            edof = mesh.edofMatStructural[e]
+            u_e = sol[edof]
+            dD0_dnu = isotropic_constitutive_matrix_dnu(1.0, float(nu[e]))
+            direct_nu = (
+                get_stress_relaxation_correction(x_safe[e]) *
+                (DinvSfDs_all[e] @ (EDesign[e] * dD0_dnu) @ B @ u_e)
+            )
+            indirect_nu = -get_structural_material_model_scaling(x_safe[e], material_model) * ce_dK_dnu[e]
+            dJ_dnu[e] = elem_weights[e] * direct_nu + indirect_nu
+
+    dJ_dY = -elem_weights * sigma_vm / (Y_safe ** 2)
+
+    if (dE_dz is None) and (dnu_dz is None) and (dY_dz is None):
+        dJ_dz_flat = np.zeros(0)
+    else:
+        latentDim = 0
+        if dE_dz is not None:
+            latentDim = dE_dz.shape[0]
+        elif dnu_dz is not None:
+            latentDim = dnu_dz.shape[0]
+        elif dY_dz is not None:
+            latentDim = dY_dz.shape[0]
+
+        termE = (dE_dz * dJ_dE[None, :]) if dE_dz is not None else np.zeros((latentDim, nelems))
+        termNu = (dnu_dz * dJ_dnu[None, :]) if dnu_dz is not None else np.zeros((latentDim, nelems))
+        termY = (dY_dz * dJ_dY[None, :]) if dY_dz is not None else np.zeros((latentDim, nelems))
+
+        dJ_dz_flat = (termE + termNu + termY).reshape(-1)
+
+    return J_weighted, dJ_dx, dJ_dz_flat, FF_elems
+
+def _compute_mass_al_local_stress_objective_and_gradient(
+    to_params,
+    sol,
+    zeta,
+    fe_solver,
+    KETemplate,
+    matEncoder,
+    use_constant_poissons_ratio: bool = True,
+    constant_poissons_ratio: float = 0.3,
+):
+    """MASS_AL_LOCAL_STRESS objective: obj = total_mass + phi_AL, with gradient.
+
+    phi_AL is the PHR augmented Lagrangian of the local stress constraints
+    Q_e = FF_e - 1 <= 0. At fixed (lambda, mu) the AL gradient equals
+    sum_e w_e * dFF_e/d(.), where w_e = (lambda_e + mu*h_e)*active_e / N; this is
+    computed by compute_weighted_local_failure_factor_and_sensitivities.
+    Multipliers are advanced once per major iterate (see helper above).
+    """
+    num_elems = fe_solver.mesh.num_elems
+    x = zeta[:num_elems]
+    latentDim = matEncoder.vae_params.latentDim
+    zPts = zeta[num_elems:].reshape((latentDim, -1)).T
+
+    _init_al_state_if_needed(to_params, num_elems)
+    _update_al_multipliers(to_params)
+    s = to_params.AL_state
+
+    material_model = to_params.materialModel
+
+    material_properties, gradients = matEncoder.getMaterialPropertiesAtLatentPoints(
+        zPts, compute_gradients=True
+    )
+
+    if 'Youngs_Modulus' in material_properties:
+        EDesign = material_properties['Youngs_Modulus'].detach().numpy()
+        dE_dz = gradients['Youngs_Modulus'].detach().numpy().T
+    else:
+        raise ValueError("Youngs_Modulus must be present for MASS_AL_LOCAL_STRESS.")
+
+    if 'Yield_Strength' in material_properties:
+        YDesign = material_properties['Yield_Strength'].detach().numpy()
+        dY_dz = gradients['Yield_Strength'].detach().numpy().T
+    else:
+        raise ValueError("Yield_Strength must be present for MASS_AL_LOCAL_STRESS.")
+
+    if 'Density' in material_properties:
+        mass_density = material_properties['Density'].detach().numpy()
+        dMassDensity_dz = gradients['Density'].detach().numpy().T
+    else:
+        raise ValueError("Density must be present for MASS_AL_LOCAL_STRESS.")
+
+    nu_key = _find_poisson_key(material_properties)
+    if use_constant_poissons_ratio or (nu_key is None):
+        dnu_dz = None
+    else:
+        dnu_dz = gradients[nu_key].detach().numpy().T
+
+    # Local constraint Q = FF - 1
+    FF_local = np.maximum(fe_solver.vonMisesStress, 1e-12) / np.maximum(YDesign, 1e-12)
+    Q_local = FF_local - 1.0
+
+    lam = s["lambda_local"]
+    mu = float(s["mu"])
+    N_al = float(s["N"])
+
+    # PHR shifted constraint and active set (where Q_e > -lambda_e/mu)
+    h_local = np.maximum(Q_local, -lam / mu)
+    active = (Q_local > (-lam / mu)).astype(float)
+    # per-element gradient weight w_e = (lambda_e + mu*h_e)*active_e / N
+    w_al = ((lam + mu * h_local) * active) / N_al
+
+    _, dphi_dx, dphi_dz, _ = compute_weighted_local_failure_factor_and_sensitivities(
+        sol=sol,
+        x=x,
+        fe_solver=fe_solver,
+        EDesign=EDesign,
+        YDesign=YDesign,
+        dE_dz=dE_dz,
+        dY_dz=dY_dz,
+        KETemplate=KETemplate,
+        material_model=material_model,
+        elem_weights=w_al,
+        dnu_dz=dnu_dz,
+        use_constant_poissons_ratio=use_constant_poissons_ratio,
+        constant_poissons_ratio=constant_poissons_ratio,
+    )
+
+    # AL value phi = sum_e (lambda_e h_e + 0.5 mu h_e^2) / N
+    phi_al = np.sum((lam * h_local + 0.5 * mu * h_local**2) / N_al)
+
+    # Since Q = FF - 1, dQ/d(.) = dFF/d(.)
+    grad_al = np.concatenate((dphi_dx, dphi_dz))
+
+    elemVolume = fe_solver.mesh.elem_size[0] * fe_solver.mesh.elem_size[1] * fe_solver.mesh.elem_size[2]
+    totalMass = np.einsum('m,m->m', mass_density, x).sum() * elemVolume
+    grad_mass = np.concatenate((mass_density * elemVolume,
+                                (dMassDensity_dz * x * elemVolume).flatten()))
+
+    s["cached_Q_local"] = Q_local.copy()
+    s["cached_h_local"] = h_local.copy()
+
+    obj = totalMass + phi_al
+    grad = grad_mass + grad_al
+    return obj, grad
 
 # --- Main Objective/Constraint Functions ---
 def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETemplate, matEncoder,
@@ -645,8 +1022,20 @@ def compute_mmto_objective_and_gradient(to_params, sol, zeta, fe_solver, KETempl
         totalMass = np.einsum('m,m->m', mass_density, x).sum()*elemVolume
         grad_mass = np.concatenate((mass_density*elemVolume, (dMassDensity_dz*x*elemVolume).flatten()))
         return totalMass, grad_mass
+    elif objectiveType == TO_QOI.MASS_AL_LOCAL_STRESS:
+        return _compute_mass_al_local_stress_objective_and_gradient(
+            to_params,
+            sol,
+            zeta,
+            fe_solver,
+            KETemplate,
+            matEncoder,
+            use_constant_poissons_ratio=use_const_nu,
+            constant_poissons_ratio=const_nu,
+        )
     else:
         raise NotImplementedError(f"Objective {objectiveType} is not implemented yet.")
+
 
 
 def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemplate, matEncoder,
@@ -660,6 +1049,7 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
       2. Mass constraint
       3. Cost constraint
       4. Yield strength/safety factor constraint
+      5. Dummy zero constraint 
     """
     nConstraints = len(to_params.Constraints)
     num_elems = fe_solver.mesh.num_elems
@@ -837,6 +1227,46 @@ def compute_mmto_constraint_and_gradient(to_params, sol, zeta, fe_solver, KETemp
 
             c[m] = safety_constraint
             dc[m, :] = grad_stress_ff
+        elif constraintType == TO_QOI.DUMMY_ZERO:
+            c[m] = -1.0
+            dc[m, :] = 0.0
+        elif constraintType == TO_QOI.GRAYNESS:
+            # Simple grayness measure:
+            #   Gamma(x) = mean( 4 x (1 - x) )
+            #
+            # MMA form:
+            #   c = Gamma / constraintLimit - 1 <= 0
+            #
+            # optionalParam can be:
+            #   None
+            #   {"start_iter": 100}
+            #
+            # Before start_iter, keep the constraint present but inactive:
+            #   c = -1, dc = 0
+
+            if constraintLimit <= 0:
+                raise ValueError("GRAYNESS constraint limit must be > 0.")
+
+            start_iter = None
+            if isinstance(optionalParam, dict):
+                start_iter = optionalParam.get("start_iter", None)
+
+            current_iter = int(getattr(to_params, "current_major_iter", -1))
+
+            if (start_iter is not None) and (current_iter >= 0) and (current_iter < start_iter):
+                c[m, 0] = -1.0
+                dc[m, :] = 0.0
+            else:
+                x_clip = np.clip(x, 0.0, 1.0)
+
+                gamma_val = np.mean(4.0 * x_clip * (1.0 - x_clip))
+                grayness_constraint = gamma_val / constraintLimit - 1.0
+
+                grad_gray = np.zeros_like(zeta)
+                grad_gray[0:num_elems] = (4.0 - 8.0 * x_clip) / (num_elems * constraintLimit)
+
+                c[m, 0] = grayness_constraint
+                dc[m, :] = grad_gray
         else:
             raise NotImplementedError(f"Constraint {constraintType} is not implemented yet.")
 
