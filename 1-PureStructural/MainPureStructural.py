@@ -63,49 +63,13 @@ from mmto_utility_functions import (
     run_basic_latent_space_diagnostics,
     create_density_and_material_filters,
     compute_domain_volume,
-    eval_stress_compliance_metrics,
-    plot_history,
-    update_paper_history,
-    plot_reported_histories,
-    compute_stress_violation_diagnostics,
-    print_stress_violation_diagnostics,
-    plot_stress_violation_distribution,
+    init_run_history,
+    start_run,
+    log_design_state,
+    record_fea_diagnostics,
+    log_objective_and_constraints,
+    run_postprocessing,
 )
-# ============================================================================
-# Auto-save every FINAL plot (matplotlib + PyVista) into one folder, uncropped.
-# Enabled AFTER the optimization loop, so live/intermediate topologies are skipped.
-# ============================================================================
-PLOT_SAVE_DIR = None  # set in __main__; when not None, final plots auto-save here
-
-def _enable_plot_autosave(outdir):
-    import os
-    os.makedirs(outdir, exist_ok=True)
-    n = {"i": 0}
-
-    # matplotlib: save each figure with a tight bbox (nothing cut off)
-    import matplotlib.pyplot as _plt
-    _orig_mpl_show = _plt.show
-    _saved_ids = set()   # dedup by figure OBJECT id, not fignum (numbers get reused
-                         # when earlier figures close -> history plots were skipped)
-    _keep = []           # strong refs so saved figures aren't GC'd (prevents id reuse)
-    def _mpl_show(*a, **k):
-        for fnum in _plt.get_fignums():
-            fig = _plt.figure(fnum)
-            if id(fig) in _saved_ids:
-                continue
-            n["i"] += 1
-            fig.savefig(
-                os.path.join(outdir, f"plot_{n['i']:02d}_mpl.png"),
-                bbox_inches="tight", dpi=150,
-            )
-            _saved_ids.add(id(fig))
-            _keep.append(fig)
-        return _orig_mpl_show(*a, **k)
-    _plt.show = _mpl_show
-
-    # NOTE: PyVista plots are NOT hooked here. They render off-screen and save
-    # themselves via their own save_path= argument (see post-processing calls).
-    print(f"[OUTPUT] matplotlib autosave ON -> {os.path.abspath(outdir)}")
 class Z0InitMethod(Enum):
     LIGHTEST = "lightest"
     HEAVIEST = "heaviest"
@@ -154,6 +118,8 @@ def run_topopt(
     timeLimit=10 * 60 * 60,
     saveNet=None,
     plot_progress=True,
+    verbose=True,
+    save_dir=None,
     # -------------------------------
     # VAE parameters
     # -------------------------------
@@ -210,23 +176,7 @@ def run_topopt(
       Pz = lambda * sum_ell sum_e x_e * ( z_e^(ell) - ((H z^(ell))/Hs)_e )^2
     """
 
-    history = {
-        "objective": [],
-        "constraints": [],
-        "J_phys": [],
-        "P": [],
-        "Pn": [],
-        "Pz_n": [],
-        "grey": [],
-        "mass_ratio": [],
-        "max_failure_factor": [],
-        "num_stress_violating_active": [],
-        "frac_stress_violating_active": [],
-        "num_stress_violating_all": [],
-        "frac_stress_violating_all": [],
-        "max_q_active": [],
-        "max_q_all": [],
-    }
+    history = init_run_history()
     mesh_structural, mat_prop_struct, bc_struct, elem_body_force, to_params, vae_params = (
         getMMTOProblemPureStructural(to_problem)
     )
@@ -456,7 +406,8 @@ def run_topopt(
             and mmaIterations >= z_smoothing_disable_after_iter
         ):
             use_z_smoothing = False
-            print(f"[INFO] z-smoothing penalty disabled at iteration {mmaIterations}")
+            if verbose:
+                print(f"[INFO] z-smoothing penalty disabled at iteration {mmaIterations}")
         # Disable distance-based penalty after specified iteration
         if (
             use_penalization
@@ -464,13 +415,15 @@ def run_topopt(
             and mmaIterations >= distance_penalty_disable_after_iter
         ):
             use_penalization = False
-            print(f"[INFO] Distance-based penalty disabled at iteration {mmaIterations}")
+            if verbose:
+                print(f"[INFO] Distance-based penalty disabled at iteration {mmaIterations}")
         zeta = np.asarray(zeta).flatten()
-        print("-------------- Iteration", mmaIterations, "-----------------")
 
+        # ===================== SPLIT DESIGN VECTOR =====================
         x = zeta[:num_elems].copy()
         z = zeta[num_elems:].reshape(latentDim, -1).T   # numpy, element-major (N, latentDim)
 
+        # ============== DENSITY FILTER + HEAVISIDE PROJECTION ==========
         x_filt = (H_density @ x) / Hs_density if APPLY_DENSITY_FILTER else x.copy()
 
         if use_heaviside_projection:
@@ -479,32 +432,16 @@ def run_topopt(
             x_phys = x_filt
             dxphys_dxfilt = np.ones_like(x_filt)
 
-        grey_elements = np.sum((x_phys > 0.1) & (x_phys < 0.9))
-        fraction_grey = grey_elements / num_elems
-        history["grey"].append(float(fraction_grey))
-
-        print(
-            f"Percentage grey elements (x_phys): {fraction_grey*100:.2f}% | "
-            f"beta={beta_proj:.3g}, eta={eta_proj}"
-        )
-
+        # ===================== DECODE MATERIALS =======================
         zTorch = torch.tensor(z, dtype=torch.float32)   # torch twin of z, for the decoder
 
         with torch.no_grad():
             decoded = matEncoder.vaeNet.decoder(zTorch)
             material_properties = matEncoder.getMaterialProperties(decoded)
             Youngs_Modulus = material_properties["Youngs_Modulus"].detach().cpu().numpy()
-        _act = x_phys > 0.5
-        _Y = material_properties["Yield_Strength"].detach().cpu().numpy()
-        mass_density = material_properties["Density"].detach().cpu().numpy()
-        _midx = matEncoder.getClosestRealMaterialIndex(zTorch).cpu().numpy()
-        _counts = np.bincount(_midx[_act], minlength=len(matEncoder.materialNames))
-        if _act.any():
-            print(f"[MAT] Y_active min/mean/max="
-                  f"{_Y[_act].min():.3g}/{_Y[_act].mean():.3g}/{_Y[_act].max():.3g} | "
-                  f"rho_active min/mean/max="
-                  f"{mass_density[_act].min():.3g}/{mass_density[_act].mean():.3g}/{mass_density[_act].max():.3g} | "
-                  f"counts={_counts.tolist()}")
+
+        log_design_state(history, mmaIterations, x_phys, z, material_properties,
+                         zTorch, matEncoder, num_elems, beta_proj, eta_proj, verbose=verbose)
         nu_key = None
         for k in (
             "Poissons_Ratio",
@@ -539,6 +476,7 @@ def run_topopt(
             dPz_dx = np.zeros(num_elems, dtype=float)
             dPz_dz = np.zeros((num_elems, latentDim), dtype=float)
 
+        # ========================= MAIN FEA ===========================
         fe_solver_structural.mat_prop = []
         for i in range(len(Youngs_Modulus)):
             mp = mat_lib.create_material_with_defaults(
@@ -556,52 +494,12 @@ def run_topopt(
         sol = fe_solver_structural.solve(x_phys, MaterialModel.SIMP)
         fe_solver_structural.mesh.setPseudoDensity(x_phys)
         fe_solver_structural.postprocess()
-        update_paper_history(
-            history=history,
-            x_phys=x_phys,
-            z_phys_elemmajor=z,
-            material_properties=material_properties,
-            von_mises=fe_solver_structural.vonMisesStress,
-            elem_volume=elem_volume,
-            design_domain_volume=design_domain_volume,
-        )
-        stress_diag = compute_stress_violation_diagnostics(
-            vm=fe_solver_structural.vonMisesStress,
-            material_properties=material_properties,
-            x_vec=x_phys,
-            active_thresh=0.5,
-            mesh=fe_solver_structural.mesh,
-            bc=fe_solver_structural.bc,
-            violation_tol=0.0,
-        )
 
-        if stress_diag is not None:
-            history["num_stress_violating_active"].append(
-                stress_diag["num_violating_active"]
-            )
-            history["frac_stress_violating_active"].append(
-                stress_diag["frac_violating_active"]
-            )
-            history["num_stress_violating_all"].append(
-                stress_diag["num_violating_all"]
-            )
-            history["frac_stress_violating_all"].append(
-                stress_diag["frac_violating_all"]
-            )
-            history["max_q_active"].append(stress_diag["max_q_active"])
-            history["max_q_all"].append(stress_diag["max_q_all"])
+        record_fea_diagnostics(history, mmaIterations, x_phys, z, material_properties,
+                               fe_solver_structural, elem_volume, design_domain_volume,
+                               plot_progress=plot_progress, plotter=plotter, verbose=verbose)
 
-        print_stress_violation_diagnostics(
-            stress_diag,
-            iteration=mmaIterations + 1,
-            prefix="[STRESS DIAG]",
-        )
-        if plot_progress:
-            fe_solver_structural.plot_pseudo_density_realtime(
-                title=f"Iter {mmaIterations + 1}",
-                external_plotter=plotter,
-            )
-
+        # ============ OBJECTIVE / CONSTRAINTS / SENSITIVITIES =========
         zeta_phys = zeta.copy()
         zeta_phys[0:num_elems] = x_phys
         zeta_phys[num_elems:] = z.T.reshape(-1)
@@ -628,6 +526,7 @@ def run_topopt(
             constant_poissons_ratio=constant_poissons_ratio,
         )
 
+        # ================= PENALTIES + NORMALIZATION ==================
         J_phys = float(obj)
         if obj0 is None:
             # For AL local-stress objective, normalize by mass alone
@@ -688,6 +587,7 @@ def run_topopt(
 
         grad_obj = grad_obj_phys
 
+        # ============== CHAIN RULE -> DESIGN VARIABLES ================
         if APPLY_DENSITY_FILTER:
             g_x = grad_obj[0:num_elems].copy()
             g_xfilt = g_x * dxphys_dxfilt
@@ -702,30 +602,10 @@ def run_topopt(
         cons = np.array(cons).reshape((-1, 1))
         grad_cons = np.array(grad_cons).reshape((len(cons), num_design_var))
 
-        constraint_names = [getattr(c[0], "name", str(c[0])) for c in to_params.Constraints]
+        log_objective_and_constraints(history, obj, J_phys, Jn, P, Pn, Pzn, cons,
+                                      to_params, verbose=verbose)
 
-        print(
-            f"Obj: J={J_phys:.4g} | Jn={Jn:.4g} | P={P:.3g} | "
-            f"Pn={Pn:.3g} | Pz_n={Pzn:.3g} | f={float(obj):.4g}"
-        )
-
-        for idx, val in enumerate(cons.flatten()):
-            inequality = "<="
-            if constraint_names[idx] in ("STRESS_SAFETY_FACTOR", "TEMPERATURE_SAFETY_FACTOR"):
-                inequality = ">="
-            print(
-                f"Constraint {idx+1} ({constraint_names[idx]}): "
-                f"{(val + 1) * to_params.Constraints[idx][2]:.3g} "
-                f"{inequality} {to_params.Constraints[idx][2]:.3g}?"
-            )
-
-        history["objective"].append(float(obj))
-        history["constraints"].append(cons.flatten().copy())
-        history["J_phys"].append(J_phys)
-        history["P"].append(P)
-        history["Pn"].append(Pn)
-        history["Pz_n"].append(Pzn)
-
+        # ================ CONTINUATION + BETA UPDATE ==================
         mmaIterations += 1
 
         if use_continuation and (mmaIterations % 10 == 0):
@@ -739,7 +619,8 @@ def run_topopt(
             )
             if beta_updated:
                 beta_proj = beta_new
-                print(f"[PROJ] Updated beta -> {beta_proj:.4g} (eta={eta_proj}, scheme={beta_schedule_scheme.value})")
+                if verbose:
+                    print(f"[PROJ] Updated beta -> {beta_proj:.4g} (eta={eta_proj}, scheme={beta_schedule_scheme.value})")
         return np.array([[float(obj)]]), grad_obj, cons, grad_cons
 
     initialDensity = 0.5
@@ -805,173 +686,33 @@ def run_topopt(
     zetaOptimal = np.asarray(optResults[0]).flatten()
     tEnd = time.time()
     print(f"Total optimization time: {tEnd - tStart:.2f} seconds")
-    if PLOT_SAVE_DIR is not None:
-            _enable_plot_autosave(PLOT_SAVE_DIR)
-
-    def _p(name):
-        # build a save path inside the run folder (or None if saving is off)
-        return os.path.join(PLOT_SAVE_DIR, name) if PLOT_SAVE_DIR else None
-    # ===================== POST-PROCESSING =====================
-    # Reconstruct physical fields, evaluate metrics, and draw the red/green map.
-    xOptimal_raw = zetaOptimal[0:num_elems].copy()
-    zOptimal = zetaOptimal[num_elems:].reshape(latentDim, -1).T   # numpy, element-major
-
-    xOptimal_filt = (H_density @ xOptimal_raw) / Hs_density if APPLY_DENSITY_FILTER else xOptimal_raw.copy()
-    if use_heaviside_projection:
-        xOptimal_cont, _ = heaviside_projection(xOptimal_filt, beta_proj, eta_proj)
-    else:
-        xOptimal_cont = xOptimal_filt.copy()
-
-    eval_stress_compliance_metrics(
-        x_vec=xOptimal_cont,
-        z_vec=zOptimal.T.reshape(-1),
-        label="Continuous (x_phys projected, raw z)",
-        active_thresh=0.5,
-        latentDim=latentDim,
+    run_postprocessing(
+        history=history,
+        zetaOptimal=zetaOptimal,
+        fe_solver=fe_solver_structural,
         matEncoder=matEncoder,
-        fe_solver_structural=fe_solver_structural,
         mat_lib=mat_lib,
         MaterialModel=MaterialModel,
-        elem_volume=elem_volume,
-        design_domain_volume=design_domain_volume,
-    )
-
-    xOptimal = xOptimal_cont.copy()
-    if binarize_topology:
-        x_sorted = np.sort(xOptimal)
-        threshold = x_sorted[int((1 - np.mean(xOptimal)) * len(xOptimal))]
-        xOptimal = np.where(xOptimal < threshold, 0.0, 1.0)
-
-    eval_stress_compliance_metrics(
-        x_vec=xOptimal,
-        z_vec=zOptimal.T.reshape(-1),
-        label="Binarized topology (x projected -> binarized, raw z)",
-        active_thresh=0.5,
-        latentDim=latentDim,
-        matEncoder=matEncoder,
-        fe_solver_structural=fe_solver_structural,
-        mat_lib=mat_lib,
-        MaterialModel=MaterialModel,
-        elem_volume=elem_volume,
-        design_domain_volume=design_domain_volume,
-    )
-
-    zOptimalPts = torch.tensor(zOptimal, dtype=torch.float32)
-    if snap_to_real_material:
-        zSnappedPts = torch.tensor(matEncoder.getClosestRealMaterialZValues(zOptimalPts))
-        zOptimalPts = zSnappedPts
-    eval_stress_compliance_metrics(
-        x_vec=xOptimal,
-        z_vec=zOptimalPts.T.flatten().numpy(),
-        label="Binarized + snapped materials (x binarized, snapped z)",
-        active_thresh=0.5,
-        latentDim=latentDim,
-        matEncoder=matEncoder,
-        fe_solver_structural=fe_solver_structural,
-        mat_lib=mat_lib,
-        MaterialModel=MaterialModel,
-        elem_volume=elem_volume,
-        design_domain_volume=design_domain_volume,
-    )
-
-    decoded = matEncoder.vaeNet.decoder(zOptimalPts)
-    material_properties = matEncoder.getMaterialProperties(decoded)
-    Youngs_Modulus = material_properties["Youngs_Modulus"].detach().cpu().numpy()
-
-    final_stress_diag = compute_stress_violation_diagnostics(
-        vm=fe_solver_structural.vonMisesStress,
-        material_properties=material_properties,
-        x_vec=xOptimal,
-        active_thresh=0.5,
-        mesh=fe_solver_structural.mesh,
-        bc=fe_solver_structural.bc,
-        violation_tol=0.0,
-    )
-
-    print_stress_violation_diagnostics(
-        final_stress_diag,
-        iteration=None,
-        prefix="[FINAL STRESS DIAG]",
-    )
-
-    # Red/green local stress map: green = FF<=1, red = FF>1 (active elements only).
-    # Force a clean top-down view for every saved 3D plot (the persistent plotter
-    # otherwise reuses a stale isometric camera).
-    fe_solver_structural.plotter.camera_position = "xy"
-    if final_stress_diag is not None:
-        plot_stress_violation_distribution(
-            fe_solver_structural=fe_solver_structural,
-            violation_mask_active=final_stress_diag["violation_mask_active"],
-            x_vec=xOptimal,
-            title="Final Local Stress Constraint Map: Green = Satisfied, Red = Violating",
-            save_path=_p("01_stress_map.png"),
-        )
-
-    material_indices = matEncoder.getClosestRealMaterialIndex(zOptimalPts)
-    material_names = [matEncoder.materialNames[i] for i in range(len(matEncoder.materialNames))]
-
-    fe_solver_structural.plotter.camera_position = "xy"
-    fe_solver_structural.plot_material_distribution(
-        material_indices=material_indices.cpu().numpy()
-        if hasattr(material_indices, "cpu")
-        else material_indices,
-        material_names=material_names,
+        heaviside_projection=heaviside_projection,
+        H_density=H_density,
+        Hs_density=Hs_density,
+        zRealPoints=zRealPoints,
         material_colors=material_colors,
-        title="Material Distribution",
-        show_legend=True,
-        save_path=_p("02_material_distribution.png"),
+        num_elems=num_elems,
+        latentDim=latentDim,
+        beta_proj=beta_proj,
+        eta_proj=eta_proj,
+        elem_volume=elem_volume,
+        design_domain_volume=design_domain_volume,
+        apply_density_filter=APPLY_DENSITY_FILTER,
+        use_heaviside_projection=use_heaviside_projection,
+        binarize_topology=binarize_topology,
+        snap_to_real_material=snap_to_real_material,
+        save_dir=save_dir,
     )
-
-    fe_solver_structural.mesh.setPseudoDensity(xOptimal)
-    fe_solver_structural.plotter.camera_position = "xy"
-    fe_solver_structural.plot_elem_field(
-        Youngs_Modulus,
-        title="YoungModulus",
-        colormap="viridis",
-        save_path=_p("03_youngs_modulus.png"),
-    )
-
-    # Final NON-binarized (continuous, projected) topology, grayscale, top-down.
-    fe_solver_structural.mesh.setPseudoDensity(xOptimal_cont)
-    fe_solver_structural.plotter.camera_position = "xy"
-    fe_solver_structural.plot_pseudo_density(
-        save_path=_p("04_topology.png"),
-        title="Final Topology (continuous density)",
-    )
-
-    matEncoder.plotLSR(
-        zRealPoints.detach().cpu().numpy(),
-        zOptimalPts,
-        xDesign=xOptimal,
-    )
-
-    # plot_history(history) ## USE THIS IF YOU WANT RAW J+PZ+PN HISTORY VS CONSTRAINT USED IN MMA
-    plot_reported_histories(history)
-    ## YOU CAN CUSTOMIZE WHAT PLOTE THE ABOVE plot_reported_histories function generated as shwn below:
-    # plot_reported_histories(
-    #     history,
-    #     y1_getter=lambda h: h["grey"],
-    #     y2_getter=lambda h: h["Pn"],
-    #     y1_label="Grey fraction",
-    #     y2_label="Normalized distance penalty",
-    # )
-    ## This will plot greyness and Pn vs iterations on the same plot.
 
 if __name__ == "__main__":
-    import os, sys, datetime
-    PLOT_SAVE_DIR = os.path.join("runs", "run_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
-    os.makedirs(PLOT_SAVE_DIR, exist_ok=True)
-    print(f"[OUTPUT] folder: {os.path.abspath(PLOT_SAVE_DIR)}")
-    class _Tee:
-        def __init__(self, *streams): self.streams = streams
-        def write(self, d):
-            for s in self.streams:
-                s.write(d); s.flush()
-        def flush(self):
-            for s in self.streams: s.flush()
-    _logf = open(os.path.join(PLOT_SAVE_DIR, "run.log"), "w", encoding="utf-8")
-    sys.stdout = _Tee(sys.__stdout__, _logf)
-    sys.stderr = _Tee(sys.__stderr__, _logf)
+    save_dir = start_run(name="CorbelMidLoad_Mass_StressFF_BM2")
     to_problem = MMTOExamplesPureStructural.CorbelMidLoad_Mass_StressFF_BM2
 
     run_topopt(
@@ -993,4 +734,6 @@ if __name__ == "__main__":
         z_smoothing_disable_after_iter=250,
         maxIterations=300,
         latent_space_diagnostics=False,
+        save_dir=save_dir,
+        verbose=True,   # set False for one-line-per-iteration output
     )
